@@ -3,19 +3,51 @@
   "version": "2.0.0",
   "private": false,
   "type": "module",
+  "description": "AI-powered code review from the command line — free with GitHub Models",
+  "author": "JNZader",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JNZader/ghagga.git",
+    "directory": "apps/cli"
+  },
+  "homepage": "https://github.com/JNZader/ghagga#readme",
+  "bugs": {
+    "url": "https://github.com/JNZader/ghagga/issues"
+  },
+  "keywords": [
+    "ghagga",
+    "code-review",
+    "ai",
+    "cli",
+    "github",
+    "llm",
+    "static-analysis",
+    "multi-agent",
+    "gpt",
+    "developer-tools"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "bin": {
     "ghagga": "./dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@ghagga/core": "workspace:*",
+    "@ghagga/core": "workspace:^",
     "commander": "^13.0.0",
     "dotenv": "^16.4.0"
   },

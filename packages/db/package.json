@@ -1,8 +1,24 @@
 {
   "name": "@ghagga/db",
   "version": "2.0.0",
-  "private": true,
+  "private": false,
   "type": "module",
+  "description": "Database layer for GHAGGA — AI-powered code reviewer",
+  "author": "JNZader",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JNZader/ghagga.git",
+    "directory": "packages/db"
+  },
+  "homepage": "https://github.com/JNZader/ghagga#readme",
+  "bugs": {
+    "url": "https://github.com/JNZader/ghagga/issues"
+  },
+  "keywords": ["ghagga", "database", "drizzle", "code-review"],
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -11,6 +27,10 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -18,6 +38,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio"

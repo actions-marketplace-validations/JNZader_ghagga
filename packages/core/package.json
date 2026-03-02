@@ -1,8 +1,32 @@
 {
   "name": "@ghagga/core",
   "version": "2.0.0",
-  "private": true,
+  "private": false,
   "type": "module",
+  "description": "Core review engine for GHAGGA — AI-powered multi-agent code reviewer",
+  "author": "JNZader",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JNZader/ghagga.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/JNZader/ghagga#readme",
+  "bugs": {
+    "url": "https://github.com/JNZader/ghagga/issues"
+  },
+  "keywords": [
+    "ghagga",
+    "code-review",
+    "ai",
+    "multi-agent",
+    "llm",
+    "static-analysis",
+    "github"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -11,6 +35,10 @@
       "types": "./dist/index.d.ts"
     }
   },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -18,13 +46,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:mutate": "stryker run",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.2.0",
     "@ai-sdk/google": "^1.2.0",
     "@ai-sdk/openai": "^1.3.0",
-    "@ghagga/db": "workspace:*",
+    "@ghagga/db": "workspace:^",
     "ai": "^4.3.0",
     "minimatch": "^10.0.1",
     "zod": "^3.24.0"

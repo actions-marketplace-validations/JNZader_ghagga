@@ -8,7 +8,7 @@
 // ─── Review Input ───────────────────────────────────────────────
 
 export type ReviewMode = 'simple' | 'workflow' | 'consensus';
-export type LLMProvider = 'anthropic' | 'openai' | 'google' | 'github';
+export type LLMProvider = 'anthropic' | 'openai' | 'google' | 'github' | 'ollama';
 export type ReviewLevel = 'soft' | 'normal' | 'strict';
 
 /**
@@ -265,4 +265,5 @@ export const DEFAULT_MODELS: Record<LLMProvider, string> = {
   openai: 'gpt-4o',
   google: 'gemini-2.0-flash',
   github: 'gpt-4o-mini',
+  ollama: 'qwen2.5-coder:7b',
 };

@@ -1,13 +1,16 @@
 /**
  * LLM Provider factory using the Vercel AI SDK.
  *
- * Wraps @ai-sdk/anthropic, @ai-sdk/openai, @ai-sdk/google, and
- * GitHub Models behind a unified factory so the rest of the codebase
- * doesn't need to know which provider is being used.
+ * Wraps @ai-sdk/anthropic, @ai-sdk/openai, @ai-sdk/google,
+ * GitHub Models, and Ollama behind a unified factory so the rest
+ * of the codebase doesn't need to know which provider is being used.
  *
  * GitHub Models uses the OpenAI-compatible endpoint at
  * https://models.inference.ai.azure.com and authenticates with a
  * GitHub Personal Access Token (PAT) with `models:read` scope.
+ *
+ * Ollama runs locally and exposes an OpenAI-compatible endpoint at
+ * http://localhost:11434/v1. No API key required.
  */
 
 import { createAnthropic } from '@ai-sdk/anthropic';
@@ -19,6 +22,9 @@ import type { LLMProvider } from '../types.js';
 /** GitHub Models inference endpoint (OpenAI-compatible) */
 const GITHUB_MODELS_BASE_URL = 'https://models.inference.ai.azure.com';
 
+/** Ollama local inference endpoint (OpenAI-compatible) */
+const OLLAMA_BASE_URL = 'http://localhost:11434/v1';
+
 // ─── Provider Factory ───────────────────────────────────────────
 
 /**
@@ -27,7 +33,7 @@ const GITHUB_MODELS_BASE_URL = 'https://models.inference.ai.azure.com';
  * Returns the provider's model creator function, which can be called
  * with a model ID to get a LanguageModel instance.
  *
- * @param provider - Provider name ('anthropic' | 'openai' | 'google' | 'github')
+ * @param provider - Provider name ('anthropic' | 'openai' | 'google' | 'github' | 'ollama')
  * @param apiKey - Decrypted API key for the provider
  * @returns The provider's model creator function
  */
@@ -47,6 +53,12 @@ export function createProvider(
         apiKey,
         baseURL: GITHUB_MODELS_BASE_URL,
         name: 'github-models',
+      });
+    case 'ollama':
+      return createOpenAI({
+        apiKey: apiKey || 'ollama',
+        baseURL: OLLAMA_BASE_URL,
+        name: 'ollama',
       });
     default: {
       // Exhaustive check — TypeScript will error if a provider is missing

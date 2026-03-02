@@ -37,7 +37,7 @@ importers:
   apps/cli:
     dependencies:
       '@ghagga/core':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../../packages/core
       commander:
         specifier: ^13.0.0
@@ -160,7 +160,7 @@ importers:
         specifier: ^1.3.0
         version: 1.3.24(zod@3.25.76)
       '@ghagga/db':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../db
       ai:
         specifier: ^4.3.0

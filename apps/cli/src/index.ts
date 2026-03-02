@@ -14,7 +14,7 @@
  *
  * Environment variables (override stored config):
  *   GHAGGA_API_KEY     API key for the LLM provider
- *   GHAGGA_PROVIDER    LLM provider: anthropic, openai, google, github
+ *   GHAGGA_PROVIDER    LLM provider: anthropic, openai, google, github, ollama
  *   GHAGGA_MODEL       Model identifier
  *   GITHUB_TOKEN       GitHub token (fallback for github provider)
  */
@@ -131,7 +131,7 @@ program
     }
 
     // ── Validate provider ─────────────────────────────────────
-    const validProviders: LLMProvider[] = ['anthropic', 'openai', 'google', 'github'];
+    const validProviders: LLMProvider[] = ['anthropic', 'openai', 'google', 'github', 'ollama'];
     if (!validProviders.includes(options.provider as LLMProvider)) {
       console.error(
         `\u274c Invalid provider "${options.provider}". Choose from: ${validProviders.join(', ')}`,
@@ -148,12 +148,18 @@ program
       process.exit(1);
     }
 
-    // ── Validate API key ──────────────────────────────────────
-    if (!options.apiKey) {
+    // ── Validate API key (not required for ollama) ─────────────
+    if (!options.apiKey && options.provider !== 'ollama') {
       console.error('\u274c No API key available.\n');
       console.error('   Quick fix: run "ghagga login" to authenticate with GitHub (free!)');
-      console.error('   Or pass --api-key <key> or set GHAGGA_API_KEY.\n');
+      console.error('   Or pass --api-key <key> or set GHAGGA_API_KEY.');
+      console.error('   Or use --provider ollama for local models (no key needed).\n');
       process.exit(1);
+    }
+
+    // Ollama doesn't need an API key — use a placeholder
+    if (options.provider === 'ollama' && !options.apiKey) {
+      options.apiKey = 'ollama';
     }
 
     // ── Resolve model default ─────────────────────────────────
@@ -164,7 +170,7 @@ program
       mode: options.mode as ReviewMode,
       provider,
       model,
-      apiKey: options.apiKey,
+      apiKey: options.apiKey!,
       format: options.format as 'markdown' | 'json',
       semgrep: options.semgrep,
       trivy: options.trivy,
