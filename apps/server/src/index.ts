@@ -12,7 +12,7 @@ import { cors } from 'hono/cors';
 import { serve } from '@hono/node-server';
 import { serve as serveInngest } from 'inngest/hono';
 
-import { createDatabaseFromEnv } from '@ghagga/db';
+import { createDatabaseFromEnv } from 'ghagga-db';
 
 import { inngest } from './inngest/client.js';
 import { reviewFunction } from './inngest/review.js';

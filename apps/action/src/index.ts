@@ -16,13 +16,13 @@ import {
   reviewPipeline,
   DEFAULT_SETTINGS,
   DEFAULT_MODELS,
-} from '@ghagga/core';
+} from 'ghagga-core';
 import type {
   LLMProvider,
   ReviewMode,
   ReviewResult,
   ReviewStatus,
-} from '@ghagga/core';
+} from 'ghagga-core';
 
 // ─── Main ───────────────────────────────────────────────────────
 

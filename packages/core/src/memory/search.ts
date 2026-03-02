@@ -2,11 +2,11 @@
  * Memory search — retrieves relevant past observations for prompt injection.
  *
  * Builds a search query from the file paths in the current diff,
- * then uses PostgreSQL full-text search (via @ghagga/db) to find
+ * then uses PostgreSQL full-text search (via ghagga-db) to find
  * observations from past reviews of the same project.
  */
 
-import { searchObservations } from '@ghagga/db';
+import { searchObservations } from 'ghagga-db';
 import { formatMemoryContext } from './context.js';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -63,7 +63,7 @@ function buildSearchQuery(fileList: string[]): string {
  * Returns a formatted string suitable for injection into agent prompts,
  * or null if no relevant observations are found (or if db is unavailable).
  *
- * @param db - Database instance (from @ghagga/db). Typed as unknown for loose coupling.
+ * @param db - Database instance (from ghagga-db). Typed as unknown for loose coupling.
  * @param project - Project identifier (e.g., "owner/repo")
  * @param fileList - List of file paths in the current diff
  * @returns Formatted memory context string, or null

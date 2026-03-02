@@ -7,11 +7,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ReviewResult, ReviewStatus, FindingSeverity } from '@ghagga/core';
+import type { ReviewResult, ReviewStatus, FindingSeverity } from 'ghagga-core';
 
-// ─── Mock @ghagga/core to prevent actual LLM calls ──────────────
+// ─── Mock ghagga-core to prevent actual LLM calls ───────────────
 
-vi.mock('@ghagga/core', () => ({
+vi.mock('ghagga-core', () => ({
   reviewPipeline: vi.fn(),
   DEFAULT_SETTINGS: {
     enableSemgrep: true,

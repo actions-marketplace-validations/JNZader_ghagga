@@ -12,7 +12,7 @@ import { resolve, join } from 'node:path';
 import {
   reviewPipeline,
   DEFAULT_SETTINGS,
-} from '@ghagga/core';
+} from 'ghagga-core';
 import type {
   ReviewMode,
   LLMProvider,
@@ -22,7 +22,7 @@ import type {
   FindingSeverity,
   ProgressCallback,
   ProgressEvent,
-} from '@ghagga/core';
+} from 'ghagga-core';
 
 // ─── Types ──────────────────────────────────────────────────────
 

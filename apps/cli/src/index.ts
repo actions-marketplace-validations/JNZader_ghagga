@@ -22,8 +22,8 @@
 import 'dotenv/config';
 
 import { Command } from 'commander';
-import { DEFAULT_MODELS } from '@ghagga/core';
-import type { LLMProvider, ReviewMode } from '@ghagga/core';
+import { DEFAULT_MODELS } from 'ghagga-core';
+import type { LLMProvider, ReviewMode } from 'ghagga-core';
 import { loadConfig, getStoredToken } from './lib/config.js';
 import { reviewCommand } from './commands/review.js';
 import { loginCommand } from './commands/login.js';

@@ -6,8 +6,8 @@
  */
 
 import { createMiddleware } from 'hono/factory';
-import type { Database } from '@ghagga/db';
-import { getInstallationsByUserId } from '@ghagga/db';
+import type { Database } from 'ghagga-db';
+import { getInstallationsByUserId } from 'ghagga-db';
 
 // ─── Types ──────────────────────────────────────────────────────
 

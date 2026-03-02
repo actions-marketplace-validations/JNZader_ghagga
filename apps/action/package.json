@@ -12,7 +12,7 @@
   "dependencies": {
     "@actions/core": "^1.11.0",
     "@actions/github": "^6.0.0",
-    "@ghagga/core": "workspace:*"
+    "ghagga-core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

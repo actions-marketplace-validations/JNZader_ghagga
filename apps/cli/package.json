@@ -1,5 +1,5 @@
 {
-  "name": "@ghagga/cli",
+  "name": "ghagga",
   "version": "2.0.0",
   "private": false,
   "type": "module",
@@ -47,7 +47,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@ghagga/core": "workspace:^",
+    "ghagga-core": "workspace:^",
     "commander": "^13.0.0",
     "dotenv": "^16.4.0"
   },

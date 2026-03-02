@@ -2,13 +2,13 @@
  * GitHub Action tests.
  *
  * Tests the action entry point with mocked @actions/core,
- * @actions/github, and @ghagga/core dependencies. Verifies
+ * @actions/github, and ghagga-core dependencies. Verifies
  * input parsing, PR detection, review execution, comment posting,
  * output setting, and error handling.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ReviewResult, ReviewStatus } from '@ghagga/core';
+import type { ReviewResult, ReviewStatus } from 'ghagga-core';
 
 // ─── Mock all external dependencies ─────────────────────────────
 
@@ -44,7 +44,7 @@ vi.mock('@actions/github', () => ({
 
 const mockReviewPipeline = vi.fn();
 
-vi.mock('@ghagga/core', () => ({
+vi.mock('ghagga-core', () => ({
   reviewPipeline: (...args: unknown[]) => mockReviewPipeline(...args),
   DEFAULT_SETTINGS: {
     enableSemgrep: true,

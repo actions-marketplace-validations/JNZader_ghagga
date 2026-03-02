@@ -6,7 +6,7 @@
  * the same project can benefit from past context.
  */
 
-import { saveObservation, createMemorySession, endMemorySession } from '@ghagga/db';
+import { saveObservation, createMemorySession, endMemorySession } from 'ghagga-db';
 import { stripPrivateData } from './privacy.js';
 import type { ReviewResult, ReviewFinding, ObservationType } from '../types.js';
 
@@ -48,7 +48,7 @@ function isSignificantFinding(finding: ReviewFinding): boolean {
  * Persist notable review findings as memory observations.
  *
  * Creates a memory session for the review, extracts significant
- * findings, strips private data, and saves them via @ghagga/db.
+ * findings, strips private data, and saves them via ghagga-db.
  * Gracefully handles database errors without propagating them.
  *
  * @param db - Database instance (typed as unknown for loose coupling)

@@ -17,9 +17,9 @@ import {
   getSessionsByProject,
   getObservationsBySession,
   encrypt,
-} from '@ghagga/db';
-import type { Database } from '@ghagga/db';
-import type { RepoSettings } from '@ghagga/db';
+} from 'ghagga-db';
+import type { Database } from 'ghagga-db';
+import type { RepoSettings } from 'ghagga-db';
 import type { AuthUser } from '../middleware/auth.js';
 
 // ─── Route Factory ──────────────────────────────────────────────

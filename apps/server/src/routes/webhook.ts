@@ -15,9 +15,9 @@ import {
   deactivateInstallation,
   upsertRepository,
   getRepoByGithubId,
-} from '@ghagga/db';
-import type { Database } from '@ghagga/db';
-import type { RepoSettings } from '@ghagga/db';
+} from 'ghagga-db';
+import type { Database } from 'ghagga-db';
+import type { RepoSettings } from 'ghagga-db';
 
 // ─── Minimal Webhook Event Types ────────────────────────────────
 

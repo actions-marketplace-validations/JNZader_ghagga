@@ -16,10 +16,10 @@ import {
   getInstallationToken,
   postComment,
 } from '../github/client.js';
-import { reviewPipeline } from '@ghagga/core';
-import type { ReviewInput, ReviewResult, ReviewStatus, ReviewMode, LLMProvider, ReviewLevel } from '@ghagga/core';
-import { createDatabaseFromEnv, saveReview, decrypt } from '@ghagga/db';
-import type { Database } from '@ghagga/db';
+import { reviewPipeline } from 'ghagga-core';
+import type { ReviewInput, ReviewResult, ReviewStatus, ReviewMode, LLMProvider, ReviewLevel } from 'ghagga-core';
+import { createDatabaseFromEnv, saveReview, decrypt } from 'ghagga-db';
+import type { Database } from 'ghagga-db';
 
 // ─── Comment Formatting ─────────────────────────────────────────
 

@@ -11,13 +11,13 @@ import { createWebhookRouter } from './webhook.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
-// Mock @ghagga/db
+// Mock ghagga-db
 const mockUpsertInstallation = vi.fn();
 const mockDeactivateInstallation = vi.fn();
 const mockUpsertRepository = vi.fn();
 const mockGetRepoByGithubId = vi.fn();
 
-vi.mock('@ghagga/db', () => ({
+vi.mock('ghagga-db', () => ({
   upsertInstallation: (...args: unknown[]) => mockUpsertInstallation(...args),
   deactivateInstallation: (...args: unknown[]) => mockDeactivateInstallation(...args),
   upsertRepository: (...args: unknown[]) => mockUpsertRepository(...args),

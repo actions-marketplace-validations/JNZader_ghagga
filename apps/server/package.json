@@ -13,8 +13,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@ghagga/core": "workspace:*",
-    "@ghagga/db": "workspace:*",
+    "ghagga-core": "workspace:*",
+    "ghagga-db": "workspace:*",
     "hono": "^4.7.0",
     "@hono/node-server": "^1.13.0",
     "inngest": "^3.29.0",
