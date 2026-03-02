@@ -92,8 +92,9 @@ export function authMiddleware(db: Database) {
         installationIds,
       });
     } catch (error) {
-      console.error('[ghagga] Error looking up user installations:', error);
-      return c.json({ error: 'Internal server error' }, 500);
+      const message = error instanceof Error ? error.message : String(error);
+      console.error('[ghagga] Error looking up user installations:', message, error);
+      return c.json({ error: 'Internal server error', detail: message }, 500);
     }
 
     await next();
