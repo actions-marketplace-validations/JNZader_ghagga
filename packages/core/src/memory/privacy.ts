@@ -1,0 +1,93 @@
+/**
+ * Privacy-safe text sanitization.
+ *
+ * Strips sensitive data (API keys, tokens, passwords) from text
+ * before it gets persisted to memory. This ensures that even if
+ * a diff contains credentials, they won't be stored in the database.
+ */
+
+// ─── Patterns ───────────────────────────────────────────────────
+
+/**
+ * Regex patterns for common secret formats.
+ * Each pattern is paired with a human-readable replacement label.
+ */
+const SENSITIVE_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
+  // Anthropic API keys
+  { pattern: /sk-ant-[a-zA-Z0-9_-]{20,}/g, replacement: '[REDACTED_ANTHROPIC_KEY]' },
+
+  // OpenAI API keys
+  { pattern: /sk-[a-zA-Z0-9]{20,}/g, replacement: '[REDACTED_OPENAI_KEY]' },
+
+  // AWS Access Key IDs
+  { pattern: /AKIA[0-9A-Z]{16}/g, replacement: '[REDACTED_AWS_KEY]' },
+
+  // AWS Secret Access Keys (typically 40 chars, base64-ish)
+  { pattern: /(?<=AWS_SECRET_ACCESS_KEY\s*=\s*)[A-Za-z0-9/+=]{40}/g, replacement: '[REDACTED_AWS_SECRET]' },
+
+  // GitHub tokens (classic and fine-grained)
+  { pattern: /ghp_[a-zA-Z0-9]{36,}/g, replacement: '[REDACTED_GITHUB_PAT]' },
+  { pattern: /gho_[a-zA-Z0-9]{36,}/g, replacement: '[REDACTED_GITHUB_OAUTH]' },
+  { pattern: /ghs_[a-zA-Z0-9]{36,}/g, replacement: '[REDACTED_GITHUB_APP]' },
+  { pattern: /ghr_[a-zA-Z0-9]{36,}/g, replacement: '[REDACTED_GITHUB_REFRESH]' },
+  { pattern: /github_pat_[a-zA-Z0-9_]{22,}/g, replacement: '[REDACTED_GITHUB_FINE_PAT]' },
+
+  // Google API keys
+  { pattern: /AIza[0-9A-Za-z_-]{35}/g, replacement: '[REDACTED_GOOGLE_KEY]' },
+
+  // Slack tokens
+  { pattern: /xox[bpors]-[0-9a-zA-Z-]{10,}/g, replacement: '[REDACTED_SLACK_TOKEN]' },
+
+  // Generic Bearer tokens in headers
+  { pattern: /Bearer\s+[a-zA-Z0-9._-]{20,}/gi, replacement: 'Bearer [REDACTED_TOKEN]' },
+
+  // Generic "password" / "secret" / "token" assignments
+  // Matches: password = "...", PASSWORD: "...", secret: '...', token='...'
+  {
+    pattern: /(?<=(password|secret|token|api_key|apikey|api-key)\s*[:=]\s*['"])[^'"]{8,}(?=['"])/gi,
+    replacement: '[REDACTED]',
+  },
+
+  // Base64-encoded strings that look like they could be secrets (64+ chars)
+  // Only match when preceded by common secret-related variable names
+  {
+    pattern: /(?<=(SECRET|KEY|TOKEN|CREDENTIAL|PASSWORD)\s*[:=]\s*['"]?)[A-Za-z0-9+/]{64,}={0,2}(?=['"]?)/gi,
+    replacement: '[REDACTED_BASE64]',
+  },
+
+  // Private keys (PEM format)
+  {
+    pattern: /-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA )?PRIVATE KEY-----/g,
+    replacement: '[REDACTED_PRIVATE_KEY]',
+  },
+
+  // JWT tokens (three base64url segments separated by dots)
+  {
+    pattern: /eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/g,
+    replacement: '[REDACTED_JWT]',
+  },
+];
+
+// ─── Main Function ──────────────────────────────────────────────
+
+/**
+ * Strip sensitive data from text before persisting to memory.
+ *
+ * Applies all known secret patterns and replaces matches with
+ * human-readable redaction labels. The patterns are applied in
+ * order, so more specific patterns take precedence.
+ *
+ * @param text - The text to sanitize
+ * @returns Sanitized text with secrets replaced by redaction labels
+ */
+export function stripPrivateData(text: string): string {
+  let sanitized = text;
+
+  for (const { pattern, replacement } of SENSITIVE_PATTERNS) {
+    // Reset regex lastIndex for each application (since we use /g flag)
+    pattern.lastIndex = 0;
+    sanitized = sanitized.replace(pattern, replacement);
+  }
+
+  return sanitized;
+}
