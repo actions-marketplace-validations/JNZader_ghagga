@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import type {
+  Review,
   ReviewsResponse,
   Stats,
   Repository,
@@ -52,6 +53,15 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/**
+ * Unwrap server responses that use `{ data: T }` envelope.
+ * All GET endpoints return `{ data: ... }` for consistency.
+ */
+async function fetchData<T>(path: string, options?: RequestInit): Promise<T> {
+  const result = await fetchApi<{ data: T }>(path, options);
+  return result.data;
+}
+
 // ─── Reviews ──────────────────────────────────────────────
 
 export function useReviews(repo?: string, page: number = 1) {
@@ -61,7 +71,18 @@ export function useReviews(repo?: string, page: number = 1) {
 
   return useQuery<ReviewsResponse>({
     queryKey: ['reviews', repo, page],
-    queryFn: () => fetchApi(`/api/reviews?${params.toString()}`),
+    queryFn: async () => {
+      const result = await fetchApi<{
+        data: Review[];
+        pagination: { page: number; limit: number; offset: number };
+      }>(`/api/reviews?${params.toString()}`);
+      return {
+        reviews: result.data,
+        total: result.data.length,
+        page: result.pagination.page,
+        pageSize: result.pagination.limit,
+      };
+    },
   });
 }
 
@@ -70,7 +91,7 @@ export function useReviews(repo?: string, page: number = 1) {
 export function useStats(repo: string) {
   return useQuery<Stats>({
     queryKey: ['stats', repo],
-    queryFn: () => fetchApi(`/api/stats?repo=${encodeURIComponent(repo)}`),
+    queryFn: () => fetchData<Stats>(`/api/stats?repo=${encodeURIComponent(repo)}`),
     enabled: !!repo,
   });
 }
@@ -80,7 +101,7 @@ export function useStats(repo: string) {
 export function useRepositories() {
   return useQuery<Repository[]>({
     queryKey: ['repositories'],
-    queryFn: () => fetchApi('/api/repositories'),
+    queryFn: () => fetchData<Repository[]>('/api/repositories'),
   });
 }
 
@@ -153,7 +174,7 @@ export function useMemorySessions(project: string) {
   return useQuery<MemorySession[]>({
     queryKey: ['memory', 'sessions', project],
     queryFn: () =>
-      fetchApi(`/api/memory/sessions?project=${encodeURIComponent(project)}`),
+      fetchData<MemorySession[]>(`/api/memory/sessions?project=${encodeURIComponent(project)}`),
     enabled: !!project,
   });
 }
@@ -161,7 +182,7 @@ export function useMemorySessions(project: string) {
 export function useObservations(sessionId: number) {
   return useQuery<Observation[]>({
     queryKey: ['memory', 'observations', sessionId],
-    queryFn: () => fetchApi(`/api/memory/sessions/${sessionId}/observations`),
+    queryFn: () => fetchData<Observation[]>(`/api/memory/sessions/${sessionId}/observations`),
     enabled: !!sessionId,
   });
 }
