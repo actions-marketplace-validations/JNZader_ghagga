@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   AreaChart,
   Area,
@@ -10,6 +9,7 @@ import {
 } from 'recharts';
 import { Card } from '@/components/Card';
 import { useStats, useRepositories } from '@/lib/api';
+import { useSelectedRepo } from '@/lib/repo-context';
 import type { Stats } from '@/lib/types';
 
 function StatCard({
@@ -139,7 +139,7 @@ function ReviewChart({ data }: { data: Stats['reviewsByDay'] }) {
 }
 
 export function Dashboard() {
-  const [selectedRepo, setSelectedRepo] = useState('');
+  const { selectedRepo, setSelectedRepo } = useSelectedRepo();
   const { data: repos, isLoading: reposLoading } = useRepositories();
   const { data: stats, isLoading: statsLoading } = useStats(selectedRepo);
 

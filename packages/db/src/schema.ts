@@ -56,7 +56,7 @@ export const repositories = pgTable(
     isActive: boolean('is_active').default(true).notNull(),
     settings: jsonb('settings').$type<RepoSettings>().default(DEFAULT_REPO_SETTINGS).notNull(),
     encryptedApiKey: text('encrypted_api_key'),
-    llmProvider: varchar('llm_provider', { length: 50 }).default('anthropic').notNull(),
+    llmProvider: varchar('llm_provider', { length: 50 }).default('github').notNull(),
     llmModel: varchar('llm_model', { length: 100 }),
     reviewMode: varchar('review_mode', { length: 20 }).default('simple').notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),

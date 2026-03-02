@@ -3,6 +3,7 @@ import { Card } from '@/components/Card';
 import { StatusBadge } from '@/components/StatusBadge';
 import { SeverityBadge } from '@/components/SeverityBadge';
 import { useReviews, useRepositories } from '@/lib/api';
+import { useSelectedRepo } from '@/lib/repo-context';
 import type { Review, ReviewStatus } from '@/lib/types';
 
 function ReviewDetail({ review, onClose }: { review: Review; onClose: () => void }) {
@@ -104,7 +105,7 @@ function ReviewDetail({ review, onClose }: { review: Review; onClose: () => void
 }
 
 export function Reviews() {
-  const [selectedRepo, setSelectedRepo] = useState('');
+  const { selectedRepo, setSelectedRepo } = useSelectedRepo();
   const [statusFilter, setStatusFilter] = useState<ReviewStatus | ''>('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);

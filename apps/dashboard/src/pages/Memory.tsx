@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/Card';
 import { cn } from '@/lib/cn';
 import { useRepositories, useMemorySessions, useObservations } from '@/lib/api';
+import { useSelectedRepo } from '@/lib/repo-context';
 import type { MemorySession, Observation } from '@/lib/types';
 
 const observationTypeConfig: Record<
@@ -129,7 +130,7 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 export function Memory() {
-  const [selectedRepo, setSelectedRepo] = useState('');
+  const { selectedRepo, setSelectedRepo } = useSelectedRepo();
   const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);

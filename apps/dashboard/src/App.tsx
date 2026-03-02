@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, ProtectedRoute } from '@/lib/auth';
+import { RepoProvider } from '@/lib/repo-context';
 import { Layout } from '@/components/Layout';
 
 // ─── Lazy-loaded pages (code splitting) ─────────────────────────
@@ -13,7 +14,9 @@ const Memory = lazy(() => import('@/pages/Memory').then((m) => ({ default: m.Mem
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
     <ProtectedRoute>
-      <Layout>{children}</Layout>
+      <RepoProvider>
+        <Layout>{children}</Layout>
+      </RepoProvider>
     </ProtectedRoute>
   );
 }

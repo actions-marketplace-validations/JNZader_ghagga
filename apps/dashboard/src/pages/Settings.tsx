@@ -7,10 +7,11 @@ import {
   useSaveApiKey,
   useDeleteApiKey,
 } from '@/lib/api';
+import { useSelectedRepo } from '@/lib/repo-context';
 import type { ReviewMode, LLMProvider } from '@/lib/types';
 
 export function Settings() {
-  const [selectedRepo, setSelectedRepo] = useState('');
+  const { selectedRepo, setSelectedRepo } = useSelectedRepo();
   const { data: repos } = useRepositories();
   const { data: settings, isLoading } = useSettings(selectedRepo);
   const updateSettings = useUpdateSettings();
@@ -176,9 +177,11 @@ export function Settings() {
                     onChange={(e) => setLlmProvider(e.target.value as LLMProvider)}
                     className="select-field"
                   >
+                    <option value="github">GitHub Models (Free)</option>
                     <option value="anthropic">Anthropic</option>
                     <option value="openai">OpenAI</option>
                     <option value="google">Google</option>
+                    <option value="ollama">Ollama (Local)</option>
                   </select>
                 </div>
 
