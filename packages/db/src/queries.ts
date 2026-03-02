@@ -1,4 +1,4 @@
-import { eq, and, desc, sql, type SQL } from 'drizzle-orm';
+import { eq, and, desc, inArray, sql, type SQL } from 'drizzle-orm';
 import type { Database } from './client.js';
 import {
   installations,
@@ -410,7 +410,7 @@ export async function getInstallationsByUserId(db: Database, githubUserId: numbe
     .from(installations)
     .where(
       and(
-        sql`${installations.id} = ANY(${installationIds})`,
+        inArray(installations.id, installationIds),
         eq(installations.isActive, true),
       ),
     );
