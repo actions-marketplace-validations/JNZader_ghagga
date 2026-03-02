@@ -1,3 +1,9 @@
+# NOTE: The canonical action.yml is at the repo root (/action.yml).
+# This file is kept for reference / local development only.
+# GitHub Actions resolves action.yml from the repo root.
+#
+# See: /action.yml
+
 name: 'GHAGGA Code Review'
 description: 'AI-powered code review for pull requests'
 branding:
@@ -5,9 +11,9 @@ branding:
   color: 'purple'
 inputs:
   provider:
-    description: 'LLM provider (anthropic, openai, google, github, ollama)'
+    description: 'LLM provider (github, openai, anthropic, google, ollama)'
     required: false
-    default: 'anthropic'
+    default: 'github'
   model:
     description: 'LLM model identifier'
     required: false
@@ -16,8 +22,12 @@ inputs:
     required: false
     default: 'simple'
   api-key:
-    description: 'LLM provider API key'
-    required: true
+    description: 'LLM provider API key (not required for github provider)'
+    required: false
+  github-token:
+    description: 'GitHub token for PR diffs and comments'
+    required: false
+    default: ${{ github.token }}
   enable-semgrep:
     description: 'Enable Semgrep static analysis'
     required: false
@@ -30,6 +40,11 @@ inputs:
     description: 'Enable CPD duplicate detection'
     required: false
     default: 'true'
+outputs:
+  status:
+    description: 'Review status: PASSED, FAILED, NEEDS_HUMAN_REVIEW, or SKIPPED'
+  findings-count:
+    description: 'Number of findings from the review'
 runs:
   using: 'node20'
   main: 'dist/index.js'

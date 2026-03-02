@@ -1,0 +1,69 @@
+name: 'GHAGGA Code Review'
+description: >-
+  AI-powered multi-agent code review for pull requests.
+  Supports 5 LLM providers (GitHub Models free, OpenAI, Anthropic, Google, Ollama),
+  3 review modes (simple, workflow with 5 specialists, consensus),
+  and optional static analysis (Semgrep, Trivy, CPD).
+
+branding:
+  icon: 'eye'
+  color: 'purple'
+
+inputs:
+  provider:
+    description: >-
+      LLM provider to use. Use "github" for free reviews via GitHub Models
+      (no API key needed). Options: github, openai, anthropic, google, ollama.
+    required: false
+    default: 'github'
+
+  model:
+    description: >-
+      LLM model identifier (e.g. gpt-4o-mini, claude-sonnet-4-20250514).
+      Defaults to best model for chosen provider.
+    required: false
+
+  mode:
+    description: >-
+      Review mode. "simple" = single LLM call, "workflow" = 5 specialist agents,
+      "consensus" = for/against/neutral voting.
+    required: false
+    default: 'simple'
+
+  api-key:
+    description: >-
+      LLM provider API key. NOT required when using "github" provider
+      (uses GITHUB_TOKEN automatically). Required for openai, anthropic, google.
+    required: false
+
+  github-token:
+    description: >-
+      GitHub token for fetching PR diffs and posting comments.
+      Defaults to the automatic GITHUB_TOKEN.
+    required: false
+    default: ${{ github.token }}
+
+  enable-semgrep:
+    description: 'Enable Semgrep static analysis'
+    required: false
+    default: 'true'
+
+  enable-trivy:
+    description: 'Enable Trivy vulnerability scanning'
+    required: false
+    default: 'true'
+
+  enable-cpd:
+    description: 'Enable CPD duplicate detection'
+    required: false
+    default: 'true'
+
+outputs:
+  status:
+    description: 'Review status: PASSED, FAILED, NEEDS_HUMAN_REVIEW, or SKIPPED'
+  findings-count:
+    description: 'Number of findings from the review'
+
+runs:
+  using: 'node20'
+  main: 'apps/action/dist/index.js'

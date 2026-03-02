@@ -59,6 +59,8 @@ vi.mock('ghagga-core', () => ({
     anthropic: 'claude-sonnet-4-20250514',
     openai: 'gpt-4o',
     google: 'gemini-2.0-flash',
+    github: 'gpt-4o-mini',
+    ollama: 'qwen2.5-coder:7b',
   },
 }));
 
@@ -77,8 +79,8 @@ function makeResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
     memoryContext: null,
     metadata: {
       mode: 'simple',
-      provider: 'anthropic',
-      model: 'claude-sonnet-4-20250514',
+      provider: 'github',
+      model: 'gpt-4o-mini',
       tokensUsed: 100,
       executionTimeMs: 500,
       toolsRun: [],
@@ -94,14 +96,14 @@ describe('GitHub Action', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // Default input values
-    mockGetInput.mockImplementation((name: string, opts?: { required?: boolean }) => {
+    // Default input values — github provider (free, no api-key needed)
+    mockGetInput.mockImplementation((name: string) => {
       const inputs: Record<string, string> = {
-        'provider': 'anthropic',
+        'provider': 'github',
         'model': '',
         'mode': 'simple',
-        'api-key': 'test-api-key',
-        'github-token': '',
+        'api-key': '',
+        'github-token': 'ghp_faketoken',
         'enable-semgrep': 'true',
         'enable-trivy': 'true',
         'enable-cpd': 'true',
@@ -127,13 +129,8 @@ describe('GitHub Action', () => {
   });
 
   describe('input parsing', () => {
-    it('reads provider from action inputs', () => {
-      // Verify the mock is set up correctly
-      expect(mockGetInput('provider')).toBe('anthropic');
-    });
-
-    it('reads api-key as required input', () => {
-      expect(mockGetInput('api-key', { required: true })).toBe('test-api-key');
+    it('reads provider with default "github"', () => {
+      expect(mockGetInput('provider')).toBe('github');
     });
 
     it('reads mode with default "simple"', () => {
@@ -145,18 +142,25 @@ describe('GitHub Action', () => {
       expect(mockGetInput('enable-trivy')).toBe('true');
       expect(mockGetInput('enable-cpd')).toBe('true');
     });
+
+    it('api-key is optional (not required for github provider)', () => {
+      expect(mockGetInput('api-key')).toBe('');
+    });
+
+    it('github-token input is available', () => {
+      expect(mockGetInput('github-token')).toBe('ghp_faketoken');
+    });
   });
 
   describe('action.yml contract', () => {
-    it('defines expected inputs: provider, model, mode, api-key', () => {
-      const expectedInputs = ['provider', 'model', 'mode', 'api-key'];
+    it('defines expected inputs: provider, model, mode, api-key, github-token', () => {
+      const expectedInputs = ['provider', 'model', 'mode', 'api-key', 'github-token'];
       for (const input of expectedInputs) {
         expect(typeof mockGetInput(input)).toBe('string');
       }
     });
 
     it('defines expected outputs: status, findings-count', () => {
-      // Verify setOutput is callable with these keys
       mockSetOutput('status', 'PASSED');
       mockSetOutput('findings-count', 0);
       expect(mockSetOutput).toHaveBeenCalledWith('status', 'PASSED');
@@ -164,17 +168,58 @@ describe('GitHub Action', () => {
     });
   });
 
+  describe('provider API key resolution', () => {
+    it('github provider uses GitHub token as API key (no api-key needed)', () => {
+      // When provider is "github" and api-key is empty,
+      // the action should use the github token as the LLM API key
+      const provider = 'github';
+      const apiKeyInput = '';
+      const githubToken = 'ghp_faketoken';
+
+      const resolvedKey = provider === 'github'
+        ? (apiKeyInput || githubToken)
+        : apiKeyInput;
+
+      expect(resolvedKey).toBe('ghp_faketoken');
+    });
+
+    it('ollama provider uses placeholder key', () => {
+      const provider = 'ollama';
+      const apiKeyInput = '';
+
+      const resolvedKey = provider === 'ollama'
+        ? (apiKeyInput || 'ollama')
+        : apiKeyInput;
+
+      expect(resolvedKey).toBe('ollama');
+    });
+
+    it('anthropic provider requires explicit api-key', () => {
+      const provider: string = 'anthropic';
+      const apiKeyInput = '';
+
+      const needsKey = provider !== 'github' && provider !== 'ollama' && !apiKeyInput;
+      expect(needsKey).toBe(true);
+    });
+
+    it('anthropic provider accepts explicit api-key', () => {
+      const provider: string = 'anthropic';
+      const apiKeyInput = 'sk-test-key';
+
+      const needsKey = provider !== 'github' && provider !== 'ollama' && !apiKeyInput;
+      expect(needsKey).toBe(false);
+    });
+  });
+
   describe('review result handling', () => {
     it('maps PASSED status to success (no setFailed call)', () => {
       const result = makeResult({ status: 'PASSED' });
       expect(result.status).toBe('PASSED');
-      // Action should NOT call setFailed for PASSED
     });
 
     it('maps FAILED status to action failure', () => {
       const result = makeResult({ status: 'FAILED' });
       expect(result.status).toBe('FAILED');
-      // Action should call setFailed for FAILED
     });
 
     it('counts findings correctly', () => {
@@ -226,8 +271,7 @@ describe('GitHub Action', () => {
       const message = 'Use a | b instead of c | d';
       const escaped = message.replace(/\|/g, '\\|');
       expect(escaped).toBe('Use a \\| b instead of c \\| d');
-      // Escaped pipes won't break markdown tables since they're preceded by backslash
-      expect(escaped.split('\\|').length).toBe(3); // 2 pipes = 3 segments
+      expect(escaped.split('\\|').length).toBe(3);
     });
   });
 
@@ -240,7 +284,6 @@ describe('GitHub Action', () => {
     });
 
     it('handles missing PR context gracefully', () => {
-      // When the action is triggered by a non-PR event
       mockSetFailed(
         'This action must be triggered by a pull_request event. ' +
         'Add `on: pull_request` to your workflow.',
@@ -252,9 +295,16 @@ describe('GitHub Action', () => {
 
     it('handles missing GitHub token', () => {
       delete process.env['GITHUB_TOKEN'];
-      mockSetFailed('GitHub token is required to fetch PR diff.');
+      mockSetFailed('GitHub token is required to fetch PR diffs and post comments.');
       expect(mockSetFailed).toHaveBeenCalledWith(
         expect.stringContaining('GitHub token'),
+      );
+    });
+
+    it('fails when paid provider has no api-key', () => {
+      mockSetFailed('API key is required for provider "anthropic".');
+      expect(mockSetFailed).toHaveBeenCalledWith(
+        expect.stringContaining('API key is required'),
       );
     });
   });

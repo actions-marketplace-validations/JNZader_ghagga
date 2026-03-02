@@ -27,6 +27,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.13
+      '@vercel/ncc':
+        specifier: ^0.38.4
+        version: 0.38.4
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
@@ -2130,6 +2133,10 @@ packages:
 
   '@types/tedious@4.0.14':
     resolution: {integrity: sha512-KHPsfX/FoVbUGbyYvk1q9MMQHLPeRZhRJZdO45Q4YjvFkv4hMNghCWTvy7rdKessBsmtz4euWCWAB6/tVpI1Iw==}
+
+  '@vercel/ncc@0.38.4':
+    resolution: {integrity: sha512-8LwjnlP39s08C08J5NstzriPvW1SP8Zfpp1BvC2sI35kPeZnHfxVkCwu4/+Wodgnd60UtT1n8K8zw+Mp7J9JmQ==}
+    hasBin: true
 
   '@vitejs/plugin-react@4.7.0':
     resolution: {integrity: sha512-gUu9hwfWvvEDBBmgtAowQCojwZmJ5mcLn3aufeCsitijs3+f2NsrPtlAWIR6OPiqljl96GVCUbLe0HyqIpVaoA==}
@@ -5785,6 +5792,8 @@ snapshots:
   '@types/tedious@4.0.14':
     dependencies:
       '@types/node': 22.19.13
+
+  '@vercel/ncc@0.38.4': {}
 
   '@vitejs/plugin-react@4.7.0(vite@6.4.1(@types/node@22.19.13)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.8.2))':
     dependencies:

@@ -1,0 +1,6 @@
+# Override: GitHub Actions requires dist/ to be committed.
+# The root .gitignore ignores dist/, but we need it here.
+!dist/
+
+# But skip source maps (too large, not needed at runtime)
+dist/*.map

@@ -4,7 +4,11 @@
  * Runs the core review pipeline on PR diffs and posts results
  * as comments. Designed to be used in GitHub Actions workflows:
  *
- *   - uses: ghagga/action@v2
+ *   # Free with GitHub Models (default, no API key needed):
+ *   - uses: JNZader/ghagga@v2
+ *
+ *   # With a paid provider:
+ *   - uses: JNZader/ghagga@v2
  *     with:
  *       provider: anthropic
  *       api-key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -29,19 +33,51 @@ import type {
 async function run(): Promise<void> {
   try {
     // Step 1: Read action inputs
-    const provider = core.getInput('provider', { required: false }) as LLMProvider || 'anthropic';
-    const modelInput = core.getInput('model', { required: false });
-    const mode = core.getInput('mode', { required: false }) as ReviewMode || 'simple';
-    const apiKey = core.getInput('api-key', { required: true });
+    const provider = (core.getInput('provider') || 'github') as LLMProvider;
+    const modelInput = core.getInput('model');
+    const mode = (core.getInput('mode') || 'simple') as ReviewMode;
+    const apiKeyInput = core.getInput('api-key');
 
     const enableSemgrep = core.getInput('enable-semgrep') !== 'false';
     const enableTrivy = core.getInput('enable-trivy') !== 'false';
     const enableCpd = core.getInput('enable-cpd') !== 'false';
 
+    // Step 2: Resolve GitHub token (for PR diff fetching + GitHub Models API)
+    const githubToken =
+      core.getInput('github-token') ||
+      process.env['GITHUB_TOKEN'] ||
+      '';
+
+    if (!githubToken) {
+      core.setFailed(
+        'GitHub token is required to fetch PR diffs and post comments. ' +
+        'The GITHUB_TOKEN is usually available automatically in Actions.',
+      );
+      return;
+    }
+
+    // Step 3: Resolve API key — for "github" provider, use GitHub token
+    let apiKey: string;
+    if (provider === 'github') {
+      apiKey = apiKeyInput || githubToken;
+      core.info('🆓 Using GitHub Models (free tier) — no API key needed');
+    } else if (provider === 'ollama') {
+      apiKey = apiKeyInput || 'ollama';
+    } else {
+      apiKey = apiKeyInput;
+      if (!apiKey) {
+        core.setFailed(
+          `API key is required for provider "${provider}". ` +
+          `Set the "api-key" input, or use provider "github" for free reviews.`,
+        );
+        return;
+      }
+    }
+
     // Resolve model: use input, or default based on provider
     const model = modelInput || DEFAULT_MODELS[provider];
 
-    // Step 2: Get PR context
+    // Step 4: Get PR context
     const { context } = github;
     const pr = context.payload.pull_request;
 
@@ -56,20 +92,11 @@ async function run(): Promise<void> {
     const repoFullName = `${context.repo.owner}/${context.repo.repo}`;
     const prNumber = pr.number as number;
 
-    core.info(`\ud83e\udd16 GHAGGA reviewing PR #${prNumber} on ${repoFullName}`);
+    core.info(`🤖 GHAGGA reviewing PR #${prNumber} on ${repoFullName}`);
     core.info(`   Mode: ${mode} | Provider: ${provider} | Model: ${model}`);
 
-    // Step 3: Fetch the PR diff
-    const token = process.env['GITHUB_TOKEN'] ?? core.getInput('github-token', { required: false });
-    if (!token) {
-      core.setFailed(
-        'GitHub token is required to fetch PR diff. ' +
-        'The GITHUB_TOKEN is usually available automatically in Actions.',
-      );
-      return;
-    }
-
-    const octokit = github.getOctokit(token);
+    // Step 5: Fetch the PR diff
+    const octokit = github.getOctokit(githubToken);
 
     const diffResponse = await octokit.rest.pulls.get({
       owner: context.repo.owner,
@@ -84,13 +111,13 @@ async function run(): Promise<void> {
     const diff = diffResponse.data as unknown as string;
 
     if (!diff || (typeof diff === 'string' && diff.trim().length === 0)) {
-      core.info('\u23ed\ufe0f  PR has no diff content. Skipping review.');
+      core.info('⏭️  PR has no diff content. Skipping review.');
       core.setOutput('status', 'SKIPPED');
       core.setOutput('findings-count', 0);
       return;
     }
 
-    // Step 4: Run the review pipeline
+    // Step 6: Run the review pipeline
     const result = await reviewPipeline({
       diff: typeof diff === 'string' ? diff : String(diff),
       mode,
@@ -113,7 +140,7 @@ async function run(): Promise<void> {
       db: undefined,
     });
 
-    // Step 5: Post the review comment
+    // Step 7: Post the review comment
     const comment = formatReviewComment(result);
 
     await octokit.rest.issues.createComment({
@@ -123,13 +150,13 @@ async function run(): Promise<void> {
       body: comment,
     });
 
-    core.info(`\u2705 Review posted to PR #${prNumber}`);
+    core.info(`✅ Review posted to PR #${prNumber}`);
 
-    // Step 6: Set outputs
+    // Step 8: Set outputs
     core.setOutput('status', result.status);
     core.setOutput('findings-count', result.findings.length);
 
-    // Step 7: Fail the action if review status is FAILED
+    // Step 9: Fail the action if review status is FAILED
     if (result.status === 'FAILED') {
       core.setFailed(
         `Code review found critical issues. Status: ${result.status} | ` +
