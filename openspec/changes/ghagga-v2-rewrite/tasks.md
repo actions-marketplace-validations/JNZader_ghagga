@@ -19,44 +19,44 @@
 
 ## Phase 2: Database Layer (`packages/db`)
 
-- [ ] 2.1 Create `packages/db/src/schema.ts` with Drizzle table definitions: installations, repositories, reviews, memorySessions, memoryObservations
-- [ ] 2.2 Create `packages/db/src/client.ts` with database connection factory using `DATABASE_URL` env var
-- [ ] 2.3 Create `packages/db/src/crypto.ts` with AES-256-GCM encrypt/decrypt functions for API keys (rescue logic from v1 `_shared/crypto/encryption.ts`)
-- [ ] 2.4 Create `packages/db/drizzle.config.ts` for migration generation
-- [ ] 2.5 Generate initial migration with `drizzle-kit generate` and verify SQL output
-- [ ] 2.6 Create raw SQL migration for tsvector column + GIN index + trigger on memoryObservations (Drizzle doesn't natively support tsvector)
-- [ ] 2.7 Create `packages/db/src/queries.ts` with typed query functions: findRepoByGithubId, upsertInstallation, getRepoSettings, saveReview, searchObservations (using tsvector), upsertObservation (topic_key logic)
-- [ ] 2.8 Create `packages/db/src/index.ts` re-exporting schema, client, queries, crypto
-- [ ] 2.9 Write unit tests for crypto.ts (encrypt → decrypt roundtrip, different keys, tampered data)
+- [x] 2.1 Create `packages/db/src/schema.ts` with Drizzle table definitions: installations, repositories, reviews, memorySessions, memoryObservations, githubUserMappings
+- [x] 2.2 Create `packages/db/src/client.ts` with database connection factory using `DATABASE_URL` env var
+- [x] 2.3 Create `packages/db/src/crypto.ts` with AES-256-GCM encrypt/decrypt functions for API keys (rescue logic from v1 `_shared/crypto/encryption.ts`)
+- [x] 2.4 Create `packages/db/drizzle.config.ts` for migration generation
+- [x] 2.5 Generate initial migration with `drizzle-kit generate` and verify SQL output
+- [x] 2.6 Create raw SQL migration for tsvector column + GIN index + trigger on memoryObservations (Drizzle doesn't natively support tsvector)
+- [x] 2.7 Create `packages/db/src/queries.ts` with typed query functions: findRepoByGithubId, upsertInstallation, getRepoSettings, saveReview, searchObservations (using tsvector), upsertObservation (topic_key logic)
+- [x] 2.8 Create `packages/db/src/index.ts` re-exporting schema, client, queries, crypto
+- [x] 2.9 Write unit tests for crypto.ts (encrypt → decrypt roundtrip, different keys, tampered data) — 11 passing tests
 - [ ] 2.10 Write unit tests for queries.ts using a test PostgreSQL database (observation deduplication, topic_key upserts, project isolation)
 
 ## Phase 3: Static Analysis Tools (`packages/core/src/tools/`)
 
-- [ ] 3.1 Create `packages/core/src/tools/semgrep.ts` — Executes `semgrep --json --config auto` as child process, parses JSON output into ReviewFinding[], handles binary-not-found gracefully
-- [ ] 3.2 Create `packages/core/src/tools/semgrep-rules.yml` — Rescue the 20 security rules from v1 `semgrep-service/rules.yml`
-- [ ] 3.3 Create `packages/core/src/tools/trivy.ts` — Executes `trivy fs --format json --scanners vuln` as child process, parses JSON output into ReviewFinding[], handles binary-not-found gracefully
-- [ ] 3.4 Create `packages/core/src/tools/cpd.ts` — Executes `cpd --format xml --minimum-tokens 100` as child process, parses XML output into ReviewFinding[], handles binary-not-found gracefully
-- [ ] 3.5 Create `packages/core/src/tools/runner.ts` — Runs Semgrep, Trivy, and CPD in parallel via Promise.allSettled, merges results into StaticAnalysisResult, logs warnings for failed/skipped tools
+- [x] 3.1 Create `packages/core/src/tools/semgrep.ts` — Executes `semgrep --json --config auto` as child process, parses JSON output into ReviewFinding[], handles binary-not-found gracefully
+- [x] 3.2 Create `packages/core/src/tools/semgrep-rules.yml` — Rescue the 20 security rules from v1 `semgrep-service/rules.yml` (20 rules, 7+ languages)
+- [x] 3.3 Create `packages/core/src/tools/trivy.ts` — Executes `trivy fs --format json --scanners vuln` as child process, parses JSON output into ReviewFinding[], handles binary-not-found gracefully
+- [x] 3.4 Create `packages/core/src/tools/cpd.ts` — Executes `cpd --format xml --minimum-tokens 100` as child process, parses XML output into ReviewFinding[], handles binary-not-found gracefully
+- [x] 3.5 Create `packages/core/src/tools/runner.ts` — Runs Semgrep, Trivy, and CPD in parallel via Promise.allSettled, merges results into StaticAnalysisResult, logs warnings for failed/skipped tools, formatStaticAnalysisContext()
 - [ ] 3.6 Write unit tests for each tool parser using fixture files (real JSON/XML outputs captured from actual tool runs)
 - [ ] 3.7 Write integration test for runner.ts verifying parallel execution and graceful degradation when tools are missing
 
 ## Phase 4: Core Review Engine (`packages/core/src/`)
 
-- [ ] 4.1 Create `packages/core/src/agents/prompts.ts` — Rescue all prompts from v1: simple review prompt, 5 workflow specialist prompts (scope, standards, errors, security, performance), workflow synthesis prompt, consensus stance prompts (for, against, neutral), static analysis context injection template, memory context injection template, stack-specific hints
-- [ ] 4.2 Create `packages/core/src/utils/stack-detect.ts` — Rescue stack detection logic from v1 `_shared/static-analysis/stack-detection.ts`, map file extensions to stack names and review hints
-- [ ] 4.3 Create `packages/core/src/utils/diff.ts` — Diff parsing (extract file paths, line numbers), diff truncation by token budget, file filtering by ignore patterns (glob matching)
-- [ ] 4.4 Create `packages/core/src/utils/token-budget.ts` — Rescue token budget logic from v1, model-aware allocation based on context window sizes
-- [ ] 4.5 Create `packages/core/src/providers/index.ts` — Vercel AI SDK provider factory: createProvider(provider, apiKey) returning the correct SDK instance for anthropic/openai/google
-- [ ] 4.6 Create `packages/core/src/providers/fallback.ts` — Fallback chain: try primary provider, catch 5xx, retry with next provider in chain, log which provider was used
-- [ ] 4.7 Create `packages/core/src/agents/simple.ts` — Simple review: construct prompt with diff + static findings + memory context + stack hints, call LLM, parse structured response (STATUS, SUMMARY, FINDINGS)
-- [ ] 4.8 Create `packages/core/src/agents/workflow.ts` — Workflow review: run 5 specialists in parallel via Promise.allSettled, collect results, run synthesis agent to deduplicate and prioritize, return merged ReviewResult
-- [ ] 4.9 Create `packages/core/src/agents/consensus.ts` — Consensus review: assign stances to models, run in parallel, parse each vote (decision, confidence, reasoning), calculate weighted recommendation, optional synthesis for final summary
-- [ ] 4.10 Create `packages/core/src/memory/search.ts` — Query memoryObservations via tsvector full-text search, scoped by project, limited results, formatted as context string
-- [ ] 4.11 Create `packages/core/src/memory/persist.ts` — Extract observations from ReviewResult, apply deduplication (content hash + 15min window), apply topic_key upsert logic, save to database
-- [ ] 4.12 Create `packages/core/src/memory/context.ts` — Format retrieved observations into markdown block for prompt injection: "Past Review Memory" section with type, title, learnings
-- [ ] 4.13 Create `packages/core/src/memory/privacy.ts` — Rescue privacy stripping from v1: detect API key patterns, secrets, tokens → replace with [REDACTED]
-- [ ] 4.14 Create `packages/core/src/pipeline.ts` — Main pipeline orchestrator: validate input → run static analysis (Layer 0) → search memory (Layer 1) → execute agent mode (Layer 2) → persist observations (Layer 3) → return ReviewResult
-- [ ] 4.15 Create `packages/core/src/index.ts` — Public API: export `reviewPipeline()` function and all types
+- [x] 4.1 Create `packages/core/src/agents/prompts.ts` — All v1 prompts rescued: simple, 5 workflow specialists, synthesis, consensus stances, static analysis context, memory context, stack hints
+- [x] 4.2 Create `packages/core/src/utils/stack-detect.ts` — Stack detection from file extensions with review hints
+- [x] 4.3 Create `packages/core/src/utils/diff.ts` — Diff parsing, truncation by token budget, file filtering by glob patterns
+- [x] 4.4 Create `packages/core/src/utils/token-budget.ts` — Model-aware token budget allocation
+- [x] 4.5 Create `packages/core/src/providers/index.ts` — Vercel AI SDK provider factory (OpenAI, Anthropic, Google, Mistral)
+- [x] 4.6 Create `packages/core/src/providers/fallback.ts` — Fallback chain with retry on 5xx
+- [x] 4.7 Create `packages/core/src/agents/simple.ts` — Simple review with structured response parsing
+- [x] 4.8 Create `packages/core/src/agents/workflow.ts` — 5-specialist parallel workflow with synthesis
+- [x] 4.9 Create `packages/core/src/agents/consensus.ts` — Multi-model voting with weighted recommendation
+- [x] 4.10 Create `packages/core/src/memory/search.ts` — tsvector full-text search scoped by project
+- [x] 4.11 Create `packages/core/src/memory/persist.ts` — Observation extraction, deduplication, topic_key upserts
+- [x] 4.12 Create `packages/core/src/memory/context.ts` — Format observations as markdown for prompt injection
+- [x] 4.13 Create `packages/core/src/memory/privacy.ts` — Privacy stripping (API keys, secrets → [REDACTED])
+- [x] 4.14 Create `packages/core/src/pipeline.ts` — Main orchestrator: validate → static analysis → memory → agent → persist → return
+- [x] 4.15 Create `packages/core/src/index.ts` — Public API exports
 - [ ] 4.16 Write unit tests for prompts.ts (verify prompt construction with all optional sections)
 - [ ] 4.17 Write unit tests for simple.ts, workflow.ts, consensus.ts using mocked AI SDK responses
 - [ ] 4.18 Write unit tests for pipeline.ts end-to-end with mocked tools and providers
