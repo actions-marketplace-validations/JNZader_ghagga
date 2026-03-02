@@ -35,7 +35,7 @@ const program = new Command();
 program
   .name('ghagga')
   .description('AI-powered code review CLI')
-  .version('2.0.0');
+  .version('2.0.1');
 
 // ─── Login ──────────────────────────────────────────────────────
 
