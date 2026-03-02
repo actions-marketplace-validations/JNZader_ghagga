@@ -1,0 +1,26 @@
+# GHAGGA AI Code Review — runs on every PR.
+# Uses GitHub Models (free tier, no API key needed).
+name: GHAGGA Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  models: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: GHAGGA Review
+        uses: ./
+        with:
+          provider: github
+          mode: simple
+          github-token: ${{ secrets.GITHUB_TOKEN }}
