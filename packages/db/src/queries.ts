@@ -9,6 +9,7 @@ import {
   githubUserMappings,
   DEFAULT_REPO_SETTINGS,
   type RepoSettings,
+  type DbProviderChainEntry,
 } from './schema.js';
 import { createHash } from 'node:crypto';
 
@@ -131,6 +132,8 @@ export async function updateRepoSettings(
     llmProvider?: string;
     llmModel?: string;
     reviewMode?: string;
+    providerChain?: DbProviderChainEntry[];
+    aiReviewEnabled?: boolean;
   },
 ) {
   await db
