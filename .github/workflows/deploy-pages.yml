@@ -1,8 +1,13 @@
 # ============================================
 # GHAGGA v2 — Deploy to GitHub Pages
 # ============================================
-# Builds and deploys the React dashboard + Docsify docs
-# to GitHub Pages on every push to main.
+# Assembles landing page + React dashboard + Docsify docs
+# into a single GitHub Pages deployment.
+#
+# Final URL structure:
+#   /ghagga/          → Landing page (static HTML)
+#   /ghagga/app/      → Dashboard (React SPA)
+#   /ghagga/docs/     → Documentation (Docsify)
 
 name: Deploy Pages
 
@@ -12,6 +17,7 @@ on:
     paths:
       - 'apps/dashboard/**'
       - 'docs/**'
+      - 'landing/**'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch: # Manual trigger from GitHub Actions UI
 
@@ -26,7 +32,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build Dashboard
+    name: Build & Assemble
     runs-on: ubuntu-latest
 
     steps:
@@ -49,13 +55,18 @@ jobs:
         env:
           VITE_API_URL: ${{ vars.API_URL || 'https://ghagga.koyeb.app' }}
 
-      - name: Copy docs into dashboard dist
-        run: cp -r docs apps/dashboard/dist/docs
+      - name: Assemble Pages artifact
+        run: |
+          mkdir -p _site
+          cp landing/index.html _site/
+          cp -r apps/dashboard/dist _site/app
+          cp -r docs _site/docs
+          touch _site/.nojekyll
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/dashboard/dist
+          path: _site
 
   deploy:
     name: Deploy

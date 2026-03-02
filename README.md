@@ -4,7 +4,7 @@
 
 **Multi-agent code reviewer** that posts intelligent comments on your Pull Requests. Combines LLM analysis with static analysis tools (Semgrep, Trivy, CPD) and project memory that learns across reviews.
 
-**[Documentation](https://jnzader.github.io/ghagga/docs/)** · **[Dashboard](https://jnzader.github.io/ghagga/)**
+**[Website](https://jnzader.github.io/ghagga/)** · **[Documentation](https://jnzader.github.io/ghagga/docs/)** · **[Dashboard](https://jnzader.github.io/ghagga/app/)**
 
 ## Table of Contents
 
@@ -390,7 +390,7 @@ Before any observation is stored in memory, GHAGGA strips sensitive data using 1
 
 React SPA deployed on GitHub Pages. Dark theme with GitHub-dark palette and purple accent.
 
-**Live**: [https://jnzader.github.io/ghagga/](https://jnzader.github.io/ghagga/)
+**Live**: [https://jnzader.github.io/ghagga/app/](https://jnzader.github.io/ghagga/app/)
 
 ### Pages
 
