@@ -22,7 +22,7 @@ export const installations = pgTable('installations', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
-// ─── Repositories ───────────────────────────────────────────────
+// ─── Shared Types ───────────────────────────────────────────────
 
 export interface RepoSettings {
   enableSemgrep: boolean;
@@ -54,6 +54,24 @@ export interface DbProviderChainEntry {
   encryptedApiKey: string | null; // null for GitHub Models (uses session token)
 }
 
+// ─── Installation Settings ──────────────────────────────────────
+
+export const installationSettings = pgTable('installation_settings', {
+  id: serial('id').primaryKey(),
+  installationId: integer('installation_id')
+    .references(() => installations.id)
+    .unique()
+    .notNull(),
+  providerChain: jsonb('provider_chain').$type<DbProviderChainEntry[]>().default([]).notNull(),
+  aiReviewEnabled: boolean('ai_review_enabled').default(true).notNull(),
+  reviewMode: varchar('review_mode', { length: 20 }).default('simple').notNull(),
+  settings: jsonb('settings').$type<RepoSettings>().default(DEFAULT_REPO_SETTINGS).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+// ─── Repositories ───────────────────────────────────────────────
+
 export const repositories = pgTable(
   'repositories',
   {
@@ -66,6 +84,9 @@ export const repositories = pgTable(
     isActive: boolean('is_active').default(true).notNull(),
     settings: jsonb('settings').$type<RepoSettings>().default(DEFAULT_REPO_SETTINGS).notNull(),
     reviewMode: varchar('review_mode', { length: 20 }).default('simple').notNull(),
+
+    // ── Global settings inheritance ──
+    useGlobalSettings: boolean('use_global_settings').default(true).notNull(),
 
     // ── Provider chain (replaces flat llm_provider/llm_model/encrypted_api_key) ──
     providerChain: jsonb('provider_chain').$type<DbProviderChainEntry[]>().default([]).notNull(),

@@ -2,6 +2,7 @@ import { eq, and, desc, inArray, sql, type SQL } from 'drizzle-orm';
 import type { Database } from './client.js';
 import {
   installations,
+  installationSettings,
   repositories,
   reviews,
   memorySessions,
@@ -73,6 +74,121 @@ export async function getInstallationsByAccountLogin(db: Database, accountLogin:
         eq(installations.isActive, true),
       ),
     );
+}
+
+// ─── Installation Settings ──────────────────────────────────────
+
+export async function getInstallationSettings(db: Database, installationId: number) {
+  const [row] = await db
+    .select()
+    .from(installationSettings)
+    .where(eq(installationSettings.installationId, installationId))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function upsertInstallationSettings(
+  db: Database,
+  installationId: number,
+  updates: {
+    providerChain?: DbProviderChainEntry[];
+    aiReviewEnabled?: boolean;
+    reviewMode?: string;
+    settings?: RepoSettings;
+  },
+) {
+  const existing = await getInstallationSettings(db, installationId);
+
+  if (existing) {
+    const setValues: Record<string, unknown> = { updatedAt: new Date() };
+    if (updates.providerChain !== undefined) setValues.providerChain = updates.providerChain;
+    if (updates.aiReviewEnabled !== undefined) setValues.aiReviewEnabled = updates.aiReviewEnabled;
+    if (updates.reviewMode !== undefined) setValues.reviewMode = updates.reviewMode;
+    if (updates.settings !== undefined) setValues.settings = updates.settings;
+
+    await db
+      .update(installationSettings)
+      .set(setValues)
+      .where(eq(installationSettings.installationId, installationId));
+    return { ...existing, ...setValues };
+  }
+
+  const [result] = await db
+    .insert(installationSettings)
+    .values({
+      installationId,
+      providerChain: updates.providerChain ?? [],
+      aiReviewEnabled: updates.aiReviewEnabled ?? true,
+      reviewMode: updates.reviewMode ?? 'simple',
+      settings: updates.settings ?? DEFAULT_REPO_SETTINGS,
+    })
+    .returning();
+  return result!;
+}
+
+export async function getInstallationById(db: Database, installationId: number) {
+  const [row] = await db
+    .select()
+    .from(installations)
+    .where(eq(installations.id, installationId))
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Resolve the effective settings for a repository.
+ * If use_global_settings is true, returns installation-level settings.
+ * Otherwise returns the repo's own settings.
+ */
+export interface EffectiveSettings {
+  providerChain: DbProviderChainEntry[];
+  aiReviewEnabled: boolean;
+  reviewMode: string;
+  settings: RepoSettings;
+  source: 'global' | 'repo';
+}
+
+export async function getEffectiveRepoSettings(
+  db: Database,
+  repo: {
+    installationId: number;
+    useGlobalSettings: boolean;
+    providerChain: DbProviderChainEntry[] | unknown;
+    aiReviewEnabled: boolean;
+    reviewMode: string;
+    settings: RepoSettings | unknown;
+  },
+): Promise<EffectiveSettings> {
+  if (!repo.useGlobalSettings) {
+    return {
+      providerChain: (repo.providerChain ?? []) as DbProviderChainEntry[],
+      aiReviewEnabled: repo.aiReviewEnabled,
+      reviewMode: repo.reviewMode,
+      settings: (repo.settings ?? DEFAULT_REPO_SETTINGS) as RepoSettings,
+      source: 'repo',
+    };
+  }
+
+  const globalSettings = await getInstallationSettings(db, repo.installationId);
+
+  if (globalSettings) {
+    return {
+      providerChain: (globalSettings.providerChain ?? []) as DbProviderChainEntry[],
+      aiReviewEnabled: globalSettings.aiReviewEnabled,
+      reviewMode: globalSettings.reviewMode,
+      settings: (globalSettings.settings ?? DEFAULT_REPO_SETTINGS) as RepoSettings,
+      source: 'global',
+    };
+  }
+
+  // No installation settings exist — return defaults
+  return {
+    providerChain: [],
+    aiReviewEnabled: true,
+    reviewMode: 'simple',
+    settings: DEFAULT_REPO_SETTINGS,
+    source: 'global',
+  };
 }
 
 // ─── Repositories ───────────────────────────────────────────────
