@@ -70,7 +70,7 @@ const STANCE_PROMPTS: Record<ConsensusStance, string> = {
  *   CONFIDENCE: 0.0-1.0
  *   REASONING: ...
  */
-function parseVote(
+export function parseVote(
   text: string,
   provider: LLMProvider,
   model: string,
@@ -108,7 +108,7 @@ function parseVote(
  *   - If reject ratio ≥ 60% → FAILED
  *   - If confidence gap < 30% → NEEDS_HUMAN_REVIEW
  */
-function calculateConsensus(votes: ConsensusVote[]): {
+export function calculateConsensus(votes: ConsensusVote[]): {
   status: ReviewStatus;
   summary: string;
 } {
