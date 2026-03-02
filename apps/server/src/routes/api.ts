@@ -17,11 +17,14 @@ import {
   getSessionsByProject,
   getObservationsBySession,
   encrypt,
+  decrypt,
 } from 'ghagga-db';
 import type { Database } from 'ghagga-db';
-import type { RepoSettings } from 'ghagga-db';
+import type { RepoSettings, DbProviderChainEntry } from 'ghagga-db';
+import type { SaaSProvider } from 'ghagga-core';
 import type { AuthUser } from '../middleware/auth.js';
 import { logger as rootLogger } from '../lib/logger.js';
+import { validateProviderKey } from '../lib/provider-models.js';
 
 const logger = rootLogger.child({ module: 'api' });
 
@@ -129,7 +132,207 @@ export function createApiRouter(db: Database) {
     }
   });
 
-  // ── PUT /api/repositories/:id/settings ──────────────────────
+  // ── GET /api/settings ────────────────────────────────────────
+  router.get('/api/settings', async (c) => {
+    const user = c.get('user') as AuthUser;
+    const repoFullName = c.req.query('repo');
+
+    if (!repoFullName) {
+      return c.json({ error: 'Missing required query parameter: repo' }, 400);
+    }
+
+    try {
+      const repo = await getRepoByFullName(db, repoFullName);
+
+      if (!repo) {
+        return c.json({ error: 'Repository not found' }, 404);
+      }
+
+      if (!user.installationIds.includes(repo.installationId)) {
+        return c.json({ error: 'Forbidden' }, 403);
+      }
+
+      const settings = repo.settings as RepoSettings;
+      const chain = (repo.providerChain ?? []) as DbProviderChainEntry[];
+
+      // Build view: mask keys, never expose encrypted values
+      const providerChainView = chain.map((entry) => ({
+        provider: entry.provider,
+        model: entry.model,
+        hasApiKey: entry.encryptedApiKey != null,
+        maskedApiKey: entry.encryptedApiKey
+          ? maskApiKey(decrypt(entry.encryptedApiKey))
+          : undefined,
+      }));
+
+      return c.json({
+        data: {
+          repoId: repo.id,
+          repoFullName: repo.fullName,
+          aiReviewEnabled: repo.aiReviewEnabled,
+          providerChain: providerChainView,
+          reviewMode: repo.reviewMode,
+          enableSemgrep: settings.enableSemgrep,
+          enableTrivy: settings.enableTrivy,
+          enableCpd: settings.enableCpd,
+          enableMemory: settings.enableMemory,
+          customRules: (settings.customRules ?? []).join('\n'),
+          ignorePatterns: settings.ignorePatterns ?? [],
+        },
+      });
+    } catch (err) {
+      logger.error({ err, repo: repoFullName, user: user.githubLogin }, 'Failed to fetch settings');
+      return c.json({ error: 'Failed to fetch settings' }, 500);
+    }
+  });
+
+  // ── PUT /api/settings ───────────────────────────────────────
+  router.put('/api/settings', async (c) => {
+    const user = c.get('user') as AuthUser;
+
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400);
+    }
+
+    const repoFullName = body.repoFullName as string | undefined;
+    if (!repoFullName) {
+      return c.json({ error: 'Missing repoFullName' }, 400);
+    }
+
+    try {
+      const repo = await getRepoByFullName(db, repoFullName);
+      if (!repo) {
+        return c.json({ error: 'Repository not found' }, 404);
+      }
+
+      if (!user.installationIds.includes(repo.installationId)) {
+        return c.json({ error: 'Forbidden' }, 403);
+      }
+
+      // Validate no Ollama in the chain
+      const incomingChain = (body.providerChain ?? []) as Array<{
+        provider: string;
+        model: string;
+        apiKey?: string;
+      }>;
+
+      const VALID_SAAS_PROVIDERS = ['anthropic', 'openai', 'google', 'github'];
+      for (const entry of incomingChain) {
+        if (!VALID_SAAS_PROVIDERS.includes(entry.provider)) {
+          return c.json(
+            { error: `Provider '${entry.provider}' is not available in the SaaS dashboard` },
+            400,
+          );
+        }
+      }
+
+      // Merge API keys: preserve existing encrypted keys when not provided
+      const existingChain = (repo.providerChain ?? []) as DbProviderChainEntry[];
+
+      const mergedChain: DbProviderChainEntry[] = incomingChain.map((entry) => {
+        if (entry.apiKey) {
+          // New key provided → encrypt it
+          return {
+            provider: entry.provider as SaaSProvider,
+            model: entry.model,
+            encryptedApiKey: encrypt(entry.apiKey),
+          };
+        }
+
+        if (entry.provider === 'github') {
+          // GitHub Models doesn't need an API key
+          return {
+            provider: 'github' as const,
+            model: entry.model,
+            encryptedApiKey: null,
+          };
+        }
+
+        // No key provided → try to preserve existing key for this provider
+        const existing = existingChain.find((e) => e.provider === entry.provider);
+        return {
+          provider: entry.provider as SaaSProvider,
+          model: entry.model,
+          encryptedApiKey: existing?.encryptedApiKey ?? null,
+        };
+      });
+
+      // Build settings update
+      const currentSettings = (repo.settings ?? {}) as RepoSettings;
+      const settingsUpdate: RepoSettings = {
+        enableSemgrep: typeof body.enableSemgrep === 'boolean' ? body.enableSemgrep : currentSettings.enableSemgrep,
+        enableTrivy: typeof body.enableTrivy === 'boolean' ? body.enableTrivy : currentSettings.enableTrivy,
+        enableCpd: typeof body.enableCpd === 'boolean' ? body.enableCpd : currentSettings.enableCpd,
+        enableMemory: typeof body.enableMemory === 'boolean' ? body.enableMemory : currentSettings.enableMemory,
+        customRules: typeof body.customRules === 'string'
+          ? (body.customRules as string).split('\n').map((r: string) => r.trim()).filter(Boolean)
+          : currentSettings.customRules,
+        ignorePatterns: Array.isArray(body.ignorePatterns) ? body.ignorePatterns as string[] : currentSettings.ignorePatterns,
+        reviewLevel: typeof body.reviewLevel === 'string' ? body.reviewLevel as RepoSettings['reviewLevel'] : currentSettings.reviewLevel,
+      };
+
+      await updateRepoSettings(db, repo.id, {
+        settings: settingsUpdate,
+        reviewMode: typeof body.reviewMode === 'string' ? body.reviewMode : undefined,
+        aiReviewEnabled: typeof body.aiReviewEnabled === 'boolean' ? body.aiReviewEnabled : undefined,
+        providerChain: mergedChain,
+      });
+
+      logger.info({ repo: repoFullName, user: user.githubLogin, chainLength: mergedChain.length }, 'Settings updated');
+      return c.json({ message: 'Settings updated' });
+    } catch (err) {
+      logger.error({ err, repo: repoFullName, user: user.githubLogin }, 'Failed to update settings');
+      return c.json({ error: 'Failed to update settings' }, 500);
+    }
+  });
+
+  // ── POST /api/providers/validate ────────────────────────────
+  router.post('/api/providers/validate', async (c) => {
+    const user = c.get('user') as AuthUser;
+
+    let body: { provider?: string; apiKey?: string };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400);
+    }
+
+    const provider = body.provider;
+    if (!provider) {
+      return c.json({ error: 'Missing provider field' }, 400);
+    }
+
+    if (provider === 'ollama') {
+      return c.json({ error: 'Ollama is not available in the SaaS dashboard. Use CLI or Action instead.' }, 400);
+    }
+
+    const validProviders = ['anthropic', 'openai', 'google', 'github'];
+    if (!validProviders.includes(provider)) {
+      return c.json({ error: `Unknown provider: ${provider}` }, 400);
+    }
+
+    // For GitHub Models, use the user's session token
+    let apiKey = body.apiKey;
+    if (provider === 'github') {
+      const authHeader = c.req.header('Authorization') ?? '';
+      apiKey = authHeader.replace(/^Bearer\s+/i, '');
+    } else if (!apiKey) {
+      return c.json({ error: 'Missing apiKey for non-GitHub provider' }, 400);
+    }
+
+    try {
+      const result = await validateProviderKey(provider as SaaSProvider, apiKey!);
+      return c.json(result);
+    } catch (err) {
+      logger.error({ err, provider, user: user.githubLogin }, 'Provider validation error');
+      return c.json({ valid: false, models: [], error: 'Validation request failed' });
+    }
+  });
+
+  // ── PUT /api/repositories/:id/settings (LEGACY — kept for backward compat) ──
   router.put('/api/repositories/:id/settings', async (c) => {
     const user = c.get('user') as AuthUser;
     const repoId = parseInt(c.req.param('id'), 10);
