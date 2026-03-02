@@ -5,7 +5,7 @@ branding:
   color: 'purple'
 inputs:
   provider:
-    description: 'LLM provider (anthropic, openai, google)'
+    description: 'LLM provider (anthropic, openai, google, github)'
     required: false
     default: 'anthropic'
   model:

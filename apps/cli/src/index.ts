@@ -10,8 +10,13 @@
  *
  * Environment variables:
  *   GHAGGA_API_KEY     API key for the LLM provider (required)
- *   GHAGGA_PROVIDER    LLM provider: anthropic, openai, google (default: anthropic)
+ *   GHAGGA_PROVIDER    LLM provider: anthropic, openai, google, github (default: anthropic)
  *   GHAGGA_MODEL       Model identifier (default: auto based on provider)
+ *
+ * GitHub Models provider:
+ *   Uses your GitHub PAT (with models:read scope) to access AI models
+ *   for free via https://models.inference.ai.azure.com. Pass your token
+ *   via GHAGGA_API_KEY, GITHUB_TOKEN, or --api-key. Default model: gpt-4o-mini.
  */
 
 import 'dotenv/config';
@@ -72,12 +77,17 @@ program
     }
 
     // Validate provider
-    const validProviders: LLMProvider[] = ['anthropic', 'openai', 'google'];
+    const validProviders: LLMProvider[] = ['anthropic', 'openai', 'google', 'github'];
     if (!validProviders.includes(options.provider as LLMProvider)) {
       console.error(
         `\u274c Invalid provider "${options.provider}". Choose from: ${validProviders.join(', ')}`,
       );
       process.exit(1);
+    }
+
+    // For GitHub Models provider, fall back to GITHUB_TOKEN if no API key set
+    if (options.provider === 'github' && !options.apiKey) {
+      options.apiKey = process.env['GITHUB_TOKEN'];
     }
 
     // Validate format

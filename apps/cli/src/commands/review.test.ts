@@ -166,11 +166,12 @@ describe('CLI input validation', () => {
     expect(validModes).not.toContain('turbo');
   });
 
-  it('valid providers are: anthropic, openai, google', () => {
-    const validProviders = ['anthropic', 'openai', 'google'];
+  it('valid providers are: anthropic, openai, google, github', () => {
+    const validProviders = ['anthropic', 'openai', 'google', 'github'];
     expect(validProviders).toContain('anthropic');
     expect(validProviders).toContain('openai');
     expect(validProviders).toContain('google');
+    expect(validProviders).toContain('github');
     expect(validProviders).not.toContain('mistral');
   });
 

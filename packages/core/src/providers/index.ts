@@ -1,9 +1,13 @@
 /**
  * LLM Provider factory using the Vercel AI SDK.
  *
- * Wraps @ai-sdk/anthropic, @ai-sdk/openai, and @ai-sdk/google
- * behind a unified factory so the rest of the codebase doesn't
- * need to know which provider is being used.
+ * Wraps @ai-sdk/anthropic, @ai-sdk/openai, @ai-sdk/google, and
+ * GitHub Models behind a unified factory so the rest of the codebase
+ * doesn't need to know which provider is being used.
+ *
+ * GitHub Models uses the OpenAI-compatible endpoint at
+ * https://models.inference.ai.azure.com and authenticates with a
+ * GitHub Personal Access Token (PAT) with `models:read` scope.
  */
 
 import { createAnthropic } from '@ai-sdk/anthropic';
@@ -11,6 +15,9 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { LanguageModel } from 'ai';
 import type { LLMProvider } from '../types.js';
+
+/** GitHub Models inference endpoint (OpenAI-compatible) */
+const GITHUB_MODELS_BASE_URL = 'https://models.inference.ai.azure.com';
 
 // ─── Provider Factory ───────────────────────────────────────────
 
@@ -20,7 +27,7 @@ import type { LLMProvider } from '../types.js';
  * Returns the provider's model creator function, which can be called
  * with a model ID to get a LanguageModel instance.
  *
- * @param provider - Provider name ('anthropic' | 'openai' | 'google')
+ * @param provider - Provider name ('anthropic' | 'openai' | 'google' | 'github')
  * @param apiKey - Decrypted API key for the provider
  * @returns The provider's model creator function
  */
@@ -35,6 +42,12 @@ export function createProvider(
       return createOpenAI({ apiKey });
     case 'google':
       return createGoogleGenerativeAI({ apiKey });
+    case 'github':
+      return createOpenAI({
+        apiKey,
+        baseURL: GITHUB_MODELS_BASE_URL,
+        name: 'github-models',
+      });
     default: {
       // Exhaustive check — TypeScript will error if a provider is missing
       const _exhaustive: never = provider;

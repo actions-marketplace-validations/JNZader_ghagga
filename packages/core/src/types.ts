@@ -8,7 +8,7 @@
 // ─── Review Input ───────────────────────────────────────────────
 
 export type ReviewMode = 'simple' | 'workflow' | 'consensus';
-export type LLMProvider = 'anthropic' | 'openai' | 'google';
+export type LLMProvider = 'anthropic' | 'openai' | 'google' | 'github';
 export type ReviewLevel = 'soft' | 'normal' | 'strict';
 
 export interface ReviewInput {
@@ -241,4 +241,5 @@ export const DEFAULT_MODELS: Record<LLMProvider, string> = {
   anthropic: 'claude-sonnet-4-20250514',
   openai: 'gpt-4o',
   google: 'gemini-2.0-flash',
+  github: 'gpt-4o-mini',
 };

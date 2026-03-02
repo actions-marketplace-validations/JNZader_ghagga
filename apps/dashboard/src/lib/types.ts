@@ -2,7 +2,7 @@ export type ReviewStatus = 'PASSED' | 'FAILED' | 'NEEDS_HUMAN_REVIEW' | 'SKIPPED
 
 export type ReviewMode = 'simple' | 'workflow' | 'consensus';
 
-export type LLMProvider = 'anthropic' | 'openai' | 'google';
+export type LLMProvider = 'anthropic' | 'openai' | 'google' | 'github';
 
 export interface User {
   githubLogin: string;
