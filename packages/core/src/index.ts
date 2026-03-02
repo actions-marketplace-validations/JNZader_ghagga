@@ -41,6 +41,10 @@ export type {
   // Memory types
   ObservationType,
   MemoryObservation,
+
+  // Progress callback types
+  ProgressCallback,
+  ProgressEvent,
 } from './types.js';
 
 // ─── Constants ──────────────────────────────────────────────────

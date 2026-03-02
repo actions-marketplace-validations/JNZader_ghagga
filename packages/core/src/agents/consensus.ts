@@ -22,6 +22,7 @@ import {
 } from './prompts.js';
 import type {
   LLMProvider,
+  ProgressCallback,
   ReviewResult,
   ReviewStatus,
   ConsensusStance,
@@ -43,6 +44,7 @@ export interface ConsensusReviewInput {
   staticContext: string;
   memoryContext: string | null;
   stackHints: string;
+  onProgress?: ProgressCallback;
 }
 
 // ─── Constants ──────────────────────────────────────────────────
@@ -185,11 +187,18 @@ export async function runConsensusReview(
   input: ConsensusReviewInput,
 ): Promise<ReviewResult> {
   const { diff, models, staticContext, memoryContext, stackHints } = input;
+  const emit = input.onProgress ?? (() => {});
 
   const startTime = Date.now();
 
   // Build the user prompt (same for all models)
   const userPrompt = `Review the following code changes:\n\n\`\`\`diff\n${diff}\n\`\`\``;
+
+  emit({
+    step: 'consensus-start',
+    message: `Launching ${models.length} model votes in parallel`,
+    detail: models.map((m) => `  → ${m.provider}/${m.model} (stance: ${m.stance})`).join('\n'),
+  });
 
   // ── Step 1: Run all model votes in parallel ────────────────
   const votePromises = models.map(async (config) => {
@@ -226,17 +235,30 @@ export async function runConsensusReview(
   const votes: ConsensusVote[] = [];
   let totalTokens = 0;
 
-  for (const result of results) {
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]!;
+    const config = models[i]!;
+
     if (result.status === 'fulfilled') {
       votes.push(result.value.vote);
       totalTokens += result.value.tokensUsed;
+      const v = result.value.vote;
+      emit({
+        step: `vote-${config.stance}`,
+        message: `✓ ${config.stance} (${config.provider}/${config.model}) → ${v.decision} (${(v.confidence * 100).toFixed(0)}% confidence)`,
+        detail: v.reasoning,
+      });
     } else {
-      console.warn(
-        '[ghagga] Consensus model failed:',
-        result.reason instanceof Error ? result.reason.message : String(result.reason),
-      );
+      const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      console.warn('[ghagga] Consensus model failed:', reason);
+      emit({
+        step: `vote-${config.stance}`,
+        message: `✗ ${config.stance} (${config.provider}/${config.model}) — FAILED: ${reason}`,
+      });
     }
   }
+
+  emit({ step: 'consensus-voting', message: 'Calculating weighted consensus...' });
 
   // ── Step 3: Calculate consensus ────────────────────────────
   const { status, summary } = calculateConsensus(votes);

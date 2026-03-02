@@ -30,6 +30,7 @@ import {
 import { parseReviewResponse } from './simple.js';
 import type {
   LLMProvider,
+  ProgressCallback,
   ReviewResult,
   WorkflowSpecialist,
 } from '../types.js';
@@ -44,6 +45,7 @@ export interface WorkflowReviewInput {
   staticContext: string;
   memoryContext: string | null;
   stackHints: string;
+  onProgress?: ProgressCallback;
 }
 
 interface SpecialistConfig {
@@ -76,9 +78,16 @@ const SPECIALISTS: SpecialistConfig[] = [
  */
 export async function runWorkflowReview(input: WorkflowReviewInput): Promise<ReviewResult> {
   const { diff, provider, model, apiKey, staticContext, memoryContext, stackHints } = input;
+  const emit = input.onProgress ?? (() => {});
 
   const startTime = Date.now();
   const languageModel = createModel(provider, model, apiKey);
+
+  emit({
+    step: 'workflow-start',
+    message: `Launching ${SPECIALISTS.length} specialist reviewers in parallel`,
+    detail: SPECIALISTS.map((s) => `  → ${s.label}`).join('\n'),
+  });
 
   // Build the user prompt (same for all specialists)
   const userPrompt = `Review the following code changes:\n\n\`\`\`diff\n${diff}\n\`\`\``;
@@ -115,19 +124,36 @@ export async function runWorkflowReview(input: WorkflowReviewInput): Promise<Rev
   let totalTokens = 0;
   const specialistOutputs: string[] = [];
 
-  for (const result of results) {
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]!;
+    const spec = SPECIALISTS[i]!;
+
     if (result.status === 'fulfilled') {
       totalTokens += result.value.tokensUsed;
       specialistOutputs.push(
         `### ${result.value.label}\n\n${result.value.text}`,
       );
+      emit({
+        step: `specialist-${spec.name}`,
+        message: `✓ ${spec.label} — ${result.value.tokensUsed} tokens`,
+        detail: result.value.text,
+      });
     } else {
       // Include error information in synthesis so it's aware of gaps
       specialistOutputs.push(
         `### [FAILED] Specialist\n\nThis specialist could not complete: ${String(result.reason)}`,
       );
+      emit({
+        step: `specialist-${spec.name}`,
+        message: `✗ ${spec.label} — FAILED: ${String(result.reason)}`,
+      });
     }
   }
+
+  emit({
+    step: 'workflow-synthesis',
+    message: `Synthesizing ${specialistOutputs.length} specialist outputs...`,
+  });
 
   // ── Step 3: Synthesis ──────────────────────────────────────
   const synthesisPrompt = [

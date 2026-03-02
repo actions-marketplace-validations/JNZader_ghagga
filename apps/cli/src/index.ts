@@ -99,6 +99,7 @@ program
   .option('--no-trivy', 'Disable Trivy vulnerability scanning')
   .option('--no-cpd', 'Disable CPD duplicate detection')
   .option('-c, --config <path>', 'Path to .ghagga.json config file')
+  .option('-v, --verbose', 'Show detailed progress during review')
   .action(async (path: string, options: ReviewCommandOptions) => {
     // ── Auto-resolve auth from stored config ──────────────────
     const config = loadConfig();
@@ -169,6 +170,7 @@ program
       trivy: options.trivy,
       cpd: options.cpd,
       config: options.config,
+      verbose: options.verbose ?? false,
     });
   });
 
@@ -186,4 +188,5 @@ interface ReviewCommandOptions {
   trivy: boolean;
   cpd: boolean;
   config?: string;
+  verbose: boolean;
 }

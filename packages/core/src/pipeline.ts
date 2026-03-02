@@ -67,12 +67,20 @@ function validateInput(input: ReviewInput): void {
 export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> {
   const startTime = Date.now();
 
+  const emit = input.onProgress ?? (() => {});
+
   // ── Step 1: Validate ───────────────────────────────────────
   validateInput(input);
+  emit({ step: 'validate', message: 'Input validated' });
 
   // ── Step 2: Parse and filter the diff ──────────────────────
   const allFiles = parseDiffFiles(input.diff);
   const filteredFiles = filterIgnoredFiles(allFiles, input.settings.ignorePatterns);
+  emit({
+    step: 'parse-diff',
+    message: `Parsed ${allFiles.length} files from diff, ${filteredFiles.length} after filtering`,
+    detail: filteredFiles.map((f) => `  ${f.path}`).join('\n'),
+  });
 
   // If all files were filtered out, skip the review
   if (filteredFiles.length === 0) {
@@ -86,12 +94,22 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
   // ── Step 3: Detect tech stacks ─────────────────────────────
   const stacks = detectStacks(fileList);
   const stackHints = buildStackHints(stacks);
+  emit({
+    step: 'detect-stacks',
+    message: `Detected ${stacks.length} tech stack(s)`,
+    detail: stacks.length > 0 ? stacks.map((s) => `  ${s}`).join('\n') : '  (none detected)',
+  });
 
   // ── Step 4: Truncate diff to fit token budget ──────────────
   const { diffBudget } = calculateTokenBudget(input.model);
   const { truncated: truncatedDiff } = truncateDiff(filteredDiff, diffBudget);
+  emit({
+    step: 'token-budget',
+    message: `Token budget: ${diffBudget.toLocaleString()} tokens for diff`,
+  });
 
   // ── Step 5: Run static analysis (in parallel with memory) ──
+  emit({ step: 'static-analysis', message: 'Running static analysis & memory search...' });
   const [staticResult, memoryContext] = await Promise.all([
     runStaticAnalysisSafe(fileList, input),
     searchMemorySafe(input, fileList),
@@ -99,7 +117,19 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
 
   const staticContext = formatStaticAnalysisContext(staticResult);
 
+  {
+    const toolsSummary = Object.entries(staticResult)
+      .map(([name, result]) => `  ${name}: ${result.status} (${result.findings.length} findings)`)
+      .join('\n');
+    emit({
+      step: 'static-results',
+      message: 'Static analysis complete',
+      detail: toolsSummary + (memoryContext ? '\n  memory: loaded' : '\n  memory: disabled'),
+    });
+  }
+
   // ── Step 6: Execute agent mode ─────────────────────────────
+  emit({ step: 'agent-start', message: `Running ${input.mode} agent...` });
   let result: ReviewResult;
 
   switch (input.mode) {
@@ -124,6 +154,7 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
         staticContext,
         memoryContext,
         stackHints,
+        onProgress: input.onProgress,
       });
       break;
 
@@ -140,6 +171,7 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
         staticContext,
         memoryContext,
         stackHints,
+        onProgress: input.onProgress,
       });
       break;
 

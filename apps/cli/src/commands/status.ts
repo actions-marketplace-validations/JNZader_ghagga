@@ -22,13 +22,13 @@ export async function statusCommand(): Promise<void> {
   console.log(`   Provider: ${config.defaultProvider ?? 'github'}`);
   console.log(`   Model:    ${config.defaultModel ?? 'gpt-4o-mini'}`);
 
-  // Validate the token is still valid
+  // Validate the stored credential is still valid
   if (config.githubToken) {
     try {
       const user = await fetchGitHubUser(config.githubToken);
-      console.log(`   Token:   \x1b[32mValid\x1b[0m (${user.login})`);
+      console.log(`   Session: \x1b[32mValid\x1b[0m (${user.login})`);
     } catch {
-      console.log(`   Token:   \x1b[31mExpired or invalid\x1b[0m`);
+      console.log(`   Session: \x1b[31mExpired or invalid\x1b[0m`);
       console.log('\n   Run "ghagga login" to re-authenticate.\n');
       return;
     }

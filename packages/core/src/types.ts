@@ -11,6 +11,23 @@ export type ReviewMode = 'simple' | 'workflow' | 'consensus';
 export type LLMProvider = 'anthropic' | 'openai' | 'google' | 'github';
 export type ReviewLevel = 'soft' | 'normal' | 'strict';
 
+/**
+ * Progress callback for pipeline steps.
+ * Used by the CLI in --verbose mode to show real-time progress.
+ */
+export type ProgressCallback = (event: ProgressEvent) => void;
+
+export interface ProgressEvent {
+  /** Pipeline step identifier */
+  step: string;
+
+  /** Human-readable message */
+  message: string;
+
+  /** Optional details (e.g., specialist output, vote reasoning) */
+  detail?: string;
+}
+
 export interface ReviewInput {
   /** The unified diff string from the PR or local changes */
   diff: string;
@@ -38,6 +55,12 @@ export interface ReviewInput {
    * Undefined in CLI/Action modes — memory gracefully degrades.
    */
   db?: unknown;
+
+  /**
+   * Optional progress callback for verbose/debug output.
+   * Called at each pipeline step with status updates.
+   */
+  onProgress?: ProgressCallback;
 }
 
 export interface ReviewSettings {

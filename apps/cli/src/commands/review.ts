@@ -20,6 +20,8 @@ import type {
   ReviewResult,
   ReviewStatus,
   FindingSeverity,
+  ProgressCallback,
+  ProgressEvent,
 } from '@ghagga/core';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -34,6 +36,7 @@ export interface ReviewOptions {
   trivy: boolean;
   cpd: boolean;
   config?: string;
+  verbose: boolean;
 }
 
 interface GhaggaConfig {
@@ -77,6 +80,10 @@ export async function reviewCommand(
     console.log('   Analyzing...\n');
 
     // Step 5: Run the review pipeline
+    const onProgress: ProgressCallback | undefined = options.verbose
+      ? createProgressHandler()
+      : undefined;
+
     const result = await reviewPipeline({
       diff,
       mode: options.mode,
@@ -91,6 +98,7 @@ export async function reviewCommand(
         fileList: [],
       },
       db: undefined,
+      onProgress,
     });
 
     // Step 6: Output the result
@@ -192,6 +200,49 @@ function mergeSettings(
     customRules: fileConfig.customRules ?? DEFAULT_SETTINGS.customRules,
     ignorePatterns: fileConfig.ignorePatterns ?? DEFAULT_SETTINGS.ignorePatterns,
     reviewLevel: (fileConfig.reviewLevel as ReviewSettings['reviewLevel']) ?? DEFAULT_SETTINGS.reviewLevel,
+  };
+}
+
+// ─── Verbose Progress ───────────────────────────────────────────
+
+/** Step-to-emoji mapping for verbose output. */
+const STEP_ICON: Record<string, string> = {
+  'validate':          '🔍',
+  'parse-diff':        '📄',
+  'detect-stacks':     '🧩',
+  'token-budget':      '📊',
+  'static-analysis':   '🛡️',
+  'static-results':    '📋',
+  'agent-start':       '🤖',
+  'workflow-start':    '🔄',
+  'workflow-synthesis': '🧬',
+  'consensus-start':   '🗳️',
+  'consensus-voting':  '🏛️',
+};
+
+/**
+ * Create a progress callback that prints real-time verbose output.
+ * Each step prints a single line with an icon, step name, and message.
+ * Specialist/vote steps (dynamic names) get a generic icon.
+ */
+function createProgressHandler(): ProgressCallback {
+  return (event: ProgressEvent) => {
+    const icon = STEP_ICON[event.step]
+      ?? (event.step.startsWith('specialist-') ? '👤' : undefined)
+      ?? (event.step.startsWith('vote-') ? '🗳️' : undefined)
+      ?? '▸';
+
+    const prefix = `  ${icon} [${event.step}]`;
+    console.log(`${prefix} ${event.message}`);
+
+    if (event.detail) {
+      // Indent detail lines for readability
+      const indented = event.detail
+        .split('\n')
+        .map((line) => `      ${line}`)
+        .join('\n');
+      console.log(indented);
+    }
   };
 }
 
