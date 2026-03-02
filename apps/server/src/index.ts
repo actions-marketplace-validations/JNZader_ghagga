@@ -14,6 +14,7 @@ import { serve as serveInngest } from 'inngest/hono';
 
 import { createDatabaseFromEnv } from 'ghagga-db';
 
+import { logger } from './lib/logger.js';
 import { inngest } from './inngest/client.js';
 import { reviewFunction } from './inngest/review.js';
 import { createWebhookRouter } from './routes/webhook.js';
@@ -28,6 +29,45 @@ const db = createDatabaseFromEnv();
 // ─── App ────────────────────────────────────────────────────────
 
 const app = new Hono();
+
+// ── Global error handler ────────────────────────────────────────
+// Catches any unhandled error in routes/middleware and logs it.
+app.onError((err, c) => {
+  const path = new URL(c.req.url).pathname;
+  logger.error(
+    { err, method: c.req.method, path, status: 500 },
+    `Unhandled error on ${c.req.method} ${path}`,
+  );
+
+  return c.json(
+    {
+      error: 'Internal server error',
+      ...(process.env.NODE_ENV !== 'production' && { detail: err.message, stack: err.stack }),
+    },
+    500,
+  );
+});
+
+// ── Request logging middleware ───────────────────────────────────
+app.use('*', async (c, next) => {
+  const start = Date.now();
+  await next();
+  const ms = Date.now() - start;
+  const path = new URL(c.req.url).pathname;
+  const status = c.res.status;
+
+  // Skip noisy health checks from keepalive
+  if (path === '/health') return;
+
+  const logData = { method: c.req.method, path, status, ms };
+  if (status >= 500) {
+    logger.error(logData, `${c.req.method} ${path} ${status} (${ms}ms)`);
+  } else if (status >= 400) {
+    logger.warn(logData, `${c.req.method} ${path} ${status} (${ms}ms)`);
+  } else {
+    logger.info(logData, `${c.req.method} ${path} ${status} (${ms}ms)`);
+  }
+});
 
 // CORS — allow all origins for the GitHub Pages dashboard
 app.use('*', cors());
@@ -64,7 +104,7 @@ const port = parseInt(process.env.PORT ?? '3000', 10);
 serve(
   { fetch: app.fetch, port },
   (info) => {
-    console.log(`[ghagga] Server running on http://localhost:${info.port}`);
+    logger.info({ port: info.port }, `Server running on http://localhost:${info.port}`);
 
     // Keepalive: self-ping every 5 minutes to prevent Render free tier cold starts.
     // Render spins down after 15 min of inactivity — webhooks would fail on cold start.
@@ -80,7 +120,7 @@ serve(
         }
       }, FIVE_MINUTES);
 
-      console.log(`[ghagga] Keepalive enabled: pinging ${url} every 5m`);
+      logger.info({ url, intervalMs: FIVE_MINUTES }, 'Keepalive enabled');
     }
   },
 );

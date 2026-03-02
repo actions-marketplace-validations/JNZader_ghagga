@@ -3,13 +3,16 @@
  *
  * Verifies a GitHub personal access token by calling GET /user,
  * then looks up which installations the user has access to.
- * On first login, auto-discovers installations via the GitHub API
- * and creates the user-installation mappings in the database.
+ * On first login, auto-discovers installations by matching the
+ * user's GitHub login with installation account_login in our DB.
  */
 
 import { createMiddleware } from 'hono/factory';
 import type { Database } from 'ghagga-db';
 import { getInstallationsByUserId, getInstallationsByAccountLogin, upsertUserMapping } from 'ghagga-db';
+import { logger as rootLogger } from '../lib/logger.js';
+
+const logger = rootLogger.child({ module: 'auth' });
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -60,6 +63,7 @@ export function authMiddleware(db: Database) {
       });
 
       if (!response.ok) {
+        logger.warn({ status: response.status }, 'Token verification failed');
         return c.json({ error: 'Invalid or expired token' }, 401);
       }
 
@@ -70,7 +74,8 @@ export function authMiddleware(db: Database) {
 
       githubUserId = userData.id;
       githubLogin = userData.login;
-    } catch {
+    } catch (err) {
+      logger.error({ err }, 'Failed to call GitHub /user API');
       return c.json({ error: 'Failed to verify token' }, 401);
     }
 
@@ -78,23 +83,23 @@ export function authMiddleware(db: Database) {
     try {
       let userInstallations = await getInstallationsByUserId(db, githubUserId);
 
-      // If no mappings exist, auto-discover from GitHub API and create them
+      // If no mappings exist, auto-discover by matching account_login
       if (userInstallations.length === 0) {
-        console.log(`[ghagga] No mappings for user ${githubLogin} (${githubUserId}), auto-discovering installations...`);
+        logger.info({ githubLogin, githubUserId }, 'No mappings found, auto-discovering installations');
         userInstallations = await discoverAndMapInstallations(db, githubUserId, githubLogin);
       }
 
       const installationIds = userInstallations.map((inst) => inst.id);
+      logger.debug({ githubLogin, installationIds }, 'User authenticated');
 
       c.set('user', {
         githubUserId,
         githubLogin,
         installationIds,
       });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error('[ghagga] Error looking up user installations:', message, error);
-      return c.json({ error: 'Internal server error', detail: message }, 500);
+    } catch (err) {
+      logger.error({ err, githubLogin, githubUserId }, 'Error looking up user installations');
+      return c.json({ error: 'Internal server error' }, 500);
     }
 
     await next();
@@ -106,10 +111,6 @@ export function authMiddleware(db: Database) {
 /**
  * Find installations in our DB whose account_login matches the
  * user's GitHub login, and create the user-installation mappings.
- *
- * This is simpler and more reliable than calling the GitHub API
- * (which requires specific token scopes). Since we already have
- * the installation data from webhook events, we just match by login.
  */
 async function discoverAndMapInstallations(
   db: Database,
@@ -120,12 +121,15 @@ async function discoverAndMapInstallations(
     const matchedInstallations = await getInstallationsByAccountLogin(db, githubLogin);
 
     if (matchedInstallations.length === 0) {
-      console.log(`[ghagga] No installations found for account ${githubLogin}`);
+      logger.warn({ githubLogin }, 'No installations found for account');
       return [];
     }
 
     for (const installation of matchedInstallations) {
-      console.log(`[ghagga] Mapping user ${githubLogin} → installation ${installation.id} (${installation.accountLogin})`);
+      logger.info(
+        { githubLogin, installationId: installation.id, account: installation.accountLogin },
+        'Creating user-installation mapping',
+      );
       await upsertUserMapping(db, {
         githubUserId,
         githubLogin,
@@ -134,8 +138,8 @@ async function discoverAndMapInstallations(
     }
 
     return matchedInstallations;
-  } catch (error) {
-    console.error('[ghagga] Error discovering installations:', error);
+  } catch (err) {
+    logger.error({ err, githubLogin }, 'Error discovering installations');
     return [];
   }
 }

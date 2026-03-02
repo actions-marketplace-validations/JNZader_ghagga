@@ -21,6 +21,9 @@ import {
 import type { Database } from 'ghagga-db';
 import type { RepoSettings } from 'ghagga-db';
 import type { AuthUser } from '../middleware/auth.js';
+import { logger as rootLogger } from '../lib/logger.js';
+
+const logger = rootLogger.child({ module: 'api' });
 
 // ─── Route Factory ──────────────────────────────────────────────
 
@@ -39,23 +42,27 @@ export function createApiRouter(db: Database) {
       return c.json({ error: 'Missing required query parameter: repo' }, 400);
     }
 
-    const repo = await getRepoByFullName(db, repoFullName);
+    try {
+      const repo = await getRepoByFullName(db, repoFullName);
 
-    if (!repo) {
-      return c.json({ error: 'Repository not found' }, 404);
+      if (!repo) {
+        return c.json({ error: 'Repository not found' }, 404);
+      }
+
+      if (!user.installationIds.includes(repo.installationId)) {
+        return c.json({ error: 'Forbidden' }, 403);
+      }
+
+      const reviews = await getReviewsByRepoId(db, repo.id, { limit, offset });
+
+      return c.json({
+        data: reviews,
+        pagination: { page, limit, offset },
+      });
+    } catch (err) {
+      logger.error({ err, repo: repoFullName, user: user.githubLogin }, 'Failed to fetch reviews');
+      return c.json({ error: 'Failed to fetch reviews' }, 500);
     }
-
-    // Check access: repo must belong to one of the user's installations
-    if (!user.installationIds.includes(repo.installationId)) {
-      return c.json({ error: 'Forbidden' }, 403);
-    }
-
-    const reviews = await getReviewsByRepoId(db, repo.id, { limit, offset });
-
-    return c.json({
-      data: reviews,
-      pagination: { page, limit, offset },
-    });
   });
 
   // ── GET /api/stats ──────────────────────────────────────────
@@ -67,32 +74,42 @@ export function createApiRouter(db: Database) {
       return c.json({ error: 'Missing required query parameter: repo' }, 400);
     }
 
-    const repo = await getRepoByFullName(db, repoFullName);
+    try {
+      const repo = await getRepoByFullName(db, repoFullName);
 
-    if (!repo) {
-      return c.json({ error: 'Repository not found' }, 404);
+      if (!repo) {
+        return c.json({ error: 'Repository not found' }, 404);
+      }
+
+      if (!user.installationIds.includes(repo.installationId)) {
+        return c.json({ error: 'Forbidden' }, 403);
+      }
+
+      const stats = await getReviewStats(db, repo.id);
+
+      return c.json({ data: stats });
+    } catch (err) {
+      logger.error({ err, repo: repoFullName, user: user.githubLogin }, 'Failed to fetch stats');
+      return c.json({ error: 'Failed to fetch stats' }, 500);
     }
-
-    if (!user.installationIds.includes(repo.installationId)) {
-      return c.json({ error: 'Forbidden' }, 403);
-    }
-
-    const stats = await getReviewStats(db, repo.id);
-
-    return c.json({ data: stats });
   });
 
   // ── GET /api/repositories ───────────────────────────────────
   router.get('/api/repositories', async (c) => {
     const user = c.get('user') as AuthUser;
 
-    const allRepos = [];
-    for (const installationId of user.installationIds) {
-      const repos = await getReposByInstallationId(db, installationId);
-      allRepos.push(...repos);
-    }
+    try {
+      const allRepos = [];
+      for (const installationId of user.installationIds) {
+        const repos = await getReposByInstallationId(db, installationId);
+        allRepos.push(...repos);
+      }
 
-    return c.json({ data: allRepos });
+      return c.json({ data: allRepos });
+    } catch (err) {
+      logger.error({ err, user: user.githubLogin }, 'Failed to fetch repositories');
+      return c.json({ error: 'Failed to fetch repositories' }, 500);
+    }
   });
 
   // ── PUT /api/repositories/:id/settings ──────────────────────
