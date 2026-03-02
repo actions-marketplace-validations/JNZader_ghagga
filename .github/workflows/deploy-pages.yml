@@ -53,7 +53,7 @@ jobs:
       - name: Build dashboard
         run: pnpm --filter @ghagga/dashboard build
         env:
-          VITE_API_URL: ${{ vars.API_URL || 'https://ghagga.koyeb.app' }}
+          VITE_API_URL: ${{ vars.API_URL || 'https://ghagga.onrender.com' }}
 
       - name: Assemble Pages artifact
         run: |

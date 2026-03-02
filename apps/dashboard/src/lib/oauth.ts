@@ -11,7 +11,11 @@
 export const GITHUB_CLIENT_ID = 'Ov23liyYpSgDqOLUFa5k';
 
 /** Server base URL — used for OAuth proxy endpoints */
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  (window.location.hostname === 'localhost'
+    ? 'http://localhost:3000'
+    : 'https://ghagga.onrender.com');
 
 // ─── Types ──────────────────────────────────────────────────────
 

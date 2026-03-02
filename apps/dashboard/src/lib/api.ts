@@ -12,7 +12,11 @@ import type {
   Observation,
 } from './types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_URL =
+  import.meta.env.VITE_API_URL ||
+  (window.location.hostname === 'localhost'
+    ? 'http://localhost:3000'
+    : 'https://ghagga.onrender.com');
 
 class ApiError extends Error {
   constructor(
