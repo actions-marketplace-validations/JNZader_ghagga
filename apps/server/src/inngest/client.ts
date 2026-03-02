@@ -22,6 +22,20 @@ export interface ReviewRequestedData {
   /** Internal repository ID in our database */
   repositoryId: number;
 
+  // ── Provider chain (new) ──────────────────────────────────
+
+  /** Ordered provider chain from DB (entries have encrypted keys) */
+  providerChain?: Array<{
+    provider: string;
+    model: string;
+    encryptedApiKey: string | null;
+  }>;
+
+  /** Whether AI review is enabled for this repo */
+  aiReviewEnabled?: boolean;
+
+  // ── Legacy flat fields (backward compat) ──────────────────
+
   /** LLM provider to use */
   llmProvider: string;
 

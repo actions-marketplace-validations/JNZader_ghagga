@@ -17,9 +17,9 @@ import {
   postComment,
 } from '../github/client.js';
 import { reviewPipeline } from 'ghagga-core';
-import type { ReviewInput, ReviewResult, ReviewStatus, ReviewMode, LLMProvider, ReviewLevel } from 'ghagga-core';
+import type { ReviewInput, ReviewResult, ReviewStatus, ReviewMode, LLMProvider, ReviewLevel, ProviderChainEntry } from 'ghagga-core';
 import { createDatabaseFromEnv, saveReview, decrypt } from 'ghagga-db';
-import type { Database } from 'ghagga-db';
+import type { Database, DbProviderChainEntry } from 'ghagga-db';
 
 // ─── Comment Formatting ─────────────────────────────────────────
 
@@ -101,6 +101,10 @@ export const reviewFunction = inngest.createFunction(
       repoFullName,
       prNumber,
       repositoryId,
+      // Provider chain (new)
+      providerChain: rawProviderChain,
+      aiReviewEnabled,
+      // Legacy flat fields (backward compat)
       llmProvider,
       llmModel,
       reviewMode,
@@ -132,20 +136,42 @@ export const reviewFunction = inngest.createFunction(
 
     // Step 2: Run the core review pipeline
     const result = await step.run('run-review', async () => {
-      // Decrypt the API key
-      let apiKey: string;
-      if (encryptedApiKey) {
-        apiKey = decrypt(encryptedApiKey);
-      } else {
-        // Fallback to environment variable
-        const envKey = process.env[`${llmProvider.toUpperCase()}_API_KEY`];
-        if (!envKey) {
-          throw new Error(
-            `No API key configured for provider ${llmProvider}. ` +
-            `Set a per-repo key or the ${llmProvider.toUpperCase()}_API_KEY env var.`,
-          );
+      // Build the provider chain (decrypt API keys)
+      const dbChain = (rawProviderChain ?? []) as DbProviderChainEntry[];
+      let providerChain: ProviderChainEntry[] | undefined;
+
+      if (dbChain.length > 0) {
+        // New provider chain mode
+        providerChain = dbChain.map((entry) => ({
+          provider: entry.provider,
+          model: entry.model,
+          apiKey: entry.encryptedApiKey
+            ? decrypt(entry.encryptedApiKey)
+            : (context.token ?? ''), // GitHub Models: use installation token
+        }));
+      }
+
+      // Fallback: legacy single provider (for repos not yet migrated to chain)
+      let legacyApiKey: string | undefined;
+      let legacyProvider: LLMProvider | undefined;
+      let legacyModel: string | undefined;
+
+      if (!providerChain || providerChain.length === 0) {
+        legacyProvider = llmProvider as LLMProvider;
+        legacyModel = llmModel;
+
+        if (encryptedApiKey) {
+          legacyApiKey = decrypt(encryptedApiKey);
+        } else {
+          const envKey = process.env[`${llmProvider?.toUpperCase()}_API_KEY`];
+          if (!envKey) {
+            throw new Error(
+              `No API key configured for provider ${llmProvider}. ` +
+              `Set a per-repo key or the ${llmProvider?.toUpperCase()}_API_KEY env var.`,
+            );
+          }
+          legacyApiKey = envKey;
         }
-        apiKey = envKey;
       }
 
       let db: Database | undefined;
@@ -159,9 +185,13 @@ export const reviewFunction = inngest.createFunction(
       const input: ReviewInput = {
         diff: context.diff,
         mode: reviewMode as ReviewMode,
-        provider: llmProvider as LLMProvider,
-        model: llmModel,
-        apiKey,
+        // Provider chain (new)
+        providerChain,
+        aiReviewEnabled: aiReviewEnabled ?? true,
+        // Legacy single provider (backward compat)
+        provider: legacyProvider,
+        model: legacyModel,
+        apiKey: legacyApiKey,
         settings: {
           enableSemgrep: settings.enableSemgrep,
           enableTrivy: settings.enableTrivy,

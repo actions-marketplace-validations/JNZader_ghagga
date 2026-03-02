@@ -199,8 +199,12 @@ async function handlePullRequest(
       repoFullName: payload.repository.full_name,
       prNumber: payload.number,
       repositoryId: repo.id,
+      // Provider chain (new)
+      providerChain: repo.providerChain ?? [],
+      aiReviewEnabled: repo.aiReviewEnabled ?? true,
+      // Legacy flat fields (kept for backward compat during transition)
       llmProvider: repo.llmProvider,
-      llmModel: repo.llmModel ?? 'claude-sonnet-4-20250514',
+      llmModel: repo.llmModel ?? 'gpt-4o-mini',
       reviewMode: repo.reviewMode,
       encryptedApiKey: repo.encryptedApiKey,
       settings: {
