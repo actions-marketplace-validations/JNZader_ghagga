@@ -20,7 +20,6 @@
 - [Tech Stack](#tech-stack)
 - [What changed from v1](#what-changed-from-v1)
 - [Contributing](#contributing)
-- [Support](#support)
 - [License](#license)
 
 ---
@@ -707,16 +706,6 @@ Contributions welcome! This project is part of the [Gentleman Programming](https
 - **TypeScript strict mode**: No `any` types, no implicit returns
 - **Tests required**: New features should include tests
 - **Graceful degradation**: Every external dependency (tools, memory, providers) must degrade gracefully
-
----
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/JNZader/ghagga/issues)
-- **Original GGA**: [Gentleman Guardian Angel](https://github.com/Gentleman-Programming/gentleman-guardian-angel) by Gentleman Programming (648 stars)
-- **Engram**: [Persistent memory for AI agents](https://github.com/Gentleman-Programming/engram) by Gentleman Programming
-- **Discord**: [Gentleman Programming Community](https://discord.gg/gentleman-programming)
-- **YouTube**: [@GentlemanProgramming](https://youtube.com/@GentlemanProgramming)
 
 ---
 
