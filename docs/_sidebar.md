@@ -23,3 +23,8 @@
   - [Database Schema](database-schema.md)
   - [Tech Stack](tech-stack.md)
   - [v1 vs v2](v1-vs-v2.md)
+
+- Links
+  - [Home](/ghagga/)
+  - [Dashboard](/ghagga/app/)
+  - [GitHub](https://github.com/JNZader/ghagga)
