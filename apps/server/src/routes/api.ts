@@ -85,9 +85,26 @@ export function createApiRouter(db: Database) {
         return c.json({ error: 'Forbidden' }, 403);
       }
 
-      const stats = await getReviewStats(db, repo.id);
+      const raw = await getReviewStats(db, repo.id);
 
-      return c.json({ data: stats });
+      // Map DB shape to dashboard Stats type
+      const total = raw.total ?? 0;
+      const passed = raw.passed ?? 0;
+      const failed = raw.failed ?? 0;
+      const skipped = raw.skipped ?? 0;
+      const needsHumanReview = total - passed - failed - skipped;
+
+      return c.json({
+        data: {
+          totalReviews: total,
+          passed,
+          failed,
+          needsHumanReview,
+          skipped,
+          passRate: total > 0 ? (passed / total) * 100 : 0,
+          reviewsByDay: [], // TODO: implement daily aggregation query
+        },
+      });
     } catch (err) {
       logger.error({ err, repo: repoFullName, user: user.githubLogin }, 'Failed to fetch stats');
       return c.json({ error: 'Failed to fetch stats' }, 500);
