@@ -29,21 +29,24 @@ jobs:
       - run: pnpm turbo test
 
       # Publish in dependency order: db → core → cli
-      # --provenance links the package to this GitHub repo (trusted publishing)
+      # pnpm publish resolves workspace:^ → ^2.0.0 automatically
       - name: Publish ghagga-db
-        run: npm publish --access public --provenance
+        run: pnpm publish --access public --no-git-checks --provenance
         working-directory: packages/db
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
 
       - name: Publish ghagga-core
-        run: npm publish --access public --provenance
+        run: pnpm publish --access public --no-git-checks --provenance
         working-directory: packages/core
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
 
       - name: Publish ghagga (CLI)
-        run: npm publish --access public --provenance
+        run: pnpm publish --access public --no-git-checks --provenance
         working-directory: apps/cli
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
