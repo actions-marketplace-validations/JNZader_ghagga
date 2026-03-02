@@ -214,6 +214,8 @@ const STEP_ICON: Record<string, string> = {
   'static-analysis':   '🛡️',
   'static-results':    '📋',
   'agent-start':       '🤖',
+  'simple-call':       '💬',
+  'simple-done':       '✅',
   'workflow-start':    '🔄',
   'workflow-synthesis': '🧬',
   'consensus-start':   '🗳️',

@@ -142,6 +142,7 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
         staticContext,
         memoryContext,
         stackHints,
+        onProgress: input.onProgress,
       });
       break;
 

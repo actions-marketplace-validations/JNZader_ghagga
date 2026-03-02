@@ -16,6 +16,7 @@ import {
 } from './prompts.js';
 import type {
   LLMProvider,
+  ProgressCallback,
   ReviewResult,
   ReviewFinding,
   ReviewStatus,
@@ -33,6 +34,7 @@ export interface SimpleReviewInput {
   staticContext: string;
   memoryContext: string | null;
   stackHints: string;
+  onProgress?: ProgressCallback;
 }
 
 // ─── Response Parsing ───────────────────────────────────────────
@@ -146,6 +148,7 @@ function parseFindingsBlock(text: string): ReviewFinding[] {
  */
 export async function runSimpleReview(input: SimpleReviewInput): Promise<ReviewResult> {
   const { diff, provider, model, apiKey, staticContext, memoryContext, stackHints } = input;
+  const emit = input.onProgress ?? (() => {});
 
   const startTime = Date.now();
 
@@ -164,6 +167,11 @@ export async function runSimpleReview(input: SimpleReviewInput): Promise<ReviewR
 
   const languageModel = createModel(provider, model, apiKey);
 
+  emit({
+    step: 'simple-call',
+    message: `Calling ${provider}/${model} for single-pass review...`,
+  });
+
   const result = await generateText({
     model: languageModel,
     system,
@@ -174,6 +182,11 @@ export async function runSimpleReview(input: SimpleReviewInput): Promise<ReviewR
   const executionTimeMs = Date.now() - startTime;
   const tokensUsed =
     (result.usage?.promptTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+
+  emit({
+    step: 'simple-done',
+    message: `Review complete — ${tokensUsed} tokens, ${(executionTimeMs / 1000).toFixed(1)}s`,
+  });
 
   return parseReviewResponse(
     result.text,
