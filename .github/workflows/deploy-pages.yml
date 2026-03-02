@@ -1,16 +1,17 @@
 # ============================================
-# GHAGGA v2 — Deploy Dashboard to GitHub Pages
+# GHAGGA v2 — Deploy to GitHub Pages
 # ============================================
-# Builds and deploys the React dashboard to GitHub Pages
-# on every push to main.
+# Builds and deploys the React dashboard + Docsify docs
+# to GitHub Pages on every push to main.
 
-name: Deploy Dashboard
+name: Deploy Pages
 
 on:
   push:
     branches: [main]
     paths:
       - 'apps/dashboard/**'
+      - 'docs/**'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch: # Manual trigger from GitHub Actions UI
 
@@ -47,6 +48,9 @@ jobs:
         run: pnpm --filter @ghagga/dashboard build
         env:
           VITE_API_URL: ${{ vars.API_URL || 'https://ghagga.koyeb.app' }}
+
+      - name: Copy docs into dashboard dist
+        run: cp -r docs apps/dashboard/dist/docs
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

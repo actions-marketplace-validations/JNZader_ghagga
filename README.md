@@ -4,6 +4,8 @@
 
 **Multi-agent code reviewer** that posts intelligent comments on your Pull Requests. Combines LLM analysis with static analysis tools (Semgrep, Trivy, CPD) and project memory that learns across reviews.
 
+**[Documentation](https://jnzader.github.io/ghagga/docs/)** · **[Dashboard](https://jnzader.github.io/ghagga/)**
+
 ## Table of Contents
 
 - [What is this?](#what-is-this)
@@ -19,7 +21,6 @@
 - [Development](#development)
 - [Tech Stack](#tech-stack)
 - [What changed from v1](#what-changed-from-v1)
-- [Contributing](#contributing)
 - [License](#license)
 
 ---
@@ -683,29 +684,6 @@ GHAGGA v2 is a **complete rewrite** from scratch. The v1 codebase (~11,000 lines
 | Static analysis | Semgrep only (via microservice) | Semgrep + Trivy + CPD (direct binary execution) |
 | Memory | Partial (stored but never consumed) | Full pipeline (search → inject → review → extract → persist) |
 | Dead code | ~40% of codebase | 0% |
-
----
-
-## Contributing
-
-Contributions welcome! This project is part of the [Gentleman Programming](https://github.com/Gentleman-Programming) community ecosystem.
-
-### How to Contribute
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feat/amazing-feature`)
-3. Make your changes
-4. Run the test suite (`pnpm exec turbo test`)
-5. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-6. Push to the branch (`git push origin feat/amazing-feature`)
-7. Open a Pull Request
-
-### Development Guidelines
-
-- **Conventional commits**: `feat:`, `fix:`, `test:`, `docs:`, `ci:`, `refactor:`
-- **TypeScript strict mode**: No `any` types, no implicit returns
-- **Tests required**: New features should include tests
-- **Graceful degradation**: Every external dependency (tools, memory, providers) must degrade gracefully
 
 ---
 
