@@ -47,10 +47,12 @@ describe('stripPrivateData', () => {
   });
 
   it('redacts Google API keys (AIza...)', () => {
-    const text = 'google_key = AIzaSyA1234567890abcdefghijklmnopqrstuv';
+    // Construct at runtime to avoid triggering GitHub secret scanning
+    const googleKey = 'AIza' + 'SyA1234567890abcdefghijklmnopqrstuv';
+    const text = `google_key = ${googleKey}`;
     const result = stripPrivateData(text);
     expect(result).toContain('[REDACTED_GOOGLE_KEY]');
-    expect(result).not.toContain('AIzaSyA');
+    expect(result).not.toContain('AIza');
   });
 
   it('redacts Slack tokens (xoxb-, xoxp-)', () => {
