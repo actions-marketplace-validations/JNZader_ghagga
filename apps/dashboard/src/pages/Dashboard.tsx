@@ -45,26 +45,28 @@ function EmptyState() {
 }
 
 function StatsOverview({ stats }: { stats: Stats }) {
+  const passRate = stats.passRate ?? 0;
+
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <StatCard
         label="Total Reviews"
-        value={stats.totalReviews}
+        value={stats.totalReviews ?? 0}
         color="text-text-primary"
       />
       <StatCard
         label="Passed"
-        value={stats.passed}
+        value={stats.passed ?? 0}
         color="text-green-400"
       />
       <StatCard
         label="Failed"
-        value={stats.failed}
+        value={stats.failed ?? 0}
         color="text-red-400"
       />
       <StatCard
         label="Pass Rate"
-        value={`${stats.passRate.toFixed(1)}%`}
+        value={`${passRate.toFixed(1)}%`}
         color="text-primary-400"
       />
     </div>
@@ -72,7 +74,7 @@ function StatsOverview({ stats }: { stats: Stats }) {
 }
 
 function ReviewChart({ data }: { data: Stats['reviewsByDay'] }) {
-  if (data.length === 0) return null;
+  if (!data || data.length === 0) return null;
 
   return (
     <Card className="mt-6">
@@ -179,7 +181,7 @@ export function Dashboard() {
       ) : stats ? (
         <>
           <StatsOverview stats={stats} />
-          <ReviewChart data={stats.reviewsByDay} />
+          <ReviewChart data={stats.reviewsByDay ?? []} />
         </>
       ) : (
         <EmptyState />

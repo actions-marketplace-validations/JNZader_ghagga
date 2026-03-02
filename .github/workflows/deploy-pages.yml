@@ -59,6 +59,7 @@ jobs:
         run: |
           mkdir -p _site
           cp landing/index.html _site/
+          cp landing/favicon.svg _site/
           cp -r apps/dashboard/dist _site/app
           cp -r docs _site/docs
           touch _site/.nojekyll
