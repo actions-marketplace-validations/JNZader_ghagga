@@ -1,0 +1,40 @@
+schema: spec-driven
+
+context: |
+  Tech stack: TypeScript monorepo (pnpm workspaces + Turborepo)
+  Backend: Hono (Node.js/Bun) - REST API + webhook handler
+  Frontend: Vite + React 18 + shadcn/ui + Tailwind CSS
+  Database: PostgreSQL (Neon/Supabase) + Drizzle ORM
+  Static Analysis: Semgrep + Trivy + PMD/CPD
+  AI: Vercel AI SDK (multi-provider: Anthropic, OpenAI, Google)
+  Memory: Custom PostgreSQL-based (inspired by Engram patterns)
+  Async: Inngest (event-driven durable execution)
+  Testing: Vitest (unit) + Playwright (e2e)
+  Deploy: Oracle Cloud/Koyeb (backend), GitHub Pages (frontend)
+  Distribution: SaaS, GitHub Action, CLI, 1-click deploy
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Identify affected modules/packages
+    - Consider all 4 distribution modes (SaaS, Action, CLI, 1-click)
+  specs:
+    - Use Given/When/Then format for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+    - Justify tool/library choices with alternatives considered
+  tasks:
+    - Group tasks by phase (infrastructure, core, agents, integrations, frontend, distribution)
+    - Use hierarchical numbering (1.1, 1.2, etc.)
+    - Keep tasks small enough to complete in one session
+  apply:
+    - Follow existing code patterns and conventions
+    - Each task should be independently testable
+  verify:
+    - Run tests if test infrastructure exists
+    - Compare implementation against every spec scenario
+    - Verify all 4 distribution modes work
+  archive:
+    - Warn before merging destructive deltas (large removals)
