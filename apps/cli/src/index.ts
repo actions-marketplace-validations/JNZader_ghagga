@@ -21,6 +21,9 @@
 
 import 'dotenv/config';
 
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { Command } from 'commander';
 import { DEFAULT_MODELS } from 'ghagga-core';
 import type { LLMProvider, ReviewMode } from 'ghagga-core';
@@ -30,12 +33,16 @@ import { loginCommand } from './commands/login.js';
 import { logoutCommand } from './commands/logout.js';
 import { statusCommand } from './commands/status.js';
 
+// Read version from package.json at runtime (no hardcoded strings)
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8'));
+
 const program = new Command();
 
 program
   .name('ghagga')
   .description('AI-powered code review CLI')
-  .version('2.0.1');
+  .version(pkg.version);
 
 // ─── Login ──────────────────────────────────────────────────────
 
