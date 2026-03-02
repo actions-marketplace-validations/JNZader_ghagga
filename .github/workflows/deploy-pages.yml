@@ -12,6 +12,7 @@ on:
     paths:
       - 'apps/dashboard/**'
       - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch: # Manual trigger from GitHub Actions UI
 
 permissions:
   contents: read
