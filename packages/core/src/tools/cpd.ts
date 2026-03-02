@@ -22,7 +22,7 @@ const DEFAULT_MIN_TOKENS = 100;
  *   </duplication>
  * </pmd-cpd>
  */
-function parseCpdXml(xml: string, basePath: string): ReviewFinding[] {
+export function parseCpdXml(xml: string, basePath: string): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
   const dupRegex = /<duplication lines="(\d+)" tokens="(\d+)">([\s\S]*?)<\/duplication>/g;
   const fileRegex = /<file\s+path="([^"]+)"\s+line="(\d+)"/g;

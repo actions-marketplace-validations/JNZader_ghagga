@@ -26,7 +26,7 @@ interface TrivyResult {
   }>;
 }
 
-function mapSeverity(trivySeverity: string): FindingSeverity {
+export function mapSeverity(trivySeverity: string): FindingSeverity {
   switch (trivySeverity.toUpperCase()) {
     case 'CRITICAL':
       return 'critical';

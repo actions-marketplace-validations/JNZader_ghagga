@@ -32,7 +32,7 @@ interface SemgrepResult {
   errors: Array<{ message: string }>;
 }
 
-function mapSeverity(semgrepSeverity: string): FindingSeverity {
+export function mapSeverity(semgrepSeverity: string): FindingSeverity {
   switch (semgrepSeverity.toUpperCase()) {
     case 'ERROR':
       return 'high';
