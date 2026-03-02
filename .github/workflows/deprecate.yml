@@ -1,0 +1,20 @@
+# One-shot workflow to deprecate broken v2.0.0 packages.
+# Trigger manually, then delete this file.
+name: Deprecate v2.0.0
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deprecate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deprecate broken packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm config set //registry.npmjs.org/:_authToken=$NODE_AUTH_TOKEN
+          npm deprecate ghagga@2.0.0 "Broken: unresolved workspace:^ deps. Use v2.0.1+"
+          npm deprecate ghagga-core@2.0.0 "Broken: unresolved workspace:^ deps. Use v2.0.1+"
+          npm deprecate ghagga-db@2.0.0 "Broken: unresolved workspace:^ deps. Use v2.0.1+"
+          echo "✅ All v2.0.0 packages deprecated"
