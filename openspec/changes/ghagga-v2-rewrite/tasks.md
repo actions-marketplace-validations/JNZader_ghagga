@@ -2,20 +2,20 @@
 
 ## Phase 1: Monorepo Foundation
 
-- [ ] 1.1 Create root `package.json` with pnpm workspaces config, project metadata, and scripts
-- [ ] 1.2 Create `pnpm-workspace.yaml` defining `packages/*` and `apps/*` workspaces
-- [ ] 1.3 Create `turbo.json` with build/dev/lint/test pipeline configuration
-- [ ] 1.4 Create `tsconfig.base.json` with strict TypeScript settings shared across all packages
-- [ ] 1.5 Create `.gitignore` for Node.js, build outputs, env files, and tool caches
-- [ ] 1.6 Create `.env.example` at root with all required environment variables documented
-- [ ] 1.7 Create `packages/core/package.json` with dependencies (ai, @ai-sdk/anthropic, @ai-sdk/openai, @ai-sdk/google)
-- [ ] 1.8 Create `packages/core/tsconfig.json` extending base config
-- [ ] 1.9 Create `packages/db/package.json` with dependencies (drizzle-orm, drizzle-kit, pg)
-- [ ] 1.10 Create `packages/db/tsconfig.json` extending base config
-- [ ] 1.11 Create `apps/server/package.json` with dependencies (hono, inngest, @octokit/rest)
-- [ ] 1.12 Create `apps/server/tsconfig.json` extending base config
-- [ ] 1.13 Run `pnpm install` and verify all workspaces resolve correctly
-- [ ] 1.14 Create `packages/core/src/types.ts` with ReviewInput, ReviewResult, ReviewFinding, StaticAnalysisResult, ToolResult interfaces
+- [x] 1.1 Create root `package.json` with pnpm workspaces config, project metadata, and scripts
+- [x] 1.2 Create `pnpm-workspace.yaml` defining `packages/*` and `apps/*` workspaces
+- [x] 1.3 Create `turbo.json` with build/dev/lint/test pipeline configuration
+- [x] 1.4 Create `tsconfig.base.json` with strict TypeScript settings shared across all packages
+- [x] 1.5 Create `.gitignore` for Node.js, build outputs, env files, and tool caches
+- [x] 1.6 Create `.env.example` at root with all required environment variables documented
+- [x] 1.7 Create `packages/core/package.json` with dependencies (ai, @ai-sdk/anthropic, @ai-sdk/openai, @ai-sdk/google)
+- [x] 1.8 Create `packages/core/tsconfig.json` extending base config
+- [x] 1.9 Create `packages/db/package.json` with dependencies (drizzle-orm, drizzle-kit, pg)
+- [x] 1.10 Create `packages/db/tsconfig.json` extending base config
+- [x] 1.11 Create `apps/server/package.json` with dependencies (hono, inngest, @octokit/rest)
+- [x] 1.12 Create `apps/server/tsconfig.json` extending base config
+- [x] 1.13 Run `pnpm install` and verify all workspaces resolve correctly
+- [x] 1.14 Create `packages/core/src/types.ts` with ReviewInput, ReviewResult, ReviewFinding, StaticAnalysisResult, ToolResult interfaces
 
 ## Phase 2: Database Layer (`packages/db`)
 
