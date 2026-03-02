@@ -3,20 +3,20 @@
 /**
  * GHAGGA CLI — AI-powered code review from the command line.
  *
- * Usage:
- *   ghagga review [path]          Review staged or uncommitted changes
- *   ghagga review --mode workflow  Use workflow mode (5 specialist agents)
- *   ghagga review --format json    Output raw JSON
+ * Quick start:
+ *   ghagga login                   Authenticate with GitHub (free!)
+ *   ghagga review [path]           Review staged or uncommitted changes
+ *   ghagga status                  Show current auth and config
+ *   ghagga logout                  Clear stored credentials
  *
- * Environment variables:
- *   GHAGGA_API_KEY     API key for the LLM provider (required)
- *   GHAGGA_PROVIDER    LLM provider: anthropic, openai, google, github (default: anthropic)
- *   GHAGGA_MODEL       Model identifier (default: auto based on provider)
+ * After "ghagga login", reviews use GitHub Models (gpt-4o-mini) for free.
+ * You can override with --provider, --model, --api-key for other providers.
  *
- * GitHub Models provider:
- *   Uses your GitHub PAT (with models:read scope) to access AI models
- *   for free via https://models.inference.ai.azure.com. Pass your token
- *   via GHAGGA_API_KEY, GITHUB_TOKEN, or --api-key. Default model: gpt-4o-mini.
+ * Environment variables (override stored config):
+ *   GHAGGA_API_KEY     API key for the LLM provider
+ *   GHAGGA_PROVIDER    LLM provider: anthropic, openai, google, github
+ *   GHAGGA_MODEL       Model identifier
+ *   GITHUB_TOKEN       GitHub token (fallback for github provider)
  */
 
 import 'dotenv/config';
@@ -24,7 +24,11 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import { DEFAULT_MODELS } from '@ghagga/core';
 import type { LLMProvider, ReviewMode } from '@ghagga/core';
+import { loadConfig, getStoredToken } from './lib/config.js';
 import { reviewCommand } from './commands/review.js';
+import { loginCommand } from './commands/login.js';
+import { logoutCommand } from './commands/logout.js';
+import { statusCommand } from './commands/status.js';
 
 const program = new Command();
 
@@ -32,6 +36,35 @@ program
   .name('ghagga')
   .description('AI-powered code review CLI')
   .version('2.0.0');
+
+// ─── Login ──────────────────────────────────────────────────────
+
+program
+  .command('login')
+  .description('Authenticate with GitHub (uses free AI models)')
+  .action(async () => {
+    await loginCommand();
+  });
+
+// ─── Logout ─────────────────────────────────────────────────────
+
+program
+  .command('logout')
+  .description('Clear stored GitHub credentials')
+  .action(() => {
+    logoutCommand();
+  });
+
+// ─── Status ─────────────────────────────────────────────────────
+
+program
+  .command('status')
+  .description('Show current authentication and configuration')
+  .action(async () => {
+    await statusCommand();
+  });
+
+// ─── Review ─────────────────────────────────────────────────────
 
 program
   .command('review')
@@ -44,8 +77,8 @@ program
   )
   .option(
     '-p, --provider <provider>',
-    'LLM provider',
-    process.env['GHAGGA_PROVIDER'] ?? 'anthropic',
+    'LLM provider (auto-detected from login)',
+    process.env['GHAGGA_PROVIDER'],
   )
   .option(
     '--model <model>',
@@ -67,7 +100,27 @@ program
   .option('--no-cpd', 'Disable CPD duplicate detection')
   .option('-c, --config <path>', 'Path to .ghagga.json config file')
   .action(async (path: string, options: ReviewCommandOptions) => {
-    // Validate mode
+    // ── Auto-resolve auth from stored config ──────────────────
+    const config = loadConfig();
+    const storedToken = getStoredToken();
+
+    // Priority: CLI flag > env var > stored config
+    if (!options.provider) {
+      options.provider = config.defaultProvider ?? 'github';
+    }
+
+    if (!options.model) {
+      options.model = config.defaultModel ?? undefined;
+    }
+
+    // Auto-resolve API key: CLI flag > env var > GITHUB_TOKEN > stored token
+    if (!options.apiKey) {
+      if (options.provider === 'github') {
+        options.apiKey = process.env['GITHUB_TOKEN'] ?? storedToken ?? undefined;
+      }
+    }
+
+    // ── Validate mode ─────────────────────────────────────────
     const validModes: ReviewMode[] = ['simple', 'workflow', 'consensus'];
     if (!validModes.includes(options.mode as ReviewMode)) {
       console.error(
@@ -76,7 +129,7 @@ program
       process.exit(1);
     }
 
-    // Validate provider
+    // ── Validate provider ─────────────────────────────────────
     const validProviders: LLMProvider[] = ['anthropic', 'openai', 'google', 'github'];
     if (!validProviders.includes(options.provider as LLMProvider)) {
       console.error(
@@ -85,12 +138,7 @@ program
       process.exit(1);
     }
 
-    // For GitHub Models provider, fall back to GITHUB_TOKEN if no API key set
-    if (options.provider === 'github' && !options.apiKey) {
-      options.apiKey = process.env['GITHUB_TOKEN'];
-    }
-
-    // Validate format
+    // ── Validate format ───────────────────────────────────────
     const validFormats = ['markdown', 'json'];
     if (!validFormats.includes(options.format)) {
       console.error(
@@ -99,15 +147,15 @@ program
       process.exit(1);
     }
 
-    // Validate API key
+    // ── Validate API key ──────────────────────────────────────
     if (!options.apiKey) {
-      console.error(
-        '\u274c API key is required. Set GHAGGA_API_KEY or pass --api-key.',
-      );
+      console.error('\u274c No API key available.\n');
+      console.error('   Quick fix: run "ghagga login" to authenticate with GitHub (free!)');
+      console.error('   Or pass --api-key <key> or set GHAGGA_API_KEY.\n');
       process.exit(1);
     }
 
-    // Resolve model default from provider if not set
+    // ── Resolve model default ─────────────────────────────────
     const provider = options.provider as LLMProvider;
     const model = options.model ?? DEFAULT_MODELS[provider];
 
@@ -130,7 +178,7 @@ program.parse();
 
 interface ReviewCommandOptions {
   mode: string;
-  provider: string;
+  provider?: string;
   model?: string;
   apiKey?: string;
   format: string;

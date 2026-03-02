@@ -7,42 +7,60 @@ import {
   type ReactNode,
 } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
+import {
+  requestDeviceCode,
+  pollForAccessToken,
+  fetchGitHubUser,
+  type DeviceCodeResponse,
+  type GitHubUser,
+} from './oauth';
 import type { User } from './types';
+
+// ─── Types ──────────────────────────────────────────────────────
+
+export type LoginPhase =
+  | 'idle'
+  | 'requesting_code'
+  | 'waiting_for_user'
+  | 'exchanging_token'
+  | 'success'
+  | 'error';
 
 interface AuthContextType {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (token: string) => Promise<void>;
+
+  /** Start the Device Flow login process */
+  startLogin: () => Promise<void>;
+
+  /** Cancel an in-progress login */
+  cancelLogin: () => void;
+
+  /** Log out and clear credentials */
   logout: () => void;
+
+  /** Current phase of the Device Flow */
+  loginPhase: LoginPhase;
+
+  /** Device code info (user_code, verification_uri) during flow */
+  deviceCode: DeviceCodeResponse | null;
+
+  /** Error message if login failed */
   error: string | null;
 }
 
-const AuthContext = createContext<AuthContextType | null>(null);
+// ─── Constants ──────────────────────────────────────────────────
 
 const TOKEN_KEY = 'ghagga_token';
 const USER_KEY = 'ghagga_user';
 
-async function fetchGitHubUser(token: string): Promise<User> {
-  const response = await fetch('https://api.github.com/user', {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github.v3+json',
-    },
-  });
+// ─── Context ────────────────────────────────────────────────────
 
-  if (!response.ok) {
-    throw new Error('Invalid GitHub token');
-  }
+const AuthContext = createContext<AuthContextType | null>(null);
 
-  const data = await response.json();
-  return {
-    githubLogin: data.login,
-    githubUserId: data.id,
-    avatarUrl: data.avatar_url,
-  };
-}
+// ─── Provider ───────────────────────────────────────────────────
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {
@@ -60,19 +78,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => localStorage.getItem(TOKEN_KEY),
   );
   const [isLoading, setIsLoading] = useState(false);
+  const [loginPhase, setLoginPhase] = useState<LoginPhase>('idle');
+  const [deviceCode, setDeviceCode] = useState<DeviceCodeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
 
   // Validate stored token on mount
   useEffect(() => {
     if (token && !user) {
       setIsLoading(true);
       fetchGitHubUser(token)
-        .then((githubUser) => {
-          setUser(githubUser);
-          localStorage.setItem(USER_KEY, JSON.stringify(githubUser));
+        .then((githubUser: GitHubUser) => {
+          const appUser: User = {
+            githubLogin: githubUser.login,
+            githubUserId: githubUser.id,
+            avatarUrl: githubUser.avatar_url,
+          };
+          setUser(appUser);
+          localStorage.setItem(USER_KEY, JSON.stringify(appUser));
         })
         .catch(() => {
-          // Token is invalid, clear everything
           localStorage.removeItem(TOKEN_KEY);
           localStorage.removeItem(USER_KEY);
           setToken(null);
@@ -84,23 +109,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const login = useCallback(async (newToken: string) => {
-    setIsLoading(true);
+  // ── Device Flow Login ───────────────────────────────────────
+
+  const startLogin = useCallback(async () => {
     setError(null);
+    setLoginPhase('requesting_code');
+    setIsLoading(true);
+
+    const controller = new AbortController();
+    setAbortController(controller);
 
     try {
-      const githubUser = await fetchGitHubUser(newToken);
-      localStorage.setItem(TOKEN_KEY, newToken);
-      localStorage.setItem(USER_KEY, JSON.stringify(githubUser));
-      setToken(newToken);
-      setUser(githubUser);
-    } catch {
-      setError('Invalid GitHub Personal Access Token. Please check and try again.');
-      throw new Error('Invalid token');
+      // Step 1: Request device code
+      const codeResponse = await requestDeviceCode();
+      setDeviceCode(codeResponse);
+      setLoginPhase('waiting_for_user');
+
+      // Open GitHub device page in new tab
+      window.open(codeResponse.verification_uri, '_blank', 'noopener');
+
+      // Step 2: Poll for access token
+      setLoginPhase('waiting_for_user');
+      const accessToken = await pollForAccessToken(
+        codeResponse.device_code,
+        codeResponse.interval,
+        codeResponse.expires_in,
+        controller.signal,
+      );
+
+      // Step 3: Fetch user profile
+      setLoginPhase('exchanging_token');
+      const githubUser = await fetchGitHubUser(accessToken);
+
+      const appUser: User = {
+        githubLogin: githubUser.login,
+        githubUserId: githubUser.id,
+        avatarUrl: githubUser.avatar_url,
+      };
+
+      // Step 4: Save credentials
+      localStorage.setItem(TOKEN_KEY, accessToken);
+      localStorage.setItem(USER_KEY, JSON.stringify(appUser));
+      setToken(accessToken);
+      setUser(appUser);
+      setLoginPhase('success');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message !== 'Login cancelled') {
+        setError(message);
+        setLoginPhase('error');
+      } else {
+        setLoginPhase('idle');
+      }
     } finally {
       setIsLoading(false);
+      setAbortController(null);
     }
   }, []);
+
+  const cancelLogin = useCallback(() => {
+    abortController?.abort();
+    setLoginPhase('idle');
+    setDeviceCode(null);
+    setError(null);
+    setIsLoading(false);
+  }, [abortController]);
 
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
@@ -108,6 +181,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setUser(null);
     setError(null);
+    setLoginPhase('idle');
+    setDeviceCode(null);
   }, []);
 
   const value: AuthContextType = {
@@ -115,13 +190,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     token,
     isAuthenticated: !!user && !!token,
     isLoading,
-    login,
+    startLogin,
+    cancelLogin,
     logout,
+    loginPhase,
+    deviceCode,
     error,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
+
+// ─── Hooks & Guards ─────────────────────────────────────────────
 
 export function useAuth(): AuthContextType {
   const context = useContext(AuthContext);
