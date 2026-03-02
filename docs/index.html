@@ -37,42 +37,20 @@
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     }
+    /* Mermaid diagram container */
+    .mermaid {
+      text-align: center;
+      margin: 1.5em 0;
+    }
+    .mermaid svg {
+      max-width: 100%;
+    }
   </style>
 </head>
 <body>
   <div id="app"></div>
-  <script>
-    window.$docsify = {
-      name: 'GHAGGA',
-      repo: 'https://github.com/JNZader/ghagga',
-      loadSidebar: true,
-      subMaxLevel: 2,
-      auto2top: true,
-      homepage: 'README.md',
-      search: {
-        placeholder: 'Search docs...',
-        noData: 'No results.',
-        paths: 'auto'
-      },
-      copyCode: {
-        buttonText: 'Copy',
-        successText: 'Copied!'
-      },
-      mermaidConfig: {
-        querySelector: '.mermaid'
-      },
-      markdown: {
-        renderer: {
-          code: function(code, lang) {
-            if (lang === 'mermaid') {
-              return '<div class="mermaid">' + code + '</div>';
-            }
-            return this.origin.code.apply(this, arguments);
-          }
-        }
-      }
-    }
-  </script>
+
+  <!-- Mermaid must load BEFORE docsify -->
   <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
   <script>
     mermaid.initialize({
@@ -100,20 +78,78 @@
         noteBorderColor: '#a78bfa'
       }
     });
-    // Re-render mermaid on page change
-    var defined = false;
-    const observer = new MutationObserver(function() {
-      const els = document.querySelectorAll('.mermaid');
-      if (els.length && !defined) {
-        defined = true;
-        setTimeout(function() {
-          mermaid.run({ nodes: els });
-          defined = false;
-        }, 100);
-      }
-    });
-    observer.observe(document.getElementById('app'), { childList: true, subtree: true });
+
+    // Unique ID counter for mermaid diagrams
+    var mermaidId = 0;
   </script>
+
+  <script>
+    window.$docsify = {
+      name: 'GHAGGA',
+      repo: 'https://github.com/JNZader/ghagga',
+      loadSidebar: true,
+      subMaxLevel: 2,
+      auto2top: true,
+      homepage: 'README.md',
+      search: {
+        placeholder: 'Search docs...',
+        noData: 'No results.',
+        paths: 'auto'
+      },
+      copyCode: {
+        buttonText: 'Copy',
+        successText: 'Copied!'
+      },
+      plugins: [
+        function mermaidPlugin(hook) {
+          // Convert ```mermaid code blocks to <div class="mermaid"> before HTML is inserted
+          hook.afterEach(function(html) {
+            return html.replace(
+              /<pre[^>]*><code[^>]*class="lang-mermaid"[^>]*>([\s\S]*?)<\/code><\/pre>/gi,
+              function(match, code) {
+                // Decode HTML entities
+                var decoded = code
+                  .replace(/&lt;/g, '<')
+                  .replace(/&gt;/g, '>')
+                  .replace(/&amp;/g, '&')
+                  .replace(/&quot;/g, '"')
+                  .replace(/&#39;/g, "'");
+                return '<div class="mermaid">' + decoded + '</div>';
+              }
+            );
+          });
+
+          // Render mermaid diagrams after the page DOM is ready
+          hook.doneEach(function() {
+            var els = document.querySelectorAll('.mermaid');
+            if (els.length === 0) return;
+
+            els.forEach(function(el) {
+              // Skip already-rendered diagrams
+              if (el.getAttribute('data-mermaid-processed')) return;
+
+              var graphDef = el.textContent.trim();
+              var id = 'mermaid-' + (mermaidId++);
+
+              try {
+                mermaid.render(id, graphDef).then(function(result) {
+                  el.innerHTML = result.svg;
+                  el.setAttribute('data-mermaid-processed', 'true');
+                }).catch(function(err) {
+                  console.warn('Mermaid render error:', err);
+                  el.innerHTML = '<pre style="color:#f87171;">' + err.message + '</pre>';
+                });
+              } catch (err) {
+                console.warn('Mermaid render error:', err);
+                el.innerHTML = '<pre style="color:#f87171;">' + err.message + '</pre>';
+              }
+            });
+          });
+        }
+      ]
+    }
+  </script>
+
   <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/docsify-copy-code@2"></script>
