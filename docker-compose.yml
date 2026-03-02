@@ -1,0 +1,47 @@
+# ============================================
+# GHAGGA v2 — Local Development Stack
+# ============================================
+# Usage:
+#   docker compose up -d        # Start PostgreSQL + server
+#   docker compose up postgres  # Start only PostgreSQL
+#   docker compose down         # Stop everything
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ghagga
+      POSTGRES_USER: ghagga
+      POSTGRES_PASSWORD: ghagga_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ghagga"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgresql://ghagga:ghagga_dev@postgres:5432/ghagga
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      GITHUB_APP_ID: ${GITHUB_APP_ID}
+      GITHUB_PRIVATE_KEY: ${GITHUB_PRIVATE_KEY}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
+      INNGEST_EVENT_KEY: ${INNGEST_EVENT_KEY}
+      INNGEST_SIGNING_KEY: ${INNGEST_SIGNING_KEY}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
