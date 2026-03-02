@@ -74,7 +74,54 @@ app.use('*', cors());
 
 // Health check
 app.get('/health', (c) => {
-  return c.json({ status: 'ok', timestamp: new Date().toISOString() });
+  return c.json({ status: 'ok', timestamp: new Date().toISOString(), commit: '60a2af3' });
+});
+
+// Debug endpoint — temporary, remove after fixing the 500
+app.get('/debug/auth-test', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader) return c.json({ error: 'No auth header' }, 401);
+
+  const token = authHeader.slice('Bearer '.length);
+  try {
+    // Step 1: Verify GitHub token
+    const ghRes = await fetch('https://api.github.com/user', {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github.v3+json' },
+    });
+    if (!ghRes.ok) return c.json({ step: 'github_verify', error: ghRes.status });
+    const user = await ghRes.json() as { id: number; login: string };
+
+    // Step 2: Check DB for user mappings
+    const { getInstallationsByUserId, getInstallationsByAccountLogin, getReposByInstallationId } = await import('ghagga-db');
+
+    const mappings = await getInstallationsByUserId(db, user.id);
+
+    // Step 3: Try account login fallback
+    const byLogin = await getInstallationsByAccountLogin(db, user.login);
+
+    // Step 4: Get repos
+    const repos = [];
+    const installationIds = mappings.length > 0
+      ? mappings.map(m => m.id)
+      : byLogin.map(m => m.id);
+
+    for (const id of installationIds) {
+      const r = await getReposByInstallationId(db, id);
+      repos.push(...r.map(repo => repo.fullName));
+    }
+
+    return c.json({
+      user: { id: user.id, login: user.login },
+      mappings: mappings.length,
+      byLogin: byLogin.length,
+      installationIds,
+      repoCount: repos.length,
+      repos: repos.slice(0, 5),
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? { message: err.message, stack: err.stack } : String(err);
+    return c.json({ error: 'debug_failed', detail: msg }, 500);
+  }
 });
 
 // Webhook routes (no auth required — verified by signature)
