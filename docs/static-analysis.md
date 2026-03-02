@@ -14,14 +14,11 @@ Layer 0 analysis runs **before** any LLM call. Zero tokens consumed. Known issue
 
 All three tools execute as child processes in parallel:
 
-```
-┌─────────────┬──────────┬───────────┐
-│ Semgrep     │ Trivy    │ CPD       │
-│ (security)  │ (CVEs)   │ (dupes)   │
-└─────┬───────┴────┬─────┴─────┬─────┘
-      └────────────┼───────────┘
-                   ▼
-      Merged findings (normalized)
+```mermaid
+flowchart TB
+  Semgrep["Semgrep<br/><small>security</small>"] --> Merge["Merged findings<br/><small>normalized</small>"]
+  Trivy["Trivy<br/><small>CVEs</small>"] --> Merge
+  CPD["CPD<br/><small>duplicates</small>"] --> Merge
 ```
 
 Each tool's output (JSON for Semgrep/Trivy, XML for CPD) is parsed into a common `ReviewFinding` format with severity, file, line, and message.

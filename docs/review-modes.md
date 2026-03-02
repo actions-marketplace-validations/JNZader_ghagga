@@ -6,10 +6,10 @@ GHAGGA supports three review modes, each with different tradeoffs between speed,
 
 Single LLM call with a comprehensive system prompt. Best for small-to-medium PRs.
 
-```
-Diff + Static Analysis Context + Memory Context + Stack Hints
-  → 1 LLM call
-  → Structured response (STATUS / SUMMARY / FINDINGS)
+```mermaid
+flowchart LR
+  Input["Diff + Static Analysis<br/>+ Memory + Stack Hints"] --> LLM["1 LLM Call"]
+  LLM --> Output["STATUS / SUMMARY / FINDINGS"]
 ```
 
 **Token usage**: ~1x (one call)
@@ -21,16 +21,19 @@ The simple agent receives all context in a single prompt and returns a structure
 
 5 specialist agents run **in parallel**, then a synthesis step merges their findings.
 
-```
-Diff + Context
-  → 5 specialists (parallel):
-      1. Scope Analysis    — what changed, blast radius
-      2. Coding Standards  — naming, formatting, DRY
-      3. Error Handling    — null safety, edge cases, exceptions
-      4. Security Audit    — injection, XSS, auth, data exposure
-      5. Performance       — complexity, N+1, memory, resources
-  → 1 synthesis call (merges + deduplicates)
-  → Structured response
+```mermaid
+flowchart LR
+  Input["Diff + Context"] --> S1["Scope Analysis"]
+  Input --> S2["Coding Standards"]
+  Input --> S3["Error Handling"]
+  Input --> S4["Security Audit"]
+  Input --> S5["Performance"]
+  S1 --> Synth["Synthesis<br/><small>merge + deduplicate</small>"]
+  S2 --> Synth
+  S3 --> Synth
+  S4 --> Synth
+  S5 --> Synth
+  Synth --> Output["Structured Response"]
 ```
 
 **Token usage**: ~6x (5 specialists + 1 synthesis)
@@ -52,14 +55,15 @@ Each specialist has a focused system prompt that constrains its analysis to a sp
 
 Multiple models review with assigned stances (for/against/neutral), then a weighted vote determines the outcome.
 
-```
-Diff + Context
-  → 3 reviews with stances (parallel):
-      1. Advocate (for)     — looks for what's good
-      2. Critic (against)   — looks for problems
-      3. Observer (neutral) — balanced assessment
-  → Weighted vote → final STATUS
-  → Structured response
+```mermaid
+flowchart LR
+  Input["Diff + Context"] --> A["Advocate<br/><small>looks for good</small>"]
+  Input --> C["Critic<br/><small>looks for problems</small>"]
+  Input --> O["Observer<br/><small>balanced view</small>"]
+  A --> Vote["Weighted Vote"]
+  C --> Vote
+  O --> Vote
+  Vote --> Status["Final STATUS"]
 ```
 
 **Token usage**: ~3x (3 stances)

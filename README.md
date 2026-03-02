@@ -191,31 +191,32 @@ Railway auto-provisions PostgreSQL and sets up the environment. You just need to
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                     Distribution Layer                    │
-│  ┌──────────┐  ┌──────────┐  ┌─────┐  ┌──────────────┐  │
-│  │  Server   │  │  Action  │  │ CLI │  │  1-Click     │  │
-│  │  (Hono)   │  │ (GH Act) │  │     │  │  (Railway)   │  │
-│  └─────┬─────┘  └─────┬────┘  └──┬──┘  └──────┬───────┘  │
-│        └──────────────┴─────────┴─────────────┘           │
-│                          │                                │
-│                    @ghagga/core                            │
-│        ┌─────────────────┼─────────────────┐              │
-│        │                 │                 │              │
-│   Static Analysis    AI Agents         Memory             │
-│   ┌─────────────┐  ┌──────────┐  ┌──────────────┐        │
-│   │ Semgrep     │  │ Simple   │  │ Search       │        │
-│   │ Trivy       │  │ Workflow │  │ Persist      │        │
-│   │ CPD         │  │ Consensus│  │ Privacy      │        │
-│   └─────────────┘  └──────────┘  └──────────────┘        │
-│                          │                                │
-│                    @ghagga/db                              │
-│        ┌─────────────────┼─────────────────┐              │
-│        │                 │                 │              │
-│   PostgreSQL       Drizzle ORM       AES-256-GCM          │
-│   + tsvector       + Migrations      Encryption           │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+  subgraph Distribution["Distribution Layer"]
+    Server["Server<br/><small>Hono</small>"]
+    Action["Action<br/><small>GitHub Action</small>"]
+    CLI["CLI"]
+    OneClick["1-Click<br/><small>Railway</small>"]
+  end
+
+  subgraph Core["@ghagga/core"]
+    SA["Static Analysis<br/><small>Semgrep · Trivy · CPD</small>"]
+    Agents["AI Agents<br/><small>Simple · Workflow · Consensus</small>"]
+    Memory["Memory<br/><small>Search · Persist · Privacy</small>"]
+  end
+
+  subgraph DB["@ghagga/db"]
+    PG["PostgreSQL<br/><small>+ tsvector</small>"]
+    Drizzle["Drizzle ORM<br/><small>+ Migrations</small>"]
+    Crypto["AES-256-GCM<br/><small>Encryption</small>"]
+  end
+
+  Server --> Core
+  Action --> Core
+  CLI --> Core
+  OneClick --> Core
+  Core --> DB
 ```
 
 ### Core + Adapters Pattern
@@ -235,17 +236,17 @@ Each distribution mode (`apps/*`) is a thin adapter:
 
 Every review follows the same pipeline regardless of distribution mode:
 
-```
-Input (diff + config)
-  → Step 1: Validate input (diff, API key, provider, model)
-  → Step 2: Parse and filter diff (ignore patterns like *.md, *.lock)
-  → Step 3: Detect tech stacks (TypeScript, Python, Go, etc.)
-  → Step 4: Truncate diff to fit model's token budget (70/30 split)
-  → Step 5: Run static analysis + memory search (in parallel)
-  → Step 6: Execute agent mode (simple | workflow | consensus)
-  → Step 7: Merge static analysis findings into result
-  → Step 8: Persist observations to memory (fire-and-forget)
-  → Output (structured ReviewResult)
+```mermaid
+flowchart LR
+  Input["Input<br/><small>diff + config</small>"] --> S1["Validate"]
+  S1 --> S2["Parse &<br/>Filter Diff"]
+  S2 --> S3["Detect<br/>Stacks"]
+  S3 --> S4["Token<br/>Budget"]
+  S4 --> S5["Static Analysis<br/>+ Memory Search"]
+  S5 --> S6["AI Agent<br/>Execution"]
+  S6 --> S7["Merge<br/>Findings"]
+  S7 --> S8["Persist<br/>Memory"]
+  S8 --> Output["ReviewResult"]
 ```
 
 Each step degrades gracefully — if static analysis fails, or memory is unavailable, the pipeline continues with what it has.
@@ -258,10 +259,10 @@ Each step degrades gracefully — if static analysis fails, or memory is unavail
 
 Single LLM call with a comprehensive system prompt. Best for small-to-medium PRs.
 
-```
-Diff + Static Analysis Context + Memory Context + Stack Hints
-  → 1 LLM call
-  → Structured response (STATUS / SUMMARY / FINDINGS)
+```mermaid
+flowchart LR
+  Input["Diff + Static Analysis<br/>+ Memory + Stack Hints"] --> LLM["1 LLM Call"]
+  LLM --> Output["STATUS / SUMMARY / FINDINGS"]
 ```
 
 **Token usage**: ~1x (one call)
@@ -271,16 +272,19 @@ Diff + Static Analysis Context + Memory Context + Stack Hints
 
 5 specialist agents run **in parallel**, then a synthesis step merges their findings.
 
-```
-Diff + Context
-  → 5 specialists (parallel):
-      1. Scope Analysis    — what changed, blast radius
-      2. Coding Standards  — naming, formatting, DRY
-      3. Error Handling    — null safety, edge cases, exceptions
-      4. Security Audit    — injection, XSS, auth, data exposure
-      5. Performance       — complexity, N+1, memory, resources
-  → 1 synthesis call (merges + deduplicates)
-  → Structured response
+```mermaid
+flowchart LR
+  Input["Diff + Context"] --> S1["Scope Analysis"]
+  Input --> S2["Coding Standards"]
+  Input --> S3["Error Handling"]
+  Input --> S4["Security Audit"]
+  Input --> S5["Performance"]
+  S1 --> Synth["Synthesis<br/><small>merge + deduplicate</small>"]
+  S2 --> Synth
+  S3 --> Synth
+  S4 --> Synth
+  S5 --> Synth
+  Synth --> Output["Structured Response"]
 ```
 
 **Token usage**: ~6x (5 specialists + 1 synthesis)
@@ -290,14 +294,15 @@ Diff + Context
 
 Multiple models review with assigned stances (for/against/neutral), then a weighted vote determines the outcome.
 
-```
-Diff + Context
-  → 3 reviews with stances (parallel):
-      1. Advocate (for)     — looks for what's good
-      2. Critic (against)   — looks for problems
-      3. Observer (neutral) — balanced assessment
-  → Weighted vote → final STATUS
-  → Structured response
+```mermaid
+flowchart LR
+  Input["Diff + Context"] --> A["Advocate<br/><small>looks for good</small>"]
+  Input --> C["Critic<br/><small>looks for problems</small>"]
+  Input --> O["Observer<br/><small>balanced view</small>"]
+  A --> Vote["Weighted Vote"]
+  C --> Vote
+  O --> Vote
+  Vote --> Status["Final STATUS"]
 ```
 
 **Token usage**: ~3x (3 stances)

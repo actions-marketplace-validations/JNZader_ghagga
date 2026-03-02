@@ -4,31 +4,33 @@
 
 GHAGGA uses a **Core + Adapters** architecture. The review engine (`@ghagga/core`) is pure logic with zero I/O dependencies — it knows nothing about HTTP, webhooks, or CLI. Each distribution mode is a thin adapter.
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                     Distribution Layer                    │
-│  ┌──────────┐  ┌──────────┐  ┌─────┐  ┌──────────────┐  │
-│  │  Server   │  │  Action  │  │ CLI │  │  1-Click     │  │
-│  │  (Hono)   │  │ (GH Act) │  │     │  │  (Railway)   │  │
-│  └─────┬─────┘  └─────┬────┘  └──┬──┘  └──────┬───────┘  │
-│        └──────────────┴─────────┴─────────────┘           │
-│                          │                                │
-│                    @ghagga/core                            │
-│        ┌─────────────────┼─────────────────┐              │
-│        │                 │                 │              │
-│   Static Analysis    AI Agents         Memory             │
-│   ┌─────────────┐  ┌──────────┐  ┌──────────────┐        │
-│   │ Semgrep     │  │ Simple   │  │ Search       │        │
-│   │ Trivy       │  │ Workflow │  │ Persist      │        │
-│   │ CPD         │  │ Consensus│  │ Privacy      │        │
-│   └─────────────┘  └──────────┘  └──────────────┘        │
-│                          │                                │
-│                    @ghagga/db                              │
-│        ┌─────────────────┼─────────────────┐              │
-│        │                 │                 │              │
-│   PostgreSQL       Drizzle ORM       AES-256-GCM          │
-│   + tsvector       + Migrations      Encryption           │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+  subgraph Distribution["Distribution Layer"]
+    Server["Server<br/><small>Hono</small>"]
+    Action["Action<br/><small>GitHub Action</small>"]
+    CLI["CLI"]
+    OneClick["1-Click<br/><small>Railway</small>"]
+  end
+
+  subgraph Core["@ghagga/core"]
+    direction TB
+    SA["Static Analysis<br/><small>Semgrep · Trivy · CPD</small>"]
+    Agents["AI Agents<br/><small>Simple · Workflow · Consensus</small>"]
+    Memory["Memory<br/><small>Search · Persist · Privacy</small>"]
+  end
+
+  subgraph DB["@ghagga/db"]
+    PG["PostgreSQL<br/><small>+ tsvector</small>"]
+    Drizzle["Drizzle ORM<br/><small>+ Migrations</small>"]
+    Crypto["AES-256-GCM<br/><small>Encryption</small>"]
+  end
+
+  Server --> Core
+  Action --> Core
+  CLI --> Core
+  OneClick --> Core
+  Core --> DB
 ```
 
 ## Adapter Responsibilities

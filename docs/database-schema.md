@@ -109,10 +109,11 @@ A `tsvector` column is added via raw SQL migration for full-text search.
 
 ## Entity Relationships
 
-```
-installations (1) ──→ (N) repositories
-repositories  (1) ──→ (N) reviews
-memory_sessions (1) ──→ (N) memory_observations
+```mermaid
+erDiagram
+  installations ||--o{ repositories : has
+  repositories ||--o{ reviews : has
+  memory_sessions ||--o{ memory_observations : contains
 ```
 
 Repositories are scoped by installation. Reviews and memory are scoped by repository. This provides natural multi-tenancy — each GitHub installation only sees its own data.

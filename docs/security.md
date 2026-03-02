@@ -21,12 +21,12 @@ API keys provided by users are encrypted at rest using AES-256-GCM:
 - **Authentication tag** prevents tampering — decryption fails if ciphertext is modified
 - **No external dependencies** — uses Node.js built-in `crypto` module
 
-```
-Plaintext API Key
-  → Generate random 12-byte IV
-  → AES-256-GCM encrypt with key + IV
-  → Store: IV + auth tag + ciphertext (base64)
-  → Decrypt only when needed for LLM calls
+```mermaid
+flowchart LR
+  Key["Plaintext API Key"] --> IV["Generate random<br/>12-byte IV"]
+  IV --> Encrypt["AES-256-GCM<br/>encrypt with key + IV"]
+  Encrypt --> Store["Store: IV + auth tag<br/>+ ciphertext (base64)"]
+  Store -.-> Decrypt["Decrypt only when<br/>needed for LLM calls"]
 ```
 
 ## Webhook Verification

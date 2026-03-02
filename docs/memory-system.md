@@ -4,18 +4,24 @@ GHAGGA learns from past reviews using PostgreSQL full-text search. Design patter
 
 ## How It Works
 
-```
-Review completes
-  → Extract observations (decisions, patterns, bugs)
-  → Deduplicate (content hash + 15-min rolling window)
-  → Topic-key upsert (evolve existing knowledge)
-  → Privacy strip (remove secrets)
-  → Store in PostgreSQL
+```mermaid
+flowchart TB
+  subgraph Write["After Review"]
+    direction TB
+    R["Review completes"] --> Extract["Extract observations"]
+    Extract --> Dedup["Deduplicate<br/><small>content hash + 15-min window</small>"]
+    Dedup --> Upsert["Topic-key upsert<br/><small>evolve knowledge</small>"]
+    Upsert --> Strip["Privacy strip<br/><small>remove secrets</small>"]
+    Strip --> Store["Store in PostgreSQL"]
+  end
 
-Next review starts
-  → Search observations via tsvector FTS
-  → Inject relevant context into agent prompts
-  → AI uses past knowledge for better reviews
+  subgraph Read["Before Review"]
+    direction TB
+    Search["Search via tsvector FTS"] --> Inject["Inject context into prompts"]
+    Inject --> AI["AI uses past knowledge"]
+  end
+
+  Store -.-> Search
 ```
 
 1. **After each review**, observations are automatically extracted
@@ -40,12 +46,12 @@ Next review starts
 
 Each review creates a **memory session** scoped to the repository. Observations within a session share context (PR number, timestamp, related files).
 
-```
-Project: owner/repo
-  └── Session: PR #42
-       ├── Observation: decision — "Added retry logic to payment service"
-       ├── Observation: pattern — "Error boundaries wrap all route components"
-       └── Observation: bugfix — "Race condition in concurrent cache writes"
+```mermaid
+graph TB
+  Project["owner/repo"] --> Session["Session: PR #42"]
+  Session --> D["decision — Added retry logic to payment service"]
+  Session --> P["pattern — Error boundaries wrap all route components"]
+  Session --> B["bugfix — Race condition in concurrent cache writes"]
 ```
 
 ## Full-Text Search

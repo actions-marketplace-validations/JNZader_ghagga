@@ -4,17 +4,17 @@ Every review follows the same pipeline regardless of distribution mode. Each ste
 
 ## Pipeline Steps
 
-```
-Input (diff + config)
-  → Step 1: Validate input (diff, API key, provider, model)
-  → Step 2: Parse and filter diff (ignore patterns like *.md, *.lock)
-  → Step 3: Detect tech stacks (TypeScript, Python, Go, etc.)
-  → Step 4: Truncate diff to fit model's token budget (70/30 split)
-  → Step 5: Run static analysis + memory search (in parallel)
-  → Step 6: Execute agent mode (simple | workflow | consensus)
-  → Step 7: Merge static analysis findings into result
-  → Step 8: Persist observations to memory (fire-and-forget)
-  → Output (structured ReviewResult)
+```mermaid
+flowchart LR
+  Input["Input<br/><small>diff + config</small>"] --> S1["Validate"]
+  S1 --> S2["Parse &<br/>Filter Diff"]
+  S2 --> S3["Detect<br/>Stacks"]
+  S3 --> S4["Token<br/>Budget"]
+  S4 --> S5["Static Analysis<br/>+ Memory Search"]
+  S5 --> S6["AI Agent<br/>Execution"]
+  S6 --> S7["Merge<br/>Findings"]
+  S7 --> S8["Persist<br/>Memory"]
+  S8 --> Output["ReviewResult"]
 ```
 
 ## Step Details
@@ -52,22 +52,21 @@ Files are prioritized by modification size — larger changes get reviewed first
 
 Static analysis and memory search run **in parallel**:
 
-```
-┌─────────────────────────────────────────┐
-│           Parallel Execution            │
-│                                         │
-│  ┌─────────────┐   ┌──────────────┐     │
-│  │ Static Tools│   │ Memory Search│     │
-│  │ ┌─────────┐ │   │              │     │
-│  │ │ Semgrep │ │   │  tsvector    │     │
-│  │ │ Trivy   │ │   │  full-text   │     │
-│  │ │ CPD     │ │   │  search      │     │
-│  │ └─────────┘ │   │              │     │
-│  └──────┬──────┘   └──────┬───────┘     │
-│         └──────────┬───────┘            │
-│                    ▼                    │
-│         Combined context for agents     │
-└─────────────────────────────────────────┘
+```mermaid
+graph TB
+  subgraph Parallel["Parallel Execution"]
+    direction TB
+    subgraph Static["Static Tools"]
+      Semgrep
+      Trivy
+      CPD
+    end
+    subgraph Mem["Memory Search"]
+      FTS["tsvector<br/>full-text search"]
+    end
+  end
+  Static --> Combined["Combined context for agents"]
+  Mem --> Combined
 ```
 
 ### Step 6: Agent Execution

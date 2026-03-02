@@ -27,23 +27,25 @@ GHAGGA is a code review tool that posts intelligent comments on your Pull Reques
 
 ## Architecture at a Glance
 
-```
-                    Distribution Layer
-  ┌──────────┐  ┌──────────┐  ┌─────┐  ┌──────────┐
-  │  Server   │  │  Action  │  │ CLI │  │ 1-Click  │
-  │  (Hono)   │  │ (GH Act) │  │     │  │ (Railway)│
-  └─────┬─────┘  └─────┬────┘  └──┬──┘  └────┬─────┘
-        └──────────────┴─────────┴────────────┘
-                        │
-                  @ghagga/core
-      ┌─────────────────┼─────────────────┐
-      │                 │                 │
- Static Analysis    AI Agents         Memory
- ┌─────────────┐  ┌──────────┐  ┌──────────────┐
- │ Semgrep     │  │ Simple   │  │ Search       │
- │ Trivy       │  │ Workflow │  │ Persist      │
- │ CPD         │  │ Consensus│  │ Privacy      │
- └─────────────┘  └──────────┘  └──────────────┘
+```mermaid
+graph TB
+  subgraph Distribution["Distribution Layer"]
+    Server["Server<br/><small>Hono</small>"]
+    Action["Action<br/><small>GitHub Action</small>"]
+    CLI["CLI"]
+    OneClick["1-Click<br/><small>Railway</small>"]
+  end
+
+  subgraph Core["@ghagga/core"]
+    SA["Static Analysis<br/><small>Semgrep · Trivy · CPD</small>"]
+    Agents["AI Agents<br/><small>Simple · Workflow · Consensus</small>"]
+    Memory["Memory<br/><small>Search · Persist · Privacy</small>"]
+  end
+
+  Server --> Core
+  Action --> Core
+  CLI --> Core
+  OneClick --> Core
 ```
 
 The review engine (`@ghagga/core`) is distribution-agnostic. Each app is a thin adapter that feeds diffs into the core and handles I/O.
