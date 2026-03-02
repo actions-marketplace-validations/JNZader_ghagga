@@ -12,8 +12,6 @@ import {
   getRepoByFullName,
   getReposByInstallationId,
   updateRepoSettings,
-  saveRepoApiKey,
-  removeRepoApiKey,
   getSessionsByProject,
   getObservationsBySession,
   encrypt,
@@ -332,127 +330,6 @@ export function createApiRouter(db: Database) {
     }
   });
 
-  // ── PUT /api/repositories/:id/settings (LEGACY — kept for backward compat) ──
-  router.put('/api/repositories/:id/settings', async (c) => {
-    const user = c.get('user') as AuthUser;
-    const repoId = parseInt(c.req.param('id'), 10);
-
-    if (isNaN(repoId)) {
-      return c.json({ error: 'Invalid repository ID' }, 400);
-    }
-
-    // Verify the repo belongs to one of the user's installations
-    const repo = await findRepoById(db, repoId, user.installationIds);
-    if (!repo) {
-      return c.json({ error: 'Repository not found or access denied' }, 404);
-    }
-
-    let body: Record<string, unknown>;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: 'Invalid JSON body' }, 400);
-    }
-
-    const updates: {
-      settings?: RepoSettings;
-      llmProvider?: string;
-      llmModel?: string;
-      reviewMode?: string;
-    } = {};
-
-    // Extract repo settings fields
-    const settingsFields = [
-      'enableSemgrep',
-      'enableTrivy',
-      'enableCpd',
-      'enableMemory',
-      'customRules',
-      'ignorePatterns',
-      'reviewLevel',
-    ];
-
-    const hasSettingsUpdate = settingsFields.some((field) => field in body);
-    if (hasSettingsUpdate) {
-      const currentSettings = (repo.settings ?? {}) as RepoSettings;
-      updates.settings = { ...currentSettings };
-
-      for (const field of settingsFields) {
-        if (field in body) {
-          // Use a type assertion to allow dynamic field assignment on RepoSettings
-          (updates.settings as unknown as Record<string, unknown>)[field] = body[field];
-        }
-      }
-    }
-
-    if ('llmProvider' in body && typeof body.llmProvider === 'string') {
-      updates.llmProvider = body.llmProvider;
-    }
-    if ('llmModel' in body && typeof body.llmModel === 'string') {
-      updates.llmModel = body.llmModel;
-    }
-    if ('reviewMode' in body && typeof body.reviewMode === 'string') {
-      updates.reviewMode = body.reviewMode;
-    }
-
-    await updateRepoSettings(db, repoId, updates);
-
-    return c.json({ message: 'Settings updated' });
-  });
-
-  // ── POST /api/repositories/:id/api-key ──────────────────────
-  router.post('/api/repositories/:id/api-key', async (c) => {
-    const user = c.get('user') as AuthUser;
-    const repoId = parseInt(c.req.param('id'), 10);
-
-    if (isNaN(repoId)) {
-      return c.json({ error: 'Invalid repository ID' }, 400);
-    }
-
-    const repo = await findRepoById(db, repoId, user.installationIds);
-    if (!repo) {
-      return c.json({ error: 'Repository not found or access denied' }, 404);
-    }
-
-    let body: { key?: string };
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: 'Invalid JSON body' }, 400);
-    }
-
-    if (!body.key || typeof body.key !== 'string') {
-      return c.json({ error: 'Missing or invalid key field' }, 400);
-    }
-
-    const encrypted = encrypt(body.key);
-    await saveRepoApiKey(db, repoId, encrypted);
-
-    // Return masked key
-    const masked = maskApiKey(body.key);
-
-    return c.json({ message: 'API key saved', maskedKey: masked });
-  });
-
-  // ── DELETE /api/repositories/:id/api-key ────────────────────
-  router.delete('/api/repositories/:id/api-key', async (c) => {
-    const user = c.get('user') as AuthUser;
-    const repoId = parseInt(c.req.param('id'), 10);
-
-    if (isNaN(repoId)) {
-      return c.json({ error: 'Invalid repository ID' }, 400);
-    }
-
-    const repo = await findRepoById(db, repoId, user.installationIds);
-    if (!repo) {
-      return c.json({ error: 'Repository not found or access denied' }, 404);
-    }
-
-    await removeRepoApiKey(db, repoId);
-
-    return c.json({ message: 'API key removed' });
-  });
-
   // ── GET /api/memory/sessions ────────────────────────────────
   router.get('/api/memory/sessions', async (c) => {
     const project = c.req.query('project');
@@ -498,23 +375,6 @@ export function createApiRouter(db: Database) {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
-
-/**
- * Find a repository by ID and verify it belongs to one of the given installations.
- */
-async function findRepoById(
-  db: Database,
-  repoId: number,
-  installationIds: number[],
-) {
-  // We need to check all repos across the user's installations
-  for (const installationId of installationIds) {
-    const repos = await getReposByInstallationId(db, installationId);
-    const repo = repos.find((r) => r.id === repoId);
-    if (repo) return repo;
-  }
-  return null;
-}
 
 /**
  * Mask an API key for safe display.
