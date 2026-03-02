@@ -44,6 +44,16 @@ export const DEFAULT_REPO_SETTINGS: RepoSettings = {
   reviewLevel: 'normal',
 };
 
+/**
+ * Shape of each entry stored in the provider_chain JSONB column.
+ * Encrypted API keys are stored here (one per provider entry).
+ */
+export interface DbProviderChainEntry {
+  provider: 'anthropic' | 'openai' | 'google' | 'github';
+  model: string;
+  encryptedApiKey: string | null; // null for GitHub Models (uses session token)
+}
+
 export const repositories = pgTable(
   'repositories',
   {
@@ -55,10 +65,17 @@ export const repositories = pgTable(
     fullName: varchar('full_name', { length: 255 }).notNull(), // "owner/repo"
     isActive: boolean('is_active').default(true).notNull(),
     settings: jsonb('settings').$type<RepoSettings>().default(DEFAULT_REPO_SETTINGS).notNull(),
+    reviewMode: varchar('review_mode', { length: 20 }).default('simple').notNull(),
+
+    // ── Provider chain (replaces flat llm_provider/llm_model/encrypted_api_key) ──
+    providerChain: jsonb('provider_chain').$type<DbProviderChainEntry[]>().default([]).notNull(),
+    aiReviewEnabled: boolean('ai_review_enabled').default(true).notNull(),
+
+    // ── Old columns (kept for rollback safety, will be dropped in a future migration) ──
     encryptedApiKey: text('encrypted_api_key'),
     llmProvider: varchar('llm_provider', { length: 50 }).default('github').notNull(),
     llmModel: varchar('llm_model', { length: 100 }),
-    reviewMode: varchar('review_mode', { length: 20 }).default('simple').notNull(),
+
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
   },
