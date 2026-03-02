@@ -18,6 +18,8 @@ export type {
   ReviewContext,
   ReviewMode,
   LLMProvider,
+  SaaSProvider,
+  ProviderChainEntry,
   ReviewLevel,
 
   // Output types
@@ -62,7 +64,7 @@ export { getContextWindow, calculateTokenBudget } from './utils/token-budget.js'
 
 export { createProvider, createModel } from './providers/index.js';
 export { generateWithFallback } from './providers/fallback.js';
-export type { FallbackOptions, FallbackResult } from './providers/fallback.js';
+export type { FallbackProvider, FallbackOptions, FallbackResult } from './providers/fallback.js';
 
 // ─── Memory (for custom memory integrations) ────────────────────
 

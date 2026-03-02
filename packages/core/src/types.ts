@@ -9,7 +9,29 @@
 
 export type ReviewMode = 'simple' | 'workflow' | 'consensus';
 export type LLMProvider = 'anthropic' | 'openai' | 'google' | 'github' | 'ollama';
+
+/** Providers available in the SaaS dashboard (excludes Ollama) */
+export type SaaSProvider = 'anthropic' | 'openai' | 'google' | 'github';
+
 export type ReviewLevel = 'soft' | 'normal' | 'strict';
+
+// ─── Provider Chain ─────────────────────────────────────────────
+
+/**
+ * A single entry in the provider fallback chain.
+ * Used by the SaaS server to configure ordered LLM providers per repo.
+ * The pipeline tries providers in array order, falling back on retryable errors.
+ */
+export interface ProviderChainEntry {
+  /** LLM provider identifier */
+  provider: SaaSProvider;
+
+  /** Model identifier (e.g., "gpt-4o-mini") */
+  model: string;
+
+  /** Decrypted API key (populated at runtime by the server, never stored in plaintext) */
+  apiKey: string;
+}
 
 /**
  * Progress callback for pipeline steps.
@@ -35,14 +57,30 @@ export interface ReviewInput {
   /** Review mode to use */
   mode: ReviewMode;
 
-  /** Primary LLM provider */
-  provider: LLMProvider;
+  // ── Single provider (CLI/Action backward compat) ──────────
+
+  /** Primary LLM provider (used when providerChain is not set) */
+  provider?: LLMProvider;
 
   /** Model identifier (e.g., "claude-sonnet-4-20250514", "gpt-4o") */
-  model: string;
+  model?: string;
 
   /** Decrypted API key for the LLM provider */
-  apiKey: string;
+  apiKey?: string;
+
+  // ── Provider chain (SaaS mode) ────────────────────────────
+
+  /**
+   * Ordered list of providers to try. Index 0 = primary.
+   * When set, takes precedence over provider/model/apiKey.
+   */
+  providerChain?: ProviderChainEntry[];
+
+  /**
+   * Whether AI review is enabled. Defaults to true.
+   * When false, only static analysis tools run (no LLM calls).
+   */
+  aiReviewEnabled?: boolean;
 
   /** Tool and review configuration */
   settings: ReviewSettings;
@@ -140,10 +178,10 @@ export interface ReviewMetadata {
   /** Review mode used */
   mode: ReviewMode;
 
-  /** LLM provider used (may differ from requested if fallback occurred) */
-  provider: LLMProvider;
+  /** LLM provider used (may differ from requested if fallback occurred). 'none' for static-only. */
+  provider: LLMProvider | 'none';
 
-  /** Model used */
+  /** Model used. 'static-only' when AI review is disabled. */
   model: string;
 
   /** Total tokens consumed */
