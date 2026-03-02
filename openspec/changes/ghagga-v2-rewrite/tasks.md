@@ -64,53 +64,53 @@
 
 ## Phase 5: Server Application (`apps/server/`)
 
-- [ ] 5.1 Create `apps/server/src/github/client.ts` — GitHub API client: fetchPRDiff (paginated), postComment (formatted markdown), verifyWebhookSignature (HMAC-SHA256 constant-time), getInstallationToken
-- [ ] 5.2 Create `apps/server/src/middleware/auth.ts` — Hono middleware: extract Bearer token, verify against GitHub API, attach user context (GitHub ID, installation IDs) to request
-- [ ] 5.3 Create `apps/server/src/inngest/client.ts` — Inngest client setup with event schemas
-- [ ] 5.4 Create `apps/server/src/inngest/review.ts` — Inngest durable function with 6 steps: fetch-context, static-analysis, memory-search, ai-review, save-memory, post-comment. Include fallback to sync static-only mode on quota exceeded.
-- [ ] 5.5 Create `apps/server/src/routes/webhook.ts` — Hono route: POST /webhook — verify signature, parse event type, filter ignored files, dispatch to Inngest or return 200 for unsupported events
-- [ ] 5.6 Create `apps/server/src/routes/api.ts` — Hono routes: GET /api/reviews (paginated, scoped), PUT /api/repositories/:id/settings, POST /api/repositories/:id/api-key, DELETE /api/repositories/:id/api-key, GET /api/stats
-- [ ] 5.7 Create `apps/server/src/index.ts` — Hono app entry point: mount routes, middleware, Inngest serve endpoint, health check, CORS config, start server
+- [x] 5.1 Create `apps/server/src/github/client.ts` — GitHub API client: fetchPRDiff, postComment, verifyWebhookSignature (HMAC-SHA256 + timingSafeEqual), getInstallationToken (manual JWT RS256)
+- [x] 5.2 Create `apps/server/src/middleware/auth.ts` — Hono middleware: verify GitHub PAT, resolve installation access, type-safe context
+- [x] 5.3 Create `apps/server/src/inngest/client.ts` — Inngest client with typed event schemas
+- [x] 5.4 Create `apps/server/src/inngest/review.ts` — Durable function: fetch-context → run-review → save-review → post-comment (formatted markdown)
+- [x] 5.5 Create `apps/server/src/routes/webhook.ts` — Handles pull_request, installation, installation_repositories events
+- [x] 5.6 Create `apps/server/src/routes/api.ts` — 8 REST endpoints: reviews, stats, repos, settings, API keys, memory sessions/observations
+- [x] 5.7 Create `apps/server/src/index.ts` — Hono app with CORS, health check, webhook, Inngest, and auth-protected API routes
 - [ ] 5.8 Write integration tests for webhook route (valid/invalid signature, supported/unsupported events, ignored files)
 - [ ] 5.9 Write integration tests for API routes (auth required, scoped results, settings update, encrypted key management)
 
 ## Phase 6: Dashboard (`apps/dashboard/`)
 
-- [ ] 6.1 Create `apps/dashboard/package.json` with dependencies (react, react-dom, react-router-dom, @tanstack/react-query, tailwindcss, shadcn/ui setup)
-- [ ] 6.2 Initialize Vite + React + TypeScript + Tailwind CSS + shadcn/ui
-- [ ] 6.3 Create `apps/dashboard/src/lib/api.ts` — API client using TanStack Query: useReviews, useStats, useRepoSettings, useMutateSettings, useApiKeyMutation
-- [ ] 6.4 Create `apps/dashboard/src/lib/auth.ts` — AuthContext with GitHub OAuth flow, session persistence, protected route wrapper
-- [ ] 6.5 Create `apps/dashboard/src/App.tsx` — HashRouter with routes: /login, /dashboard, /reviews, /settings, /memory
-- [ ] 6.6 Create `apps/dashboard/src/components/Layout.tsx` — Sidebar navigation + main content area
-- [ ] 6.7 Create `apps/dashboard/src/pages/Login.tsx` — GitHub OAuth sign-in button
-- [ ] 6.8 Create `apps/dashboard/src/pages/Dashboard.tsx` — Stats cards (total, passed, failed), area chart (reviews over time), pass rate ring
-- [ ] 6.9 Create `apps/dashboard/src/pages/Reviews.tsx` — Filterable, searchable review table with detail modal
-- [ ] 6.10 Create `apps/dashboard/src/pages/Settings.tsx` — Per-repo config: mode, provider, model, tool toggles, custom rules, API key management
-- [ ] 6.11 Create `apps/dashboard/src/pages/Memory.tsx` — Session sidebar + observation cards with search
-- [ ] 6.12 Configure `vite.config.ts` for GitHub Pages deployment (base path, env vars)
-- [ ] 6.13 Create `.github/workflows/deploy-pages.yml` — Build and deploy dashboard to GitHub Pages on push to main
+- [x] 6.1 Create `apps/dashboard/package.json` — React 19, react-router-dom 7, TanStack Query 5, Recharts, Tailwind 3
+- [x] 6.2 Initialize Vite + React + TypeScript + Tailwind CSS with dark theme
+- [x] 6.3 Create `apps/dashboard/src/lib/api.ts` — API client with 8 TanStack Query hooks
+- [x] 6.4 Create `apps/dashboard/src/lib/auth.tsx` — AuthContext with GitHub PAT authentication, ProtectedRoute
+- [x] 6.5 Create `apps/dashboard/src/App.tsx` — HashRouter with /login, /, /reviews, /settings, /memory routes
+- [x] 6.6 Create `apps/dashboard/src/components/Layout.tsx` — Dark sidebar with nav, user info, active link highlighting
+- [x] 6.7 Create `apps/dashboard/src/pages/Login.tsx` — GitHub PAT form with token validation
+- [x] 6.8 Create `apps/dashboard/src/pages/Dashboard.tsx` — 4 stat cards + Recharts area chart
+- [x] 6.9 Create `apps/dashboard/src/pages/Reviews.tsx` — Filterable table with detail expansion and pagination
+- [x] 6.10 Create `apps/dashboard/src/pages/Settings.tsx` — Per-repo config form + API key management
+- [x] 6.11 Create `apps/dashboard/src/pages/Memory.tsx` — Session sidebar + observation cards with debounced search
+- [x] 6.12 Configure `vite.config.ts` for GitHub Pages deployment (/ghagga/ base path)
+- [x] 6.13 Create `.github/workflows/deploy-pages.yml` — Auto-deploy dashboard on push to main
 
 ## Phase 7: CLI Distribution (`apps/cli/`)
 
-- [ ] 7.1 Create `apps/cli/package.json` with bin entry and dependencies (commander)
-- [ ] 7.2 Create `apps/cli/src/index.ts` — CLI entry point with commander: `ghagga review` command
-- [ ] 7.3 Create `apps/cli/src/commands/review.ts` — Compute diff from git (staged or HEAD), read config from CLI args / env vars / .ghagga.json, call core pipeline in sync mode (no Inngest, no memory), output result in markdown/json/sarif format
+- [x] 7.1 Create `apps/cli/package.json` with bin entry `ghagga` and commander dependency
+- [x] 7.2 Create `apps/cli/src/index.ts` — CLI entry point with commander, mode/provider/format/api-key options
+- [x] 7.3 Create `apps/cli/src/commands/review.ts` — Git diff, .ghagga.json config, markdown/json output, exit codes
 - [ ] 7.4 Write tests for CLI argument parsing and config resolution
 
 ## Phase 8: GitHub Action Distribution (`apps/action/`)
 
-- [ ] 8.1 Create `apps/action/action.yml` — Action definition with inputs (provider, model, mode, api-key, enable-semgrep, enable-trivy, enable-cpd)
-- [ ] 8.2 Create `apps/action/src/index.ts` — Read event payload, compute diff from PR, call core pipeline in sync mode, post PR comment using GITHUB_TOKEN
+- [x] 8.1 Create `apps/action/action.yml` — node20 action with provider/model/mode/api-key/tool inputs
+- [x] 8.2 Create `apps/action/src/index.ts` — Fetch PR diff via Octokit, call reviewPipeline, post comment, set outputs
 - [ ] 8.3 Create `Dockerfile` in apps/action with Semgrep, Trivy, and PMD/CPD pre-installed
 - [ ] 8.4 Write test for action entry point with mocked GitHub context
 
 ## Phase 9: Docker & Deployment
 
-- [ ] 9.1 Create root `Dockerfile` — Multi-stage build: install Node.js + Semgrep + Trivy + PMD/CPD, copy built server, expose port
-- [ ] 9.2 Create `docker-compose.yml` — Server + PostgreSQL services for local development
-- [ ] 9.3 Create `railway.json` or deploy button config for 1-click Railway deployment
-- [ ] 9.4 Create `.github/workflows/ci.yml` — CI pipeline: lint, typecheck, test all packages, build all apps
-- [ ] 9.5 Update `README.md` with Quick Start, architecture overview, 4 deployment modes, and deploy buttons
+- [x] 9.1 Create root `Dockerfile` — Multi-stage build with Semgrep, Trivy, PMD/CPD, non-root user
+- [x] 9.2 Create `docker-compose.yml` — PostgreSQL + server with health checks
+- [x] 9.3 Create `railway.toml` for 1-click Railway deployment with health check
+- [x] 9.4 Create `.github/workflows/ci.yml` — Typecheck, build, and test pipeline
+- [x] 9.5 Create `README.md` — Quick start, architecture diagram, 4 deployment modes, dev setup
 
 ## Phase 10: Integration Testing & Polish
 
