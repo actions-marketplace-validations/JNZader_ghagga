@@ -1,0 +1,25 @@
+{
+  "name": "@ghagga/cli",
+  "version": "2.0.0",
+  "private": false,
+  "type": "module",
+  "bin": {
+    "ghagga": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ghagga/core": "workspace:*",
+    "commander": "^13.0.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0"
+  }
+}

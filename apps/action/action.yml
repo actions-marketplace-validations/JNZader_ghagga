@@ -1,0 +1,35 @@
+name: 'GHAGGA Code Review'
+description: 'AI-powered code review for pull requests'
+branding:
+  icon: 'eye'
+  color: 'purple'
+inputs:
+  provider:
+    description: 'LLM provider (anthropic, openai, google)'
+    required: false
+    default: 'anthropic'
+  model:
+    description: 'LLM model identifier'
+    required: false
+  mode:
+    description: 'Review mode (simple, workflow, consensus)'
+    required: false
+    default: 'simple'
+  api-key:
+    description: 'LLM provider API key'
+    required: true
+  enable-semgrep:
+    description: 'Enable Semgrep static analysis'
+    required: false
+    default: 'true'
+  enable-trivy:
+    description: 'Enable Trivy vulnerability scanning'
+    required: false
+    default: 'true'
+  enable-cpd:
+    description: 'Enable CPD duplicate detection'
+    required: false
+    default: 'true'
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
