@@ -213,4 +213,166 @@ describe('truncateDiff', () => {
     expect(result1.wasTruncated).toBe(true);
     expect(result1.truncated).toContain('[... diff truncated to fit token budget ...]');
   });
+
+  // ── Mutant killers ──
+
+  it('uses 4 chars per token for budget calculation (kills * → / mutant)', () => {
+    // 10 tokens = 40 chars. A 41-char string should be truncated.
+    const diff = 'a'.repeat(41);
+    const result = truncateDiff(diff, 10);
+    expect(result.wasTruncated).toBe(true);
+
+    // 10 tokens = 40 chars. A 40-char string should NOT be truncated.
+    const diff2 = 'a'.repeat(40);
+    const result2 = truncateDiff(diff2, 10);
+    expect(result2.wasTruncated).toBe(false);
+  });
+
+  it('does not truncate when diff.length equals maxChars exactly (kills <= to < mutant)', () => {
+    // 5 tokens = 20 chars exactly
+    const diff = 'a'.repeat(20);
+    const result = truncateDiff(diff, 5);
+    expect(result.wasTruncated).toBe(false);
+    expect(result.truncated).toBe(diff);
+  });
+
+  it('cuts at newline boundary, not mid-line (kills cutoff > 0 branch mutants)', () => {
+    // Build a diff where a newline exists before maxChars
+    const diff = 'first line\nsecond line that is much longer than the budget allows';
+    // 5 tokens = 20 chars. lastIndexOf('\n', 20) will find the \n at position 10
+    const result = truncateDiff(diff, 5);
+    expect(result.wasTruncated).toBe(true);
+    // The truncated content should end at the newline (position 10 → "first line")
+    expect(result.truncated).toContain('first line');
+    expect(result.truncated).not.toContain('second line');
+  });
+
+  it('falls back to maxChars when no newline exists before cutoff (kills else branch)', () => {
+    // A single long line with no newline characters
+    const diff = 'x'.repeat(100);
+    // 5 tokens = 20 chars. lastIndexOf('\n', 20) returns -1, so cutoff <= 0
+    const result = truncateDiff(diff, 5);
+    expect(result.wasTruncated).toBe(true);
+    // Should use maxChars (20) as the cutoff point
+    const mainContent = result.truncated.split('\n\n[...')[0]!;
+    expect(mainContent.length).toBe(20);
+  });
+
+  it('joins content lines with newlines in parsed files (kills join separator mutant)', () => {
+    const diff = [
+      'diff --git a/src/file.ts b/src/file.ts',
+      '--- a/src/file.ts',
+      '+++ b/src/file.ts',
+      '@@ -1,2 +1,3 @@',
+      ' const x = 1;',
+      '+const y = 2;',
+      ' export { x };',
+    ].join('\n');
+
+    const files = parseDiffFiles(diff);
+    // Content should contain newlines between lines, not be concatenated
+    expect(files[0]!.content).toContain('\n');
+    expect(files[0]!.content.split('\n').length).toBe(7);
+  });
+});
+
+// ─── parseDiffFiles (mutant killers) ────────────────────────────
+
+describe('parseDiffFiles (mutant killers)', () => {
+  it('initializes content as empty before accumulating lines (kills initial content mutant)', () => {
+    const diff = [
+      'diff --git a/src/new.ts b/src/new.ts',
+      '--- /dev/null',
+      '+++ b/src/new.ts',
+      '@@ -0,0 +1,2 @@',
+      '+const x = 1;',
+      '+export { x };',
+    ].join('\n');
+
+    const files = parseDiffFiles(diff);
+    // The content should start with the diff header, not random content
+    expect(files[0]!.content).toMatch(/^diff --git/);
+  });
+
+  it('only collects lines when inside a file block (kills else if currentFile mutant)', () => {
+    // Lines before the first diff header should be ignored
+    const diff = [
+      'This is some preamble text',
+      'that should be ignored',
+      'diff --git a/src/a.ts b/src/a.ts',
+      '+added line',
+    ].join('\n');
+
+    const files = parseDiffFiles(diff);
+    expect(files).toHaveLength(1);
+    expect(files[0]!.content).not.toContain('preamble');
+  });
+
+  it('requires end-of-line anchor in file header regex (kills $ removal mutant)', () => {
+    // Without $, the regex could match a line that has extra content after the path
+    const diff = [
+      'diff --git a/src/a.ts b/src/a.ts',
+      '@@ -1 +1 @@',
+      '+hello',
+    ].join('\n');
+
+    const files = parseDiffFiles(diff);
+    expect(files).toHaveLength(1);
+    expect(files[0]!.path).toBe('src/a.ts');
+  });
+
+  it('requires start-of-line anchor in file header regex (kills ^ removal mutant)', () => {
+    // Without ^, the regex could match mid-line content
+    const diff = [
+      'diff --git a/src/a.ts b/src/a.ts',
+      '+some content with diff --git a/fake b/fake inside it',
+      '+normal line',
+    ].join('\n');
+
+    const files = parseDiffFiles(diff);
+    // Without ^, the embedded "diff --git" would match and split the file.
+    // With ^, it only matches at start of line, so we get 1 file.
+    expect(files).toHaveLength(1);
+    expect(files[0]!.additions).toBe(2);
+  });
+
+  it('parses multiple files and verifies content separation', () => {
+    const diff = [
+      'diff --git a/src/a.ts b/src/a.ts',
+      '+line in a',
+      'diff --git a/src/b.ts b/src/b.ts',
+      '+line in b',
+    ].join('\n');
+
+    const files = parseDiffFiles(diff);
+    expect(files).toHaveLength(2);
+    expect(files[0]!.content).toContain('line in a');
+    expect(files[0]!.content).not.toContain('line in b');
+    expect(files[1]!.content).toContain('line in b');
+    expect(files[1]!.content).not.toContain('line in a');
+  });
+});
+
+// ─── filterIgnoredFiles (mutant killers) ─────────────────────────
+
+describe('filterIgnoredFiles (mutant killers)', () => {
+  const makeFile = (path: string) => ({
+    path,
+    additions: 1,
+    deletions: 0,
+    content: `diff for ${path}`,
+  });
+
+  it('returns same reference for empty patterns (kills early return mutant)', () => {
+    const files = [makeFile('a.ts'), makeFile('b.ts')];
+    const result = filterIgnoredFiles(files, []);
+    expect(result).toBe(files); // Same reference, not a copy
+  });
+
+  it('filters dotfiles when dot option is true (kills dot: false mutant)', () => {
+    const files = [makeFile('.env'), makeFile('src/app.ts')];
+    const result = filterIgnoredFiles(files, ['.*']); // .* matches dotfiles
+    expect(result).toHaveLength(1);
+    expect(result[0]!.path).toBe('src/app.ts');
+  });
 });

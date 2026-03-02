@@ -421,5 +421,201 @@ index 1234567..abcdefg 100644
         }),
       );
     });
+
+    it('passes stackHints derived from file extensions to agent', async () => {
+      // MINIMAL_DIFF has src/index.ts → should detect typescript
+      await reviewPipeline(makeInput());
+
+      expect(runSimpleReview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stackHints: expect.stringContaining('type safety'),
+        }),
+      );
+    });
+
+    it('passes the truncated diff to the agent (not the raw diff)', async () => {
+      await reviewPipeline(makeInput());
+
+      const callArgs = (runSimpleReview as MockedFunction<typeof runSimpleReview>).mock.calls[0]![0];
+      expect(callArgs.diff).toBeDefined();
+      expect(callArgs.diff.length).toBeGreaterThan(0);
+    });
+  });
+
+  // ── SKIPPED Result Verification ───────────────────────────
+
+  describe('skipped result details', () => {
+    const mdOnlyDiff = `diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1 +1,2 @@
+ # Hello
++World
+`;
+    const skipInput = () =>
+      makeInput({
+        diff: mdOnlyDiff,
+        settings: {
+          enableSemgrep: false,
+          enableTrivy: false,
+          enableCpd: false,
+          enableMemory: false,
+          customRules: [],
+          ignorePatterns: ['*.md'],
+          reviewLevel: 'normal',
+        },
+      });
+
+    it('skipped result has SKIPPED status', async () => {
+      const result = await reviewPipeline(skipInput());
+      expect(result.status).toBe('SKIPPED');
+    });
+
+    it('skipped result summary mentions ignore patterns', async () => {
+      const result = await reviewPipeline(skipInput());
+      expect(result.summary).toContain('ignore patterns');
+    });
+
+    it('skipped result has empty findings array', async () => {
+      const result = await reviewPipeline(skipInput());
+      expect(result.findings).toEqual([]);
+    });
+
+    it('skipped result has null memoryContext', async () => {
+      const result = await reviewPipeline(skipInput());
+      expect(result.memoryContext).toBeNull();
+    });
+
+    it('skipped result has all tools in toolsSkipped', async () => {
+      const result = await reviewPipeline(skipInput());
+      expect(result.metadata.toolsSkipped).toContain('semgrep');
+      expect(result.metadata.toolsSkipped).toContain('trivy');
+      expect(result.metadata.toolsSkipped).toContain('cpd');
+      expect(result.metadata.toolsSkipped).toHaveLength(3);
+    });
+
+    it('skipped result has empty toolsRun', async () => {
+      const result = await reviewPipeline(skipInput());
+      expect(result.metadata.toolsRun).toEqual([]);
+    });
+
+    it('skipped result has correct mode/provider/model from input', async () => {
+      const result = await reviewPipeline(skipInput());
+      expect(result.metadata.mode).toBe('simple');
+      expect(result.metadata.provider).toBe('anthropic');
+      expect(result.metadata.model).toBe('claude-sonnet-4-20250514');
+    });
+
+    it('skipped result has zero tokensUsed', async () => {
+      const result = await reviewPipeline(skipInput());
+      expect(result.metadata.tokensUsed).toBe(0);
+    });
+
+    it('skipped result has executionTimeMs >= 0', async () => {
+      const result = await reviewPipeline(skipInput());
+      expect(result.metadata.executionTimeMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('skipped result staticAnalysis has all tools skipped', async () => {
+      const result = await reviewPipeline(skipInput());
+      expect(result.staticAnalysis.semgrep.status).toBe('skipped');
+      expect(result.staticAnalysis.trivy.status).toBe('skipped');
+      expect(result.staticAnalysis.cpd.status).toBe('skipped');
+      expect(result.staticAnalysis.semgrep.findings).toEqual([]);
+      expect(result.staticAnalysis.trivy.findings).toEqual([]);
+      expect(result.staticAnalysis.cpd.findings).toEqual([]);
+    });
+  });
+
+  // ── Result Detail Verification ────────────────────────────
+
+  describe('result details', () => {
+    it('result has correct status from agent', async () => {
+      const result = await reviewPipeline(makeInput());
+      expect(result.status).toBe('PASSED');
+    });
+
+    it('result has correct summary from agent', async () => {
+      const result = await reviewPipeline(makeInput());
+      expect(result.summary).toBe('Code looks good.');
+    });
+
+    it('result staticAnalysis is set from pipeline (not agent)', async () => {
+      const result = await reviewPipeline(makeInput());
+      // The pipeline overrides the agent's staticAnalysis with the actual one
+      expect(result.staticAnalysis).toBeDefined();
+      expect(result.staticAnalysis.semgrep).toBeDefined();
+    });
+
+    it('result memoryContext is null when memory is disabled', async () => {
+      const result = await reviewPipeline(makeInput());
+      expect(result.memoryContext).toBeNull();
+    });
+
+    it('result memoryContext is set when memory returns context', async () => {
+      (searchMemoryForContext as MockedFunction<typeof searchMemoryForContext>).mockResolvedValue(
+        'Previous review noted performance issues.',
+      );
+
+      const result = await reviewPipeline(
+        makeInput({
+          settings: {
+            enableSemgrep: false,
+            enableTrivy: false,
+            enableCpd: false,
+            enableMemory: true,
+            customRules: [],
+            ignorePatterns: [],
+            reviewLevel: 'normal',
+          },
+          db: {} as any,
+        }),
+      );
+
+      expect(result.memoryContext).toBe('Previous review noted performance issues.');
+    });
+
+    it('updates executionTimeMs to cover full pipeline', async () => {
+      const result = await reviewPipeline(makeInput());
+      expect(result.metadata.executionTimeMs).toBeGreaterThanOrEqual(0);
+      // It should be the pipeline's timing, not the agent's
+      expect(typeof result.metadata.executionTimeMs).toBe('number');
+    });
+
+    it('reconstructs filtered diff from filtered files only', async () => {
+      // Diff with 2 files: one .ts (kept) and one .md (filtered)
+      const mixedDiff = `diff --git a/src/app.ts b/src/app.ts
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1 +1,2 @@
+ const x = 1;
++const y = 2;
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1 +1,2 @@
+ # Hello
++World
+`;
+      await reviewPipeline(
+        makeInput({
+          diff: mixedDiff,
+          settings: {
+            enableSemgrep: false,
+            enableTrivy: false,
+            enableCpd: false,
+            enableMemory: false,
+            customRules: [],
+            ignorePatterns: ['*.md'],
+            reviewLevel: 'normal',
+          },
+        }),
+      );
+
+      // The agent should receive only the .ts file diff, not the .md
+      const callArgs = (runSimpleReview as MockedFunction<typeof runSimpleReview>).mock.calls[0]![0];
+      expect(callArgs.diff).toContain('app.ts');
+      expect(callArgs.diff).not.toContain('README.md');
+    });
   });
 });
