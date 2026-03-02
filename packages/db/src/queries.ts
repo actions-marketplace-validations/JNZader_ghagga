@@ -62,6 +62,18 @@ export async function getInstallationByGitHubId(db: Database, githubInstallation
   return rows[0] ?? null;
 }
 
+export async function getInstallationsByAccountLogin(db: Database, accountLogin: string) {
+  return db
+    .select()
+    .from(installations)
+    .where(
+      and(
+        eq(installations.accountLogin, accountLogin),
+        eq(installations.isActive, true),
+      ),
+    );
+}
+
 // ─── Repositories ───────────────────────────────────────────────
 
 export async function upsertRepository(

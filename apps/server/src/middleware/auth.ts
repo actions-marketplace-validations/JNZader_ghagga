@@ -9,7 +9,7 @@
 
 import { createMiddleware } from 'hono/factory';
 import type { Database } from 'ghagga-db';
-import { getInstallationsByUserId, getInstallationByGitHubId, upsertUserMapping } from 'ghagga-db';
+import { getInstallationsByUserId, getInstallationsByAccountLogin, upsertUserMapping } from 'ghagga-db';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -17,12 +17,6 @@ export interface AuthUser {
   githubUserId: number;
   githubLogin: string;
   installationIds: number[];
-}
-
-interface GitHubInstallation {
-  id: number;
-  account: { login: string };
-  app_id: number;
 }
 
 // Augment Hono's context variable map so c.get('user') is typed
@@ -87,7 +81,7 @@ export function authMiddleware(db: Database) {
       // If no mappings exist, auto-discover from GitHub API and create them
       if (userInstallations.length === 0) {
         console.log(`[ghagga] No mappings for user ${githubLogin} (${githubUserId}), auto-discovering installations...`);
-        userInstallations = await discoverAndMapInstallations(db, token, githubUserId, githubLogin);
+        userInstallations = await discoverAndMapInstallations(db, githubUserId, githubLogin);
       }
 
       const installationIds = userInstallations.map((inst) => inst.id);
@@ -109,58 +103,36 @@ export function authMiddleware(db: Database) {
 // ─── Auto-Discovery ─────────────────────────────────────────────
 
 /**
- * Fetch the user's accessible installations from GitHub API,
- * cross-reference with our database, and create mappings.
+ * Find installations in our DB whose account_login matches the
+ * user's GitHub login, and create the user-installation mappings.
  *
- * Returns the installations that were matched in our database.
+ * This is simpler and more reliable than calling the GitHub API
+ * (which requires specific token scopes). Since we already have
+ * the installation data from webhook events, we just match by login.
  */
 async function discoverAndMapInstallations(
   db: Database,
-  token: string,
   githubUserId: number,
   githubLogin: string,
 ) {
   try {
-    // GitHub API: list installations accessible to the user's token
-    const response = await fetch('https://api.github.com/user/installations', {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github.v3+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-    });
+    const matchedInstallations = await getInstallationsByAccountLogin(db, githubLogin);
 
-    if (!response.ok) {
-      console.warn(`[ghagga] Failed to list user installations: ${response.status}`);
+    if (matchedInstallations.length === 0) {
+      console.log(`[ghagga] No installations found for account ${githubLogin}`);
       return [];
     }
 
-    const data = (await response.json()) as {
-      total_count: number;
-      installations: GitHubInstallation[];
-    };
-
-    console.log(`[ghagga] User ${githubLogin} has access to ${data.total_count} app installation(s)`);
-
-    // For each GitHub installation, check if we have it in our DB
-    // and create the user mapping
-    const matched = [];
-
-    for (const ghInstallation of data.installations) {
-      const dbInstallation = await getInstallationByGitHubId(db, ghInstallation.id);
-
-      if (dbInstallation) {
-        console.log(`[ghagga] Mapping user ${githubLogin} → installation ${dbInstallation.id} (${dbInstallation.accountLogin})`);
-        await upsertUserMapping(db, {
-          githubUserId,
-          githubLogin,
-          installationId: dbInstallation.id,
-        });
-        matched.push(dbInstallation);
-      }
+    for (const installation of matchedInstallations) {
+      console.log(`[ghagga] Mapping user ${githubLogin} → installation ${installation.id} (${installation.accountLogin})`);
+      await upsertUserMapping(db, {
+        githubUserId,
+        githubLogin,
+        installationId: installation.id,
+      });
     }
 
-    return matched;
+    return matchedInstallations;
   } catch (error) {
     console.error('[ghagga] Error discovering installations:', error);
     return [];
