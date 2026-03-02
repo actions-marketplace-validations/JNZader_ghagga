@@ -32,8 +32,11 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
 
-  /** Start the Device Flow login process */
+  /** Start the Device Flow login process (requires backend) */
   startLogin: () => Promise<void>;
+
+  /** Login with a manually entered Personal Access Token (fallback) */
+  loginWithToken: (token: string) => Promise<void>;
 
   /** Cancel an in-progress login */
   cancelLogin: () => void;
@@ -167,6 +170,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // ── PAT Login (fallback when no backend) ─────────────────────
+
+  const loginWithToken = useCallback(async (newToken: string) => {
+    setError(null);
+    setIsLoading(true);
+    setLoginPhase('exchanging_token');
+
+    try {
+      const githubUser = await fetchGitHubUser(newToken);
+
+      const appUser: User = {
+        githubLogin: githubUser.login,
+        githubUserId: githubUser.id,
+        avatarUrl: githubUser.avatar_url,
+      };
+
+      localStorage.setItem(TOKEN_KEY, newToken);
+      localStorage.setItem(USER_KEY, JSON.stringify(appUser));
+      setToken(newToken);
+      setUser(appUser);
+      setLoginPhase('success');
+    } catch {
+      setError('Invalid token. Make sure it has not expired.');
+      setLoginPhase('error');
+      throw new Error('Invalid token');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   const cancelLogin = useCallback(() => {
     abortController?.abort();
     setLoginPhase('idle');
@@ -191,6 +224,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isAuthenticated: !!user && !!token,
     isLoading,
     startLogin,
+    loginWithToken,
     cancelLogin,
     logout,
     loginPhase,

@@ -1,13 +1,17 @@
 /**
  * GitHub OAuth Device Flow for the Dashboard (browser).
  *
- * Same flow as the CLI but adapted for browser fetch APIs.
- * The user opens github.com/login/device in a new tab, enters
- * the code, and the dashboard polls until authorized.
+ * Because GitHub's Device Flow endpoints don't support CORS,
+ * requests are proxied through the GHAGGA server (/auth/device/*).
+ * When no server is available, the dashboard falls back to manual
+ * PAT (Personal Access Token) entry.
  */
 
 /** GHAGGA OAuth App Client ID (public — safe to embed in code) */
 export const GITHUB_CLIENT_ID = 'Ov23liyYpSgDqOLUFa5k';
+
+/** Server base URL — used for OAuth proxy endpoints */
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -37,26 +41,46 @@ export interface GitHubUser {
   avatar_url: string;
 }
 
-// ─── Device Flow ────────────────────────────────────────────────
+// ─── Server Availability ────────────────────────────────────────
+
+/**
+ * Check if the GHAGGA backend server is reachable.
+ * Returns true if the server responds to /health within 3 seconds.
+ */
+export async function isServerAvailable(): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+
+    const response = await fetch(`${API_URL}/health`, {
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+// ─── Device Flow (via server proxy) ─────────────────────────────
 
 /**
  * Step 1: Request device and user verification codes.
+ * Proxied through the GHAGGA server to avoid CORS issues.
  */
 export async function requestDeviceCode(): Promise<DeviceCodeResponse> {
-  const response = await fetch('https://github.com/login/device/code', {
+  const response = await fetch(`${API_URL}/auth/device/code`, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      client_id: GITHUB_CLIENT_ID,
-      scope: '',
-    }),
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to request device code: ${response.status}`);
+    const text = await response.text().catch(() => 'Unknown error');
+    throw new Error(`Failed to request device code: ${response.status} ${text}`);
   }
 
   return response.json() as Promise<DeviceCodeResponse>;
@@ -64,6 +88,7 @@ export async function requestDeviceCode(): Promise<DeviceCodeResponse> {
 
 /**
  * Step 3: Poll for access token.
+ * Proxied through the GHAGGA server to avoid CORS issues.
  *
  * @param deviceCode - The device_code from step 1
  * @param interval - Polling interval in seconds
@@ -90,17 +115,13 @@ export async function pollForAccessToken(
       throw new Error('Login cancelled');
     }
 
-    const response = await fetch('https://github.com/login/oauth/access_token', {
+    const response = await fetch(`${API_URL}/auth/device/token`, {
       method: 'POST',
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        client_id: GITHUB_CLIENT_ID,
-        device_code: deviceCode,
-        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-      }),
+      body: JSON.stringify({ device_code: deviceCode }),
     });
 
     const data = (await response.json()) as AccessTokenResponse | DeviceFlowError;
@@ -129,8 +150,11 @@ export async function pollForAccessToken(
   throw new Error('Code expired. Please try again.');
 }
 
+// ─── GitHub API (direct — api.github.com supports CORS) ─────────
+
 /**
  * Fetch the authenticated user's GitHub profile.
+ * This calls api.github.com directly (supports CORS).
  */
 export async function fetchGitHubUser(token: string): Promise<GitHubUser> {
   const response = await fetch('https://api.github.com/user', {

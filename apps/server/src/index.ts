@@ -17,6 +17,7 @@ import { createDatabaseFromEnv } from '@ghagga/db';
 import { inngest } from './inngest/client.js';
 import { reviewFunction } from './inngest/review.js';
 import { createWebhookRouter } from './routes/webhook.js';
+import { createOAuthRouter } from './routes/oauth.js';
 import { createApiRouter } from './routes/api.js';
 import { authMiddleware } from './middleware/auth.js';
 
@@ -39,6 +40,10 @@ app.get('/health', (c) => {
 // Webhook routes (no auth required — verified by signature)
 const webhookRouter = createWebhookRouter(db);
 app.route('/', webhookRouter);
+
+// OAuth proxy routes (no auth required — used during login)
+const oauthRouter = createOAuthRouter();
+app.route('/', oauthRouter);
 
 // Inngest serve endpoint (before auth middleware — Inngest uses its own signing)
 app.on(
