@@ -25,7 +25,7 @@ import { buildStackHints } from './agents/prompts.js';
 import { runSimpleReview } from './agents/simple.js';
 import { runWorkflowReview } from './agents/workflow.js';
 import { runConsensusReview } from './agents/consensus.js';
-import type { ReviewInput, ReviewResult, ReviewStatus } from './types.js';
+import type { ReviewInput, ReviewResult, ReviewStatus, LLMProvider, ProviderChainEntry } from './types.js';
 
 // ─── Validation ─────────────────────────────────────────────────
 
@@ -38,6 +38,17 @@ function validateInput(input: ReviewInput): void {
     throw new Error('Review input must include a non-empty diff');
   }
 
+  // If AI review is explicitly disabled, no provider/model/key needed
+  if (input.aiReviewEnabled === false) {
+    return;
+  }
+
+  // Provider chain mode: validate the chain has entries
+  if (input.providerChain && input.providerChain.length > 0) {
+    return;
+  }
+
+  // Single provider mode (CLI/Action backward compat)
   if (!input.apiKey) {
     throw new Error('Review input must include an API key');
   }
@@ -68,6 +79,9 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
   const startTime = Date.now();
 
   const emit = input.onProgress ?? (() => {});
+
+  // Resolve whether AI review is enabled
+  const aiEnabled = resolveAiEnabled(input);
 
   // ── Step 1: Validate ───────────────────────────────────────
   validateInput(input);
@@ -101,7 +115,8 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
   });
 
   // ── Step 4: Truncate diff to fit token budget ──────────────
-  const { diffBudget } = calculateTokenBudget(input.model);
+  const primaryModel = resolvePrimaryModel(input);
+  const { diffBudget } = calculateTokenBudget(primaryModel);
   const { truncated: truncatedDiff } = truncateDiff(filteredDiff, diffBudget);
   emit({
     step: 'token-budget',
@@ -109,10 +124,11 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
   });
 
   // ── Step 5: Run static analysis (in parallel with memory) ──
+  // Memory search is only useful when AI is enabled (it provides LLM context)
   emit({ step: 'static-analysis', message: 'Running static analysis & memory search...' });
   const [staticResult, memoryContext] = await Promise.all([
     runStaticAnalysisSafe(fileList, input),
-    searchMemorySafe(input, fileList),
+    aiEnabled ? searchMemorySafe(input, fileList) : Promise.resolve(null),
   ]);
 
   const staticContext = formatStaticAnalysisContext(staticResult);
@@ -128,57 +144,76 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
     });
   }
 
-  // ── Step 6: Execute agent mode ─────────────────────────────
-  emit({ step: 'agent-start', message: `Running ${input.mode} agent...` });
+  // ── Step 6: Execute agent mode (or skip if AI disabled) ────
   let result: ReviewResult;
 
-  switch (input.mode) {
-    case 'simple':
-      result = await runSimpleReview({
-        diff: truncatedDiff,
-        provider: input.provider,
-        model: input.model,
-        apiKey: input.apiKey,
-        staticContext,
-        memoryContext,
-        stackHints,
-        onProgress: input.onProgress,
-      });
-      break;
+  if (!aiEnabled) {
+    // Static-only mode: no LLM calls
+    emit({ step: 'agent-start', message: 'AI review disabled — returning static analysis only' });
+    result = createStaticOnlyResult(staticResult, input.mode, startTime);
+  } else {
+    // Resolve the primary provider for agent calls
+    const primary = resolvePrimaryProvider(input);
+    emit({ step: 'agent-start', message: `Running ${input.mode} agent with ${primary.provider}/${primary.model}...` });
 
-    case 'workflow':
-      result = await runWorkflowReview({
-        diff: truncatedDiff,
-        provider: input.provider,
-        model: input.model,
-        apiKey: input.apiKey,
-        staticContext,
-        memoryContext,
-        stackHints,
-        onProgress: input.onProgress,
-      });
-      break;
+    try {
+      switch (input.mode) {
+        case 'simple':
+          result = await runSimpleReview({
+            diff: truncatedDiff,
+            provider: primary.provider as LLMProvider,
+            model: primary.model,
+            apiKey: primary.apiKey,
+            staticContext,
+            memoryContext,
+            stackHints,
+            onProgress: input.onProgress,
+          });
+          break;
 
-    case 'consensus':
-      // Consensus mode uses the primary model with different stances
-      // In production, the caller would configure multiple models via the context
-      result = await runConsensusReview({
-        diff: truncatedDiff,
-        models: [
-          { provider: input.provider, model: input.model, apiKey: input.apiKey, stance: 'for' },
-          { provider: input.provider, model: input.model, apiKey: input.apiKey, stance: 'against' },
-          { provider: input.provider, model: input.model, apiKey: input.apiKey, stance: 'neutral' },
-        ],
-        staticContext,
-        memoryContext,
-        stackHints,
-        onProgress: input.onProgress,
-      });
-      break;
+        case 'workflow':
+          result = await runWorkflowReview({
+            diff: truncatedDiff,
+            provider: primary.provider as LLMProvider,
+            model: primary.model,
+            apiKey: primary.apiKey,
+            staticContext,
+            memoryContext,
+            stackHints,
+            onProgress: input.onProgress,
+          });
+          break;
 
-    default: {
-      const _exhaustive: never = input.mode;
-      throw new Error(`Unknown review mode: ${_exhaustive}`);
+        case 'consensus':
+          result = await runConsensusReview({
+            diff: truncatedDiff,
+            models: [
+              { provider: primary.provider as LLMProvider, model: primary.model, apiKey: primary.apiKey, stance: 'for' },
+              { provider: primary.provider as LLMProvider, model: primary.model, apiKey: primary.apiKey, stance: 'against' },
+              { provider: primary.provider as LLMProvider, model: primary.model, apiKey: primary.apiKey, stance: 'neutral' },
+            ],
+            staticContext,
+            memoryContext,
+            stackHints,
+            onProgress: input.onProgress,
+          });
+          break;
+
+        default: {
+          const _exhaustive: never = input.mode;
+          throw new Error(`Unknown review mode: ${_exhaustive}`);
+        }
+      }
+    } catch (error) {
+      // All providers failed — return static results with NEEDS_HUMAN_REVIEW
+      console.warn(
+        '[ghagga] All AI providers failed, returning static analysis only:',
+        error instanceof Error ? error.message : String(error),
+      );
+      emit({ step: 'agent-failed', message: 'AI review failed — returning static analysis only' });
+      result = createStaticOnlyResult(staticResult, input.mode, startTime);
+      result.status = 'NEEDS_HUMAN_REVIEW';
+      result.summary = `AI review failed (${error instanceof Error ? error.message : 'unknown error'}). Static analysis results are shown below.`;
     }
   }
 
@@ -225,6 +260,49 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
   }
 
   return result;
+}
+
+// ─── Provider Resolution ────────────────────────────────────────
+
+/**
+ * Determine if AI review is enabled.
+ * Defaults to true for backward compatibility (CLI/Action don't set this).
+ */
+function resolveAiEnabled(input: ReviewInput): boolean {
+  if (input.aiReviewEnabled === false) return false;
+  // If chain is explicitly empty and no single provider, treat as disabled
+  if (input.providerChain && input.providerChain.length === 0 && !input.provider) {
+    console.warn('[ghagga] AI review enabled but provider chain is empty and no single provider — treating as disabled');
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Resolve the primary provider from chain or flat fields.
+ * Returns the first entry in the chain, or builds one from flat fields.
+ */
+function resolvePrimaryProvider(input: ReviewInput): ProviderChainEntry {
+  if (input.providerChain && input.providerChain.length > 0) {
+    return input.providerChain[0]!;
+  }
+
+  // Backward compat: single provider from flat fields
+  return {
+    provider: input.provider! as ProviderChainEntry['provider'],
+    model: input.model!,
+    apiKey: input.apiKey!,
+  };
+}
+
+/**
+ * Resolve the model name for token budget calculation.
+ */
+function resolvePrimaryModel(input: ReviewInput): string {
+  if (input.providerChain && input.providerChain.length > 0) {
+    return input.providerChain[0]!.model;
+  }
+  return input.model ?? 'gpt-4o-mini';
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -302,6 +380,7 @@ async function searchMemorySafe(
  * Create a SKIPPED result when all files are filtered out.
  */
 function createSkippedResult(input: ReviewInput, startTime: number): ReviewResult {
+  const primary = input.providerChain?.[0];
   return {
     status: 'SKIPPED' as ReviewStatus,
     summary: 'All files in the diff matched ignore patterns. No review was performed.',
@@ -314,12 +393,51 @@ function createSkippedResult(input: ReviewInput, startTime: number): ReviewResul
     memoryContext: null,
     metadata: {
       mode: input.mode,
-      provider: input.provider,
-      model: input.model,
+      provider: primary?.provider ?? input.provider ?? 'none',
+      model: primary?.model ?? input.model ?? 'unknown',
       tokensUsed: 0,
       executionTimeMs: Date.now() - startTime,
       toolsRun: [],
       toolsSkipped: ['semgrep', 'trivy', 'cpd'],
+    },
+  };
+}
+
+/**
+ * Create a result with only static analysis findings (no AI).
+ * Used when AI review is disabled or when all providers fail.
+ */
+function createStaticOnlyResult(
+  staticResult: import('./types.js').StaticAnalysisResult,
+  mode: import('./types.js').ReviewMode,
+  startTime: number,
+): ReviewResult {
+  // Determine status from static findings severity
+  const allFindings = [
+    ...staticResult.semgrep.findings,
+    ...staticResult.trivy.findings,
+    ...staticResult.cpd.findings,
+  ];
+  const hasCriticalOrHigh = allFindings.some(
+    (f) => f.severity === 'critical' || f.severity === 'high',
+  );
+
+  return {
+    status: hasCriticalOrHigh ? 'FAILED' : 'PASSED',
+    summary: allFindings.length > 0
+      ? `Static analysis found ${allFindings.length} finding(s). AI review was not performed.`
+      : 'Static analysis found no issues. AI review was not performed.',
+    findings: [], // Will be merged in step 7
+    staticAnalysis: staticResult,
+    memoryContext: null,
+    metadata: {
+      mode,
+      provider: 'none',
+      model: 'static-only',
+      tokensUsed: 0,
+      executionTimeMs: Date.now() - startTime,
+      toolsRun: [],
+      toolsSkipped: [],
     },
   };
 }
