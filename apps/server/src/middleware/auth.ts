@@ -3,11 +3,13 @@
  *
  * Verifies a GitHub personal access token by calling GET /user,
  * then looks up which installations the user has access to.
+ * On first login, auto-discovers installations via the GitHub API
+ * and creates the user-installation mappings in the database.
  */
 
 import { createMiddleware } from 'hono/factory';
 import type { Database } from 'ghagga-db';
-import { getInstallationsByUserId } from 'ghagga-db';
+import { getInstallationsByUserId, getInstallationByGitHubId, upsertUserMapping } from 'ghagga-db';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -15,6 +17,12 @@ export interface AuthUser {
   githubUserId: number;
   githubLogin: string;
   installationIds: number[];
+}
+
+interface GitHubInstallation {
+  id: number;
+  account: { login: string };
+  app_id: number;
 }
 
 // Augment Hono's context variable map so c.get('user') is typed
@@ -74,7 +82,14 @@ export function authMiddleware(db: Database) {
 
     // Look up which installations the user has access to
     try {
-      const userInstallations = await getInstallationsByUserId(db, githubUserId);
+      let userInstallations = await getInstallationsByUserId(db, githubUserId);
+
+      // If no mappings exist, auto-discover from GitHub API and create them
+      if (userInstallations.length === 0) {
+        console.log(`[ghagga] No mappings for user ${githubLogin} (${githubUserId}), auto-discovering installations...`);
+        userInstallations = await discoverAndMapInstallations(db, token, githubUserId, githubLogin);
+      }
+
       const installationIds = userInstallations.map((inst) => inst.id);
 
       c.set('user', {
@@ -89,4 +104,65 @@ export function authMiddleware(db: Database) {
 
     await next();
   });
+}
+
+// ─── Auto-Discovery ─────────────────────────────────────────────
+
+/**
+ * Fetch the user's accessible installations from GitHub API,
+ * cross-reference with our database, and create mappings.
+ *
+ * Returns the installations that were matched in our database.
+ */
+async function discoverAndMapInstallations(
+  db: Database,
+  token: string,
+  githubUserId: number,
+  githubLogin: string,
+) {
+  try {
+    // GitHub API: list installations accessible to the user's token
+    const response = await fetch('https://api.github.com/user/installations', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+
+    if (!response.ok) {
+      console.warn(`[ghagga] Failed to list user installations: ${response.status}`);
+      return [];
+    }
+
+    const data = (await response.json()) as {
+      total_count: number;
+      installations: GitHubInstallation[];
+    };
+
+    console.log(`[ghagga] User ${githubLogin} has access to ${data.total_count} app installation(s)`);
+
+    // For each GitHub installation, check if we have it in our DB
+    // and create the user mapping
+    const matched = [];
+
+    for (const ghInstallation of data.installations) {
+      const dbInstallation = await getInstallationByGitHubId(db, ghInstallation.id);
+
+      if (dbInstallation) {
+        console.log(`[ghagga] Mapping user ${githubLogin} → installation ${dbInstallation.id} (${dbInstallation.accountLogin})`);
+        await upsertUserMapping(db, {
+          githubUserId,
+          githubLogin,
+          installationId: dbInstallation.id,
+        });
+        matched.push(dbInstallation);
+      }
+    }
+
+    return matched;
+  } catch (error) {
+    console.error('[ghagga] Error discovering installations:', error);
+    return [];
+  }
 }

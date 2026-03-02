@@ -52,6 +52,16 @@ export async function deactivateInstallation(db: Database, githubInstallationId:
     .where(eq(installations.githubInstallationId, githubInstallationId));
 }
 
+export async function getInstallationByGitHubId(db: Database, githubInstallationId: number) {
+  const rows = await db
+    .select()
+    .from(installations)
+    .where(eq(installations.githubInstallationId, githubInstallationId))
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
 // ─── Repositories ───────────────────────────────────────────────
 
 export async function upsertRepository(
