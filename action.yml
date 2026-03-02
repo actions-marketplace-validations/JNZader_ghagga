@@ -1,9 +1,5 @@
 name: 'GHAGGA Code Review'
-description: >-
-  AI-powered multi-agent code review for pull requests.
-  Supports 5 LLM providers (GitHub Models free, OpenAI, Anthropic, Google, Ollama),
-  3 review modes (simple, workflow with 5 specialists, consensus),
-  and optional static analysis (Semgrep, Trivy, CPD).
+description: 'AI-powered multi-agent code review for PRs. Free via GitHub Models. 5 providers, 3 review modes.'
 
 branding:
   icon: 'eye'
