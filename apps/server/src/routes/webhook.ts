@@ -15,9 +15,9 @@ import {
   deactivateInstallation,
   upsertRepository,
   getRepoByGithubId,
+  getEffectiveRepoSettings,
 } from 'ghagga-db';
 import type { Database } from 'ghagga-db';
-import type { RepoSettings } from 'ghagga-db';
 
 // ─── Minimal Webhook Event Types ────────────────────────────────
 
@@ -189,7 +189,8 @@ async function handlePullRequest(
   // but we can skip dispatch if the repo has very broad patterns.
   // For now, dispatch unconditionally and let the pipeline handle filtering.
 
-  const settings = repo.settings as RepoSettings;
+  // Resolve effective settings (global vs per-repo)
+  const effective = await getEffectiveRepoSettings(db, repo);
 
   // Dispatch review to Inngest
   await inngest.send({
@@ -199,22 +200,22 @@ async function handlePullRequest(
       repoFullName: payload.repository.full_name,
       prNumber: payload.number,
       repositoryId: repo.id,
-      // Provider chain (new)
-      providerChain: repo.providerChain ?? [],
-      aiReviewEnabled: repo.aiReviewEnabled ?? true,
+      // Resolved provider chain (from global or repo)
+      providerChain: effective.providerChain,
+      aiReviewEnabled: effective.aiReviewEnabled,
       // Legacy flat fields (kept for backward compat during transition)
       llmProvider: repo.llmProvider,
       llmModel: repo.llmModel ?? 'gpt-4o-mini',
-      reviewMode: repo.reviewMode,
+      reviewMode: effective.reviewMode,
       encryptedApiKey: repo.encryptedApiKey,
       settings: {
-        enableSemgrep: settings.enableSemgrep,
-        enableTrivy: settings.enableTrivy,
-        enableCpd: settings.enableCpd,
-        enableMemory: settings.enableMemory,
-        customRules: settings.customRules,
-        ignorePatterns: settings.ignorePatterns,
-        reviewLevel: settings.reviewLevel,
+        enableSemgrep: effective.settings.enableSemgrep,
+        enableTrivy: effective.settings.enableTrivy,
+        enableCpd: effective.settings.enableCpd,
+        enableMemory: effective.settings.enableMemory,
+        customRules: effective.settings.customRules,
+        ignorePatterns: effective.settings.ignorePatterns,
+        reviewLevel: effective.settings.reviewLevel,
       },
     },
   });

@@ -250,6 +250,7 @@ export async function updateRepoSettings(
     reviewMode?: string;
     providerChain?: DbProviderChainEntry[];
     aiReviewEnabled?: boolean;
+    useGlobalSettings?: boolean;
   },
 ) {
   await db
