@@ -1,0 +1,98 @@
+import { ProviderEntry, type ProviderEntryState } from './ProviderEntry';
+import type { SaaSProvider } from '@/lib/types';
+
+interface ProviderChainEditorProps {
+  chain: ProviderEntryState[];
+  onChange: (chain: ProviderEntryState[]) => void;
+}
+
+const DEFAULT_ENTRY: ProviderEntryState = {
+  provider: 'github' as SaaSProvider,
+  model: '',
+  apiKey: '',
+  availableModels: [],
+  hasExistingKey: false,
+  validated: false,
+};
+
+export function ProviderChainEditor({ chain, onChange }: ProviderChainEditorProps) {
+  const handleEntryChange = (index: number, entry: ProviderEntryState) => {
+    const updated = [...chain];
+    updated[index] = entry;
+    onChange(updated);
+  };
+
+  const handleRemove = (index: number) => {
+    onChange(chain.filter((_, i) => i !== index));
+  };
+
+  const handleMoveUp = (index: number) => {
+    if (index === 0) return;
+    const updated = [...chain];
+    [updated[index - 1], updated[index]] = [updated[index]!, updated[index - 1]!];
+    onChange(updated);
+  };
+
+  const handleMoveDown = (index: number) => {
+    if (index === chain.length - 1) return;
+    const updated = [...chain];
+    [updated[index], updated[index + 1]] = [updated[index + 1]!, updated[index]!];
+    onChange(updated);
+  };
+
+  const handleAdd = () => {
+    // Pick a provider not already in the chain, or default to github
+    const usedProviders = new Set(chain.map((e) => e.provider));
+    const available = (['github', 'openai', 'anthropic', 'google'] as SaaSProvider[]).find(
+      (p) => !usedProviders.has(p),
+    );
+    onChange([
+      ...chain,
+      { ...DEFAULT_ENTRY, provider: available ?? 'github' },
+    ]);
+  };
+
+  return (
+    <div className="space-y-3">
+      {chain.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-surface-border p-6 text-center">
+          <p className="mb-2 text-sm text-text-secondary">
+            No providers configured. Add at least one to enable AI review.
+          </p>
+          <button
+            type="button"
+            onClick={handleAdd}
+            className="btn-primary text-sm"
+          >
+            + Add Provider
+          </button>
+        </div>
+      ) : (
+        <>
+          {chain.map((entry, index) => (
+            <ProviderEntry
+              key={`${entry.provider}-${index}`}
+              index={index}
+              entry={entry}
+              totalEntries={chain.length}
+              onChange={(updated) => handleEntryChange(index, updated)}
+              onRemove={() => handleRemove(index)}
+              onMoveUp={() => handleMoveUp(index)}
+              onMoveDown={() => handleMoveDown(index)}
+            />
+          ))}
+
+          {chain.length < 4 && (
+            <button
+              type="button"
+              onClick={handleAdd}
+              className="w-full rounded-lg border border-dashed border-surface-border px-4 py-2 text-sm text-text-secondary transition-colors hover:border-primary-600/50 hover:text-primary-400"
+            >
+              + Add Fallback Provider
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

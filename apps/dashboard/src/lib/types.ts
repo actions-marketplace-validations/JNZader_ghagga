@@ -4,6 +4,9 @@ export type ReviewMode = 'simple' | 'workflow' | 'consensus';
 
 export type LLMProvider = 'anthropic' | 'openai' | 'google' | 'github' | 'ollama';
 
+/** Providers available in the SaaS dashboard (excludes Ollama) */
+export type SaaSProvider = 'anthropic' | 'openai' | 'google' | 'github';
+
 export interface User {
   githubLogin: string;
   githubUserId: number;
@@ -62,20 +65,44 @@ export interface Repository {
   isActive: boolean;
 }
 
+// ─── Provider Chain ─────────────────────────────────────────────
+
+/** View of a chain entry from the server (never includes raw keys) */
+export interface ProviderChainView {
+  provider: SaaSProvider;
+  model: string;
+  hasApiKey: boolean;
+  maskedApiKey?: string;
+}
+
+/** Chain entry for updates (sent to PUT /api/settings) */
+export interface ProviderChainUpdate {
+  provider: SaaSProvider;
+  model: string;
+  apiKey?: string; // only sent when new/changed
+}
+
+/** Provider validation response from POST /api/providers/validate */
+export interface ValidationResponse {
+  valid: boolean;
+  models: string[];
+  error?: string;
+}
+
+// ─── Settings ───────────────────────────────────────────────────
+
 export interface RepositorySettings {
   repoId: number;
   repoFullName: string;
+  aiReviewEnabled: boolean;
+  providerChain: ProviderChainView[];
   reviewMode: ReviewMode;
-  llmProvider: LLMProvider;
-  llmModel: string;
   enableSemgrep: boolean;
   enableTrivy: boolean;
   enableCpd: boolean;
   enableMemory: boolean;
   customRules: string;
   ignorePatterns: string[];
-  hasApiKey: boolean;
-  maskedApiKey?: string;
 }
 
 export interface MemorySession {

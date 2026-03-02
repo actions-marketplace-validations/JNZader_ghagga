@@ -11,6 +11,8 @@ import type {
   RepositorySettings,
   MemorySession,
   Observation,
+  ValidationResponse,
+  SaaSProvider,
 } from './types';
 
 const API_URL =
@@ -111,7 +113,7 @@ export function useSettings(repo: string) {
   return useQuery<RepositorySettings>({
     queryKey: ['settings', repo],
     queryFn: () =>
-      fetchApi(`/api/settings?repo=${encodeURIComponent(repo)}`),
+      fetchData<RepositorySettings>(`/api/settings?repo=${encodeURIComponent(repo)}`),
     enabled: !!repo,
   });
 }
@@ -120,8 +122,8 @@ export function useUpdateSettings() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (settings: Partial<RepositorySettings> & { repoFullName: string }) =>
-      fetchApi<RepositorySettings>('/api/settings', {
+    mutationFn: (settings: Record<string, unknown> & { repoFullName: string }) =>
+      fetchApi<{ message: string }>('/api/settings', {
         method: 'PUT',
         body: JSON.stringify(settings),
       }),
@@ -133,38 +135,15 @@ export function useUpdateSettings() {
   });
 }
 
-// ─── API Keys ─────────────────────────────────────────────
+// ─── Provider Validation ──────────────────────────────────
 
-export function useSaveApiKey() {
-  const queryClient = useQueryClient();
-
+export function useValidateProvider() {
   return useMutation({
-    mutationFn: (payload: { repo: string; apiKey: string }) =>
-      fetchApi<{ maskedKey: string }>('/api/settings/api-key', {
+    mutationFn: (payload: { provider: SaaSProvider; apiKey?: string }) =>
+      fetchApi<ValidationResponse>('/api/providers/validate', {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
-    onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: ['settings', variables.repo],
-      });
-    },
-  });
-}
-
-export function useDeleteApiKey() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: (repo: string) =>
-      fetchApi<void>(`/api/settings/api-key?repo=${encodeURIComponent(repo)}`, {
-        method: 'DELETE',
-      }),
-    onSuccess: (_data, repo) => {
-      void queryClient.invalidateQueries({
-        queryKey: ['settings', repo],
-      });
-    },
   });
 }
 
