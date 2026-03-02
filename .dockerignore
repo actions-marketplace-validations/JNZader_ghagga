@@ -1,0 +1,36 @@
+# Dependencies (installed fresh in Docker)
+node_modules
+**/node_modules
+
+# Build outputs (built fresh in Docker)
+dist
+**/dist
+
+# Git / CI
+.git
+.github
+.turbo
+**/.turbo
+
+# Testing artifacts
+.stryker-tmp
+coverage
+reports
+
+# Apps not needed for server build
+apps/dashboard
+apps/action
+apps/cli
+
+# Static sites
+landing
+docs
+
+# Env files
+.env
+.env.*
+
+# Misc
+*.log
+.DS_Store
+DEPLOY-GUIDE.md

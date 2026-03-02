@@ -65,5 +65,22 @@ serve(
   { fetch: app.fetch, port },
   (info) => {
     console.log(`[ghagga] Server running on http://localhost:${info.port}`);
+
+    // Keepalive: self-ping every 5 minutes to prevent Render free tier cold starts.
+    // Render spins down after 15 min of inactivity — webhooks would fail on cold start.
+    if (process.env.NODE_ENV === 'production' && process.env.RENDER_EXTERNAL_URL) {
+      const url = `${process.env.RENDER_EXTERNAL_URL}/health`;
+      const FIVE_MINUTES = 5 * 60 * 1000;
+
+      setInterval(async () => {
+        try {
+          await fetch(url);
+        } catch {
+          // Silently ignore — if we can't reach ourselves, something else is wrong
+        }
+      }, FIVE_MINUTES);
+
+      console.log(`[ghagga] Keepalive enabled: pinging ${url} every 5m`);
+    }
   },
 );

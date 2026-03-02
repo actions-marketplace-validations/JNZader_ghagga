@@ -15,7 +15,12 @@
   "bugs": {
     "url": "https://github.com/JNZader/ghagga/issues"
   },
-  "keywords": ["ghagga", "database", "drizzle", "code-review"],
+  "keywords": [
+    "ghagga",
+    "database",
+    "drizzle",
+    "code-review"
+  ],
   "engines": {
     "node": ">=20.0.0"
   },
@@ -40,7 +45,8 @@
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run build",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx src/migrate.ts",
+    "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
@@ -48,10 +54,11 @@
     "pg": "^8.13.0"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.30.0",
-    "typescript": "^5.7.0",
-    "vitest": "^3.0.0",
     "@types/node": "^22.0.0",
-    "@types/pg": "^8.11.0"
+    "@types/pg": "^8.11.0",
+    "drizzle-kit": "^0.30.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
   }
 }
