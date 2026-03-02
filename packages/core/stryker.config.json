@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker/master/packages/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "plugins": [
+    "@stryker-mutator/vitest-runner"
+  ],
+  "checkers": [],
+  "mutate": [
+    "src/agents/consensus.ts",
+    "src/agents/simple.ts",
+    "src/agents/prompts.ts",
+    "src/tools/semgrep.ts",
+    "src/tools/trivy.ts",
+    "src/tools/cpd.ts",
+    "src/tools/runner.ts",
+    "src/utils/diff.ts",
+    "src/utils/stack-detect.ts",
+    "src/utils/token-budget.ts",
+    "src/memory/context.ts",
+    "src/memory/privacy.ts",
+    "src/providers/fallback.ts",
+    "src/pipeline.ts"
+  ],
+  "ignorePatterns": ["dist", "node_modules"],
+  "timeoutMS": 30000,
+  "concurrency": 4,
+  "reporters": ["clear-text", "html"],
+  "htmlReporter": {
+    "fileName": "reports/mutation/index.html"
+  },
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": null
+  }
+}
