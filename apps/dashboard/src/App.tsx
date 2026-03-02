@@ -1,11 +1,14 @@
+import { lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, ProtectedRoute } from '@/lib/auth';
 import { Layout } from '@/components/Layout';
-import { Login } from '@/pages/Login';
-import { Dashboard } from '@/pages/Dashboard';
-import { Reviews } from '@/pages/Reviews';
-import { Settings } from '@/pages/Settings';
-import { Memory } from '@/pages/Memory';
+
+// ─── Lazy-loaded pages (code splitting) ─────────────────────────
+const Login = lazy(() => import('@/pages/Login').then((m) => ({ default: m.Login })));
+const Dashboard = lazy(() => import('@/pages/Dashboard').then((m) => ({ default: m.Dashboard })));
+const Reviews = lazy(() => import('@/pages/Reviews').then((m) => ({ default: m.Reviews })));
+const Settings = lazy(() => import('@/pages/Settings').then((m) => ({ default: m.Settings })));
+const Memory = lazy(() => import('@/pages/Memory').then((m) => ({ default: m.Memory })));
 
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -15,10 +18,19 @@ function ProtectedLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function PageSpinner() {
+  return (
+    <div className="flex h-screen items-center justify-center bg-gray-950">
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-purple-500 border-t-transparent" />
+    </div>
+  );
+}
+
 export function App() {
   return (
     <AuthProvider>
       <HashRouter>
+        <Suspense fallback={<PageSpinner />}>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route
@@ -55,6 +67,7 @@ export function App() {
           />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
       </HashRouter>
     </AuthProvider>
   );

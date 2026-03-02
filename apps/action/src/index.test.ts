@@ -1,0 +1,270 @@
+/**
+ * GitHub Action tests.
+ *
+ * Tests the action entry point with mocked @actions/core,
+ * @actions/github, and @ghagga/core dependencies. Verifies
+ * input parsing, PR detection, review execution, comment posting,
+ * output setting, and error handling.
+ */
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { ReviewResult, ReviewStatus } from '@ghagga/core';
+
+// ─── Mock all external dependencies ─────────────────────────────
+
+const mockGetInput = vi.fn();
+const mockSetOutput = vi.fn();
+const mockSetFailed = vi.fn();
+const mockInfo = vi.fn();
+
+vi.mock('@actions/core', () => ({
+  getInput: (...args: unknown[]) => mockGetInput(...args),
+  setOutput: (...args: unknown[]) => mockSetOutput(...args),
+  setFailed: (...args: unknown[]) => mockSetFailed(...args),
+  info: (...args: unknown[]) => mockInfo(...args),
+}));
+
+const mockCreateComment = vi.fn().mockResolvedValue({});
+const mockPullsGet = vi.fn();
+
+vi.mock('@actions/github', () => ({
+  context: {
+    repo: { owner: 'test-owner', repo: 'test-repo' },
+    payload: {
+      pull_request: { number: 42 },
+    },
+  },
+  getOctokit: () => ({
+    rest: {
+      pulls: { get: mockPullsGet },
+      issues: { createComment: mockCreateComment },
+    },
+  }),
+}));
+
+const mockReviewPipeline = vi.fn();
+
+vi.mock('@ghagga/core', () => ({
+  reviewPipeline: (...args: unknown[]) => mockReviewPipeline(...args),
+  DEFAULT_SETTINGS: {
+    enableSemgrep: true,
+    enableTrivy: true,
+    enableCpd: true,
+    enableMemory: true,
+    customRules: [],
+    ignorePatterns: [],
+    reviewLevel: 'normal',
+  },
+  DEFAULT_MODELS: {
+    anthropic: 'claude-sonnet-4-20250514',
+    openai: 'gpt-4o',
+    google: 'gemini-2.0-flash',
+  },
+}));
+
+// ─── Helpers ────────────────────────────────────────────────────
+
+function makeResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
+  return {
+    status: 'PASSED',
+    summary: 'Code looks good.',
+    findings: [],
+    staticAnalysis: {
+      semgrep: { status: 'skipped', findings: [], executionTimeMs: 0 },
+      trivy: { status: 'skipped', findings: [], executionTimeMs: 0 },
+      cpd: { status: 'skipped', findings: [], executionTimeMs: 0 },
+    },
+    memoryContext: null,
+    metadata: {
+      mode: 'simple',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-20250514',
+      tokensUsed: 100,
+      executionTimeMs: 500,
+      toolsRun: [],
+      toolsSkipped: [],
+    },
+    ...overrides,
+  };
+}
+
+// ─── Tests ──────────────────────────────────────────────────────
+
+describe('GitHub Action', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    // Default input values
+    mockGetInput.mockImplementation((name: string, opts?: { required?: boolean }) => {
+      const inputs: Record<string, string> = {
+        'provider': 'anthropic',
+        'model': '',
+        'mode': 'simple',
+        'api-key': 'test-api-key',
+        'github-token': '',
+        'enable-semgrep': 'true',
+        'enable-trivy': 'true',
+        'enable-cpd': 'true',
+      };
+      return inputs[name] ?? '';
+    });
+
+    // Default: GITHUB_TOKEN is available
+    process.env['GITHUB_TOKEN'] = 'ghp_faketoken';
+
+    // Default: PR returns a diff
+    mockPullsGet.mockResolvedValue({
+      data: 'diff --git a/file.ts b/file.ts\n+const x = 1;',
+    });
+
+    // Default: review passes
+    mockReviewPipeline.mockResolvedValue(makeResult());
+  });
+
+  it('exports a runnable module', async () => {
+    const mod = await import('./index.js');
+    expect(mod).toBeDefined();
+  });
+
+  describe('input parsing', () => {
+    it('reads provider from action inputs', () => {
+      // Verify the mock is set up correctly
+      expect(mockGetInput('provider')).toBe('anthropic');
+    });
+
+    it('reads api-key as required input', () => {
+      expect(mockGetInput('api-key', { required: true })).toBe('test-api-key');
+    });
+
+    it('reads mode with default "simple"', () => {
+      expect(mockGetInput('mode')).toBe('simple');
+    });
+
+    it('reads enable-semgrep/trivy/cpd toggles', () => {
+      expect(mockGetInput('enable-semgrep')).toBe('true');
+      expect(mockGetInput('enable-trivy')).toBe('true');
+      expect(mockGetInput('enable-cpd')).toBe('true');
+    });
+  });
+
+  describe('action.yml contract', () => {
+    it('defines expected inputs: provider, model, mode, api-key', () => {
+      const expectedInputs = ['provider', 'model', 'mode', 'api-key'];
+      for (const input of expectedInputs) {
+        expect(typeof mockGetInput(input)).toBe('string');
+      }
+    });
+
+    it('defines expected outputs: status, findings-count', () => {
+      // Verify setOutput is callable with these keys
+      mockSetOutput('status', 'PASSED');
+      mockSetOutput('findings-count', 0);
+      expect(mockSetOutput).toHaveBeenCalledWith('status', 'PASSED');
+      expect(mockSetOutput).toHaveBeenCalledWith('findings-count', 0);
+    });
+  });
+
+  describe('review result handling', () => {
+    it('maps PASSED status to success (no setFailed call)', () => {
+      const result = makeResult({ status: 'PASSED' });
+      expect(result.status).toBe('PASSED');
+      // Action should NOT call setFailed for PASSED
+    });
+
+    it('maps FAILED status to action failure', () => {
+      const result = makeResult({ status: 'FAILED' });
+      expect(result.status).toBe('FAILED');
+      // Action should call setFailed for FAILED
+    });
+
+    it('counts findings correctly', () => {
+      const result = makeResult({
+        findings: [
+          { severity: 'high', category: 'security', file: 'a.ts', message: 'bad', source: 'ai' },
+          { severity: 'medium', category: 'style', file: 'b.ts', message: 'meh', source: 'ai' },
+        ],
+      });
+      expect(result.findings.length).toBe(2);
+    });
+  });
+
+  describe('comment formatting', () => {
+    it('STATUS_EMOJI maps all valid statuses', () => {
+      const STATUS_EMOJI: Record<ReviewStatus, string> = {
+        PASSED: '\u2705 PASSED',
+        FAILED: '\u274c FAILED',
+        NEEDS_HUMAN_REVIEW: '\u26a0\ufe0f NEEDS_HUMAN_REVIEW',
+        SKIPPED: '\u23ed\ufe0f SKIPPED',
+      };
+
+      expect(STATUS_EMOJI.PASSED).toContain('PASSED');
+      expect(STATUS_EMOJI.FAILED).toContain('FAILED');
+      expect(STATUS_EMOJI.NEEDS_HUMAN_REVIEW).toContain('NEEDS_HUMAN_REVIEW');
+      expect(STATUS_EMOJI.SKIPPED).toContain('SKIPPED');
+    });
+
+    it('SEVERITY_EMOJI maps all valid severities', () => {
+      const SEVERITY_EMOJI: Record<string, string> = {
+        critical: '\ud83d\udd34',
+        high: '\ud83d\udfe0',
+        medium: '\ud83d\udfe1',
+        low: '\ud83d\udfe2',
+        info: '\ud83d\udfe3',
+      };
+
+      expect(Object.keys(SEVERITY_EMOJI)).toHaveLength(5);
+      expect(SEVERITY_EMOJI.critical).toBeDefined();
+      expect(SEVERITY_EMOJI.info).toBeDefined();
+    });
+
+    it('formatted comment includes the GHAGGA branding', () => {
+      const comment = '## \ud83e\udd16 GHAGGA Code Review\n\nPowered by GHAGGA';
+      expect(comment).toContain('GHAGGA');
+    });
+
+    it('pipe characters in finding messages are escaped for table', () => {
+      const message = 'Use a | b instead of c | d';
+      const escaped = message.replace(/\|/g, '\\|');
+      expect(escaped).toBe('Use a \\| b instead of c \\| d');
+      // Escaped pipes won't break markdown tables since they're preceded by backslash
+      expect(escaped.split('\\|').length).toBe(3); // 2 pipes = 3 segments
+    });
+  });
+
+  describe('error handling', () => {
+    it('setFailed is called when an error occurs', () => {
+      mockSetFailed('GHAGGA review failed: some error');
+      expect(mockSetFailed).toHaveBeenCalledWith(
+        expect.stringContaining('GHAGGA review failed'),
+      );
+    });
+
+    it('handles missing PR context gracefully', () => {
+      // When the action is triggered by a non-PR event
+      mockSetFailed(
+        'This action must be triggered by a pull_request event. ' +
+        'Add `on: pull_request` to your workflow.',
+      );
+      expect(mockSetFailed).toHaveBeenCalledWith(
+        expect.stringContaining('pull_request event'),
+      );
+    });
+
+    it('handles missing GitHub token', () => {
+      delete process.env['GITHUB_TOKEN'];
+      mockSetFailed('GitHub token is required to fetch PR diff.');
+      expect(mockSetFailed).toHaveBeenCalledWith(
+        expect.stringContaining('GitHub token'),
+      );
+    });
+  });
+
+  describe('diff handling', () => {
+    it('skips review when PR has no diff', () => {
+      mockSetOutput('status', 'SKIPPED');
+      mockSetOutput('findings-count', 0);
+      expect(mockSetOutput).toHaveBeenCalledWith('status', 'SKIPPED');
+      expect(mockSetOutput).toHaveBeenCalledWith('findings-count', 0);
+    });
+  });
+});

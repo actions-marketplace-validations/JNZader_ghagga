@@ -1,0 +1,425 @@
+/**
+ * Pipeline tests.
+ *
+ * Tests the reviewPipeline orchestrator with mocked agents, tools,
+ * and memory modules. Verifies input validation, mode dispatch,
+ * graceful degradation, diff filtering, and result assembly.
+ */
+
+import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+
+// ─── Mock all external dependencies ─────────────────────────────
+
+vi.mock('./agents/simple.js', () => ({
+  runSimpleReview: vi.fn(),
+}));
+
+vi.mock('./agents/workflow.js', () => ({
+  runWorkflowReview: vi.fn(),
+}));
+
+vi.mock('./agents/consensus.js', () => ({
+  runConsensusReview: vi.fn(),
+}));
+
+vi.mock('./tools/runner.js', () => ({
+  runStaticAnalysis: vi.fn(),
+  formatStaticAnalysisContext: vi.fn(),
+}));
+
+vi.mock('./memory/search.js', () => ({
+  searchMemoryForContext: vi.fn(),
+}));
+
+vi.mock('./memory/persist.js', () => ({
+  persistReviewObservations: vi.fn().mockResolvedValue(undefined),
+}));
+
+import { reviewPipeline } from './pipeline.js';
+import { runSimpleReview } from './agents/simple.js';
+import { runWorkflowReview } from './agents/workflow.js';
+import { runConsensusReview } from './agents/consensus.js';
+import { runStaticAnalysis, formatStaticAnalysisContext } from './tools/runner.js';
+import { searchMemoryForContext } from './memory/search.js';
+import { persistReviewObservations } from './memory/persist.js';
+import type { ReviewInput, ReviewResult } from './types.js';
+
+// ─── Helpers ────────────────────────────────────────────────────
+
+const MINIMAL_DIFF = `diff --git a/src/index.ts b/src/index.ts
+index 1234567..abcdefg 100644
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1,3 +1,4 @@
+ const x = 1;
++const y = 2;
+ export default x;
+`;
+
+const SIMPLE_RESULT: ReviewResult = {
+  status: 'PASSED',
+  summary: 'Code looks good.',
+  findings: [],
+  staticAnalysis: {
+    semgrep: { status: 'skipped', findings: [], executionTimeMs: 0 },
+    trivy: { status: 'skipped', findings: [], executionTimeMs: 0 },
+    cpd: { status: 'skipped', findings: [], executionTimeMs: 0 },
+  },
+  memoryContext: null,
+  metadata: {
+    mode: 'simple',
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-20250514',
+    tokensUsed: 100,
+    executionTimeMs: 500,
+    toolsRun: [],
+    toolsSkipped: [],
+  },
+};
+
+const SKIPPED_STATIC = {
+  semgrep: { status: 'skipped' as const, findings: [], error: 'not installed', executionTimeMs: 0 },
+  trivy: { status: 'skipped' as const, findings: [], error: 'not installed', executionTimeMs: 0 },
+  cpd: { status: 'skipped' as const, findings: [], error: 'not installed', executionTimeMs: 0 },
+};
+
+function makeInput(overrides: Partial<ReviewInput> = {}): ReviewInput {
+  return {
+    diff: MINIMAL_DIFF,
+    mode: 'simple',
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-20250514',
+    apiKey: 'test-api-key',
+    settings: {
+      enableSemgrep: false,
+      enableTrivy: false,
+      enableCpd: false,
+      enableMemory: false,
+      customRules: [],
+      ignorePatterns: [],
+      reviewLevel: 'normal',
+    },
+    context: {
+      repoFullName: 'test/repo',
+      prNumber: 42,
+      commitMessages: [],
+      fileList: [],
+    },
+    db: undefined,
+    ...overrides,
+  };
+}
+
+// ─── Setup ──────────────────────────────────────────────────────
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  (runStaticAnalysis as MockedFunction<typeof runStaticAnalysis>).mockResolvedValue(SKIPPED_STATIC);
+  (formatStaticAnalysisContext as MockedFunction<typeof formatStaticAnalysisContext>).mockReturnValue('');
+  (runSimpleReview as MockedFunction<typeof runSimpleReview>).mockResolvedValue({ ...SIMPLE_RESULT });
+  (runWorkflowReview as MockedFunction<typeof runWorkflowReview>).mockResolvedValue({
+    ...SIMPLE_RESULT,
+    metadata: { ...SIMPLE_RESULT.metadata, mode: 'workflow' },
+  });
+  (runConsensusReview as MockedFunction<typeof runConsensusReview>).mockResolvedValue({
+    ...SIMPLE_RESULT,
+    metadata: { ...SIMPLE_RESULT.metadata, mode: 'consensus' },
+  });
+});
+
+// ─── Tests ──────────────────────────────────────────────────────
+
+describe('reviewPipeline', () => {
+  // ── Input Validation ──────────────────────────────────────
+
+  describe('input validation', () => {
+    it('throws on empty diff', async () => {
+      await expect(reviewPipeline(makeInput({ diff: '' }))).rejects.toThrow(
+        'non-empty diff',
+      );
+    });
+
+    it('throws on whitespace-only diff', async () => {
+      await expect(reviewPipeline(makeInput({ diff: '   \n  ' }))).rejects.toThrow(
+        'non-empty diff',
+      );
+    });
+
+    it('throws on missing API key', async () => {
+      await expect(reviewPipeline(makeInput({ apiKey: '' }))).rejects.toThrow(
+        'API key',
+      );
+    });
+
+    it('throws on missing provider', async () => {
+      await expect(reviewPipeline(makeInput({ provider: '' as any }))).rejects.toThrow(
+        'provider',
+      );
+    });
+
+    it('throws on missing model', async () => {
+      await expect(reviewPipeline(makeInput({ model: '' }))).rejects.toThrow(
+        'model',
+      );
+    });
+  });
+
+  // ── Mode Dispatch ─────────────────────────────────────────
+
+  describe('mode dispatch', () => {
+    it('dispatches to simple agent in simple mode', async () => {
+      await reviewPipeline(makeInput({ mode: 'simple' }));
+      expect(runSimpleReview).toHaveBeenCalledOnce();
+      expect(runWorkflowReview).not.toHaveBeenCalled();
+      expect(runConsensusReview).not.toHaveBeenCalled();
+    });
+
+    it('dispatches to workflow agent in workflow mode', async () => {
+      await reviewPipeline(makeInput({ mode: 'workflow' }));
+      expect(runWorkflowReview).toHaveBeenCalledOnce();
+      expect(runSimpleReview).not.toHaveBeenCalled();
+      expect(runConsensusReview).not.toHaveBeenCalled();
+    });
+
+    it('dispatches to consensus agent in consensus mode', async () => {
+      await reviewPipeline(makeInput({ mode: 'consensus' }));
+      expect(runConsensusReview).toHaveBeenCalledOnce();
+      expect(runSimpleReview).not.toHaveBeenCalled();
+      expect(runWorkflowReview).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Result Assembly ───────────────────────────────────────
+
+  describe('result assembly', () => {
+    it('returns a valid ReviewResult with all fields', async () => {
+      const result = await reviewPipeline(makeInput());
+      expect(result).toHaveProperty('status');
+      expect(result).toHaveProperty('summary');
+      expect(result).toHaveProperty('findings');
+      expect(result).toHaveProperty('staticAnalysis');
+      expect(result).toHaveProperty('memoryContext');
+      expect(result).toHaveProperty('metadata');
+      expect(result.metadata).toHaveProperty('executionTimeMs');
+      expect(result.metadata.executionTimeMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('merges static analysis findings into the result', async () => {
+      const staticWithFindings = {
+        semgrep: {
+          status: 'success' as const,
+          findings: [
+            {
+              severity: 'high' as const,
+              category: 'security',
+              file: 'src/index.ts',
+              line: 5,
+              message: 'SQL injection',
+              source: 'semgrep' as const,
+            },
+          ],
+          executionTimeMs: 100,
+        },
+        trivy: { status: 'skipped' as const, findings: [], executionTimeMs: 0 },
+        cpd: { status: 'skipped' as const, findings: [], executionTimeMs: 0 },
+      };
+      (runStaticAnalysis as MockedFunction<typeof runStaticAnalysis>).mockResolvedValue(staticWithFindings);
+
+      const result = await reviewPipeline(makeInput());
+      expect(result.findings).toHaveLength(1);
+      expect(result.findings[0]!.source).toBe('semgrep');
+      expect(result.findings[0]!.message).toBe('SQL injection');
+    });
+
+    it('tracks toolsRun and toolsSkipped correctly', async () => {
+      const staticMixed = {
+        semgrep: { status: 'success' as const, findings: [], executionTimeMs: 50 },
+        trivy: { status: 'skipped' as const, findings: [], error: 'not installed', executionTimeMs: 0 },
+        cpd: { status: 'error' as const, findings: [], error: 'crashed', executionTimeMs: 10 },
+      };
+      (runStaticAnalysis as MockedFunction<typeof runStaticAnalysis>).mockResolvedValue(staticMixed);
+
+      const result = await reviewPipeline(makeInput());
+      expect(result.metadata.toolsRun).toContain('semgrep');
+      expect(result.metadata.toolsSkipped).toContain('trivy');
+      expect(result.metadata.toolsSkipped).toContain('cpd');
+    });
+
+    it('sets memoryContext to null when memory is disabled', async () => {
+      const result = await reviewPipeline(makeInput());
+      expect(result.memoryContext).toBeNull();
+    });
+  });
+
+  // ── Diff Filtering ────────────────────────────────────────
+
+  describe('diff filtering', () => {
+    it('returns SKIPPED when all files match ignore patterns', async () => {
+      const mdOnlyDiff = `diff --git a/README.md b/README.md
+index 1234567..abcdefg 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,2 @@
+ # Hello
++World
+`;
+      const result = await reviewPipeline(
+        makeInput({
+          diff: mdOnlyDiff,
+          settings: {
+            enableSemgrep: false,
+            enableTrivy: false,
+            enableCpd: false,
+            enableMemory: false,
+            customRules: [],
+            ignorePatterns: ['*.md'],
+            reviewLevel: 'normal',
+          },
+        }),
+      );
+
+      expect(result.status).toBe('SKIPPED');
+      expect(result.summary).toContain('ignore patterns');
+      expect(runSimpleReview).not.toHaveBeenCalled();
+    });
+
+    it('does NOT skip when some files pass the filter', async () => {
+      await reviewPipeline(
+        makeInput({
+          settings: {
+            enableSemgrep: false,
+            enableTrivy: false,
+            enableCpd: false,
+            enableMemory: false,
+            customRules: [],
+            ignorePatterns: ['*.md'], // Only MD is ignored, TS passes through
+            reviewLevel: 'normal',
+          },
+        }),
+      );
+      expect(runSimpleReview).toHaveBeenCalledOnce();
+    });
+  });
+
+  // ── Graceful Degradation ──────────────────────────────────
+
+  describe('graceful degradation', () => {
+    it('continues when static analysis throws', async () => {
+      (runStaticAnalysis as MockedFunction<typeof runStaticAnalysis>).mockRejectedValue(
+        new Error('semgrep crashed'),
+      );
+
+      const result = await reviewPipeline(makeInput());
+      // Pipeline should still complete via the agent
+      expect(result.status).toBe('PASSED');
+      expect(runSimpleReview).toHaveBeenCalledOnce();
+    });
+
+    it('continues when memory search throws', async () => {
+      const inputWithMemory = makeInput({
+        settings: {
+          enableSemgrep: false,
+          enableTrivy: false,
+          enableCpd: false,
+          enableMemory: true,
+          customRules: [],
+          ignorePatterns: [],
+          reviewLevel: 'normal',
+        },
+        db: {} as any, // Fake db to enable memory
+      });
+
+      (searchMemoryForContext as MockedFunction<typeof searchMemoryForContext>).mockRejectedValue(
+        new Error('database connection failed'),
+      );
+
+      const result = await reviewPipeline(inputWithMemory);
+      expect(result.status).toBe('PASSED');
+      expect(runSimpleReview).toHaveBeenCalledOnce();
+    });
+  });
+
+  // ── Memory Persistence ────────────────────────────────────
+
+  describe('memory persistence', () => {
+    it('does NOT persist when memory is disabled', async () => {
+      await reviewPipeline(makeInput());
+      expect(persistReviewObservations).not.toHaveBeenCalled();
+    });
+
+    it('does NOT persist when db is undefined', async () => {
+      await reviewPipeline(
+        makeInput({
+          settings: {
+            enableSemgrep: false,
+            enableTrivy: false,
+            enableCpd: false,
+            enableMemory: true,
+            customRules: [],
+            ignorePatterns: [],
+            reviewLevel: 'normal',
+          },
+          db: undefined,
+        }),
+      );
+      expect(persistReviewObservations).not.toHaveBeenCalled();
+    });
+
+    it('calls persistReviewObservations when memory is enabled with db', async () => {
+      const fakeDb = { fake: 'db' };
+
+      await reviewPipeline(
+        makeInput({
+          settings: {
+            enableSemgrep: false,
+            enableTrivy: false,
+            enableCpd: false,
+            enableMemory: true,
+            customRules: [],
+            ignorePatterns: [],
+            reviewLevel: 'normal',
+          },
+          db: fakeDb,
+        }),
+      );
+
+      expect(persistReviewObservations).toHaveBeenCalledOnce();
+      expect(persistReviewObservations).toHaveBeenCalledWith(
+        fakeDb,
+        'test/repo',
+        42,
+        expect.objectContaining({ status: 'PASSED' }),
+      );
+    });
+  });
+
+  // ── Agent Input Verification ──────────────────────────────
+
+  describe('agent input', () => {
+    it('passes diff, provider, model, and apiKey to simple agent', async () => {
+      await reviewPipeline(makeInput());
+
+      expect(runSimpleReview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-20250514',
+          apiKey: 'test-api-key',
+        }),
+      );
+    });
+
+    it('passes static analysis context to agent', async () => {
+      (formatStaticAnalysisContext as MockedFunction<typeof formatStaticAnalysisContext>).mockReturnValue(
+        '## Static Analysis\n- some finding',
+      );
+
+      await reviewPipeline(makeInput());
+
+      expect(runSimpleReview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          staticContext: '## Static Analysis\n- some finding',
+        }),
+      );
+    });
+  });
+});

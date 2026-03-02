@@ -5,16 +5,18 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@ghagga/core": "workspace:*",
     "@actions/core": "^1.11.0",
-    "@actions/github": "^6.0.0"
+    "@actions/github": "^6.0.0",
+    "@ghagga/core": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "typescript": "^5.7.0",
-    "@types/node": "^22.0.0"
+    "vitest": "^3.0.0"
   }
 }

@@ -16,6 +16,15 @@ describe('stripPrivateData', () => {
     expect(result).not.toContain('sk-proj1234567890');
   });
 
+  it('redacts OpenAI sk-proj-* keys with internal hyphens', () => {
+    // Newer OpenAI keys use sk-proj-<org>-<random> format with hyphens
+    const text = 'OPENAI_KEY=sk-proj-abc123-def456-ghi789-jkl012mno345pqr678';
+    const result = stripPrivateData(text);
+    expect(result).toContain('[REDACTED_OPENAI_KEY]');
+    expect(result).not.toContain('sk-proj-abc123');
+    expect(result).not.toContain('jkl012mno345pqr678');
+  });
+
   it('redacts AWS Access Key IDs (AKIA...)', () => {
     const text = 'aws_access_key_id = AKIAIOSFODNN7EXAMPLE';
     const result = stripPrivateData(text);

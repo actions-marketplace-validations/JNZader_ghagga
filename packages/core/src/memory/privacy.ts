@@ -16,8 +16,8 @@ const SENSITIVE_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
   // Anthropic API keys
   { pattern: /sk-ant-[a-zA-Z0-9_-]{20,}/g, replacement: '[REDACTED_ANTHROPIC_KEY]' },
 
-  // OpenAI API keys
-  { pattern: /sk-[a-zA-Z0-9]{20,}/g, replacement: '[REDACTED_OPENAI_KEY]' },
+  // OpenAI API keys (classic sk-... and newer sk-proj-... with internal hyphens)
+  { pattern: /sk-[a-zA-Z0-9_-]{20,}/g, replacement: '[REDACTED_OPENAI_KEY]' },
 
   // AWS Access Key IDs
   { pattern: /AKIA[0-9A-Z]{16}/g, replacement: '[REDACTED_AWS_KEY]' },
