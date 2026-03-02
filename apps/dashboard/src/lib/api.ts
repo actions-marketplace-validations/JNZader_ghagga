@@ -9,6 +9,8 @@ import type {
   Stats,
   Repository,
   RepositorySettings,
+  Installation,
+  InstallationSettings,
   MemorySession,
   Observation,
   ValidationResponse,
@@ -144,6 +146,45 @@ export function useValidateProvider() {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
+  });
+}
+
+// ─── Installations ────────────────────────────────────────
+
+export function useInstallations() {
+  return useQuery<Installation[]>({
+    queryKey: ['installations'],
+    queryFn: () => fetchData<Installation[]>('/api/installations'),
+  });
+}
+
+export function useInstallationSettings(installationId: number) {
+  return useQuery<InstallationSettings>({
+    queryKey: ['installation-settings', installationId],
+    queryFn: () =>
+      fetchData<InstallationSettings>(
+        `/api/installation-settings?installation_id=${installationId}`,
+      ),
+    enabled: !!installationId,
+  });
+}
+
+export function useUpdateInstallationSettings() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (settings: Record<string, unknown> & { installationId: number }) =>
+      fetchApi<{ message: string }>('/api/installation-settings', {
+        method: 'PUT',
+        body: JSON.stringify(settings),
+      }),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({
+        queryKey: ['installation-settings', variables.installationId],
+      });
+      // Also invalidate repo settings since they may show global values
+      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+    },
   });
 }
 

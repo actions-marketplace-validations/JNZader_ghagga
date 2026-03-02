@@ -16,12 +16,14 @@ const mockUpsertInstallation = vi.fn();
 const mockDeactivateInstallation = vi.fn();
 const mockUpsertRepository = vi.fn();
 const mockGetRepoByGithubId = vi.fn();
+const mockGetEffectiveRepoSettings = vi.fn();
 
 vi.mock('ghagga-db', () => ({
   upsertInstallation: (...args: unknown[]) => mockUpsertInstallation(...args),
   deactivateInstallation: (...args: unknown[]) => mockDeactivateInstallation(...args),
   upsertRepository: (...args: unknown[]) => mockUpsertRepository(...args),
   getRepoByGithubId: (...args: unknown[]) => mockGetRepoByGithubId(...args),
+  getEffectiveRepoSettings: (...args: unknown[]) => mockGetEffectiveRepoSettings(...args),
 }));
 
 // Mock inngest client
@@ -95,6 +97,21 @@ beforeEach(() => {
   mockUpsertRepository.mockResolvedValue({ id: 1 });
   mockDeactivateInstallation.mockResolvedValue(undefined);
   mockGetRepoByGithubId.mockResolvedValue(null);
+  mockGetEffectiveRepoSettings.mockResolvedValue({
+    providerChain: [],
+    aiReviewEnabled: true,
+    reviewMode: 'simple',
+    settings: {
+      enableSemgrep: true,
+      enableTrivy: true,
+      enableCpd: false,
+      enableMemory: true,
+      customRules: [],
+      ignorePatterns: ['*.md'],
+      reviewLevel: 'standard',
+    },
+    source: 'repo',
+  });
   mockInngestSend.mockResolvedValue(undefined);
 });
 

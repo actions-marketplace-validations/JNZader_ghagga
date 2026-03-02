@@ -9,6 +9,7 @@ const Login = lazy(() => import('@/pages/Login').then((m) => ({ default: m.Login
 const Dashboard = lazy(() => import('@/pages/Dashboard').then((m) => ({ default: m.Dashboard })));
 const Reviews = lazy(() => import('@/pages/Reviews').then((m) => ({ default: m.Reviews })));
 const Settings = lazy(() => import('@/pages/Settings').then((m) => ({ default: m.Settings })));
+const GlobalSettings = lazy(() => import('@/pages/GlobalSettings').then((m) => ({ default: m.GlobalSettings })));
 const Memory = lazy(() => import('@/pages/Memory').then((m) => ({ default: m.Memory })));
 
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
@@ -49,6 +50,14 @@ export function App() {
             element={
               <ProtectedLayout>
                 <Reviews />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/global-settings"
+            element={
+              <ProtectedLayout>
+                <GlobalSettings />
               </ProtectedLayout>
             }
           />

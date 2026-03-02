@@ -89,11 +89,36 @@ export interface ValidationResponse {
   error?: string;
 }
 
+// ─── Installations ──────────────────────────────────────────────
+
+export interface Installation {
+  id: number;
+  accountLogin: string;
+  accountType: string;
+}
+
+// ─── Installation Settings (Global) ─────────────────────────────
+
+export interface InstallationSettings {
+  installationId: number;
+  accountLogin: string;
+  providerChain: ProviderChainView[];
+  aiReviewEnabled: boolean;
+  reviewMode: string;
+  enableSemgrep: boolean;
+  enableTrivy: boolean;
+  enableCpd: boolean;
+  enableMemory: boolean;
+  customRules: string;
+  ignorePatterns: string[];
+}
+
 // ─── Settings ───────────────────────────────────────────────────
 
 export interface RepositorySettings {
   repoId: number;
   repoFullName: string;
+  useGlobalSettings: boolean;
   aiReviewEnabled: boolean;
   providerChain: ProviderChainView[];
   reviewMode: ReviewMode;
@@ -103,6 +128,7 @@ export interface RepositorySettings {
   enableMemory: boolean;
   customRules: string;
   ignorePatterns: string[];
+  globalSettings?: InstallationSettings;
 }
 
 export interface MemorySession {

@@ -47099,6 +47099,21 @@ const schema_DEFAULT_REPO_SETTINGS = {
     ignorePatterns: ['*.md', '*.txt', '.gitignore', 'LICENSE', '*.lock'],
     reviewLevel: 'normal',
 };
+// ─── Installation Settings ──────────────────────────────────────
+const schema_installationSettings = pgTable('installation_settings', {
+    id: serial('id').primaryKey(),
+    installationId: integer('installation_id')
+        .references(() => schema_installations.id)
+        .unique()
+        .notNull(),
+    providerChain: jsonb('provider_chain').$type().default([]).notNull(),
+    aiReviewEnabled: boolean_boolean('ai_review_enabled').default(true).notNull(),
+    reviewMode: varchar('review_mode', { length: 20 }).default('simple').notNull(),
+    settings: jsonb('settings').$type().default(schema_DEFAULT_REPO_SETTINGS).notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+// ─── Repositories ───────────────────────────────────────────────
 const schema_repositories = pgTable('repositories', {
     id: serial('id').primaryKey(),
     githubRepoId: integer('github_repo_id').unique().notNull(),
@@ -47108,10 +47123,16 @@ const schema_repositories = pgTable('repositories', {
     fullName: varchar('full_name', { length: 255 }).notNull(), // "owner/repo"
     isActive: boolean_boolean('is_active').default(true).notNull(),
     settings: jsonb('settings').$type().default(schema_DEFAULT_REPO_SETTINGS).notNull(),
-    encryptedApiKey: text_text('encrypted_api_key'),
-    llmProvider: varchar('llm_provider', { length: 50 }).default('anthropic').notNull(),
-    llmModel: varchar('llm_model', { length: 100 }),
     reviewMode: varchar('review_mode', { length: 20 }).default('simple').notNull(),
+    // ── Global settings inheritance ──
+    useGlobalSettings: boolean_boolean('use_global_settings').default(true).notNull(),
+    // ── Provider chain (replaces flat llm_provider/llm_model/encrypted_api_key) ──
+    providerChain: jsonb('provider_chain').$type().default([]).notNull(),
+    aiReviewEnabled: boolean_boolean('ai_review_enabled').default(true).notNull(),
+    // ── Old columns (kept for rollback safety, will be dropped in a future migration) ──
+    encryptedApiKey: text_text('encrypted_api_key'),
+    llmProvider: varchar('llm_provider', { length: 50 }).default('github').notNull(),
+    llmModel: varchar('llm_model', { length: 100 }),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
 }, (t) => [
@@ -47296,7 +47317,7 @@ const lt = (left, right) => {
 const conditions_lte = (left, right) => {
   return sql`${left} <= ${bindIfParam(right, left)}`;
 };
-function inArray(column, values) {
+function conditions_inArray(column, values) {
   if (Array.isArray(values)) {
     if (values.length === 0) {
       return sql`false`;
@@ -47415,6 +47436,96 @@ async function deactivateInstallation(db, githubInstallationId) {
         .update(installations)
         .set({ isActive: false, updatedAt: new Date() })
         .where(eq(installations.githubInstallationId, githubInstallationId));
+}
+async function getInstallationByGitHubId(db, githubInstallationId) {
+    const rows = await db
+        .select()
+        .from(installations)
+        .where(eq(installations.githubInstallationId, githubInstallationId))
+        .limit(1);
+    return rows[0] ?? null;
+}
+async function getInstallationsByAccountLogin(db, accountLogin) {
+    return db
+        .select()
+        .from(installations)
+        .where(and(eq(installations.accountLogin, accountLogin), eq(installations.isActive, true)));
+}
+// ─── Installation Settings ──────────────────────────────────────
+async function getInstallationSettings(db, installationId) {
+    const [row] = await db
+        .select()
+        .from(installationSettings)
+        .where(eq(installationSettings.installationId, installationId))
+        .limit(1);
+    return row ?? null;
+}
+async function upsertInstallationSettings(db, installationId, updates) {
+    const existing = await getInstallationSettings(db, installationId);
+    if (existing) {
+        const setValues = { updatedAt: new Date() };
+        if (updates.providerChain !== undefined)
+            setValues.providerChain = updates.providerChain;
+        if (updates.aiReviewEnabled !== undefined)
+            setValues.aiReviewEnabled = updates.aiReviewEnabled;
+        if (updates.reviewMode !== undefined)
+            setValues.reviewMode = updates.reviewMode;
+        if (updates.settings !== undefined)
+            setValues.settings = updates.settings;
+        await db
+            .update(installationSettings)
+            .set(setValues)
+            .where(eq(installationSettings.installationId, installationId));
+        return { ...existing, ...setValues };
+    }
+    const [result] = await db
+        .insert(installationSettings)
+        .values({
+        installationId,
+        providerChain: updates.providerChain ?? [],
+        aiReviewEnabled: updates.aiReviewEnabled ?? true,
+        reviewMode: updates.reviewMode ?? 'simple',
+        settings: updates.settings ?? DEFAULT_REPO_SETTINGS,
+    })
+        .returning();
+    return result;
+}
+async function getInstallationById(db, installationId) {
+    const [row] = await db
+        .select()
+        .from(installations)
+        .where(eq(installations.id, installationId))
+        .limit(1);
+    return row ?? null;
+}
+async function getEffectiveRepoSettings(db, repo) {
+    if (!repo.useGlobalSettings) {
+        return {
+            providerChain: (repo.providerChain ?? []),
+            aiReviewEnabled: repo.aiReviewEnabled,
+            reviewMode: repo.reviewMode,
+            settings: (repo.settings ?? DEFAULT_REPO_SETTINGS),
+            source: 'repo',
+        };
+    }
+    const globalSettings = await getInstallationSettings(db, repo.installationId);
+    if (globalSettings) {
+        return {
+            providerChain: (globalSettings.providerChain ?? []),
+            aiReviewEnabled: globalSettings.aiReviewEnabled,
+            reviewMode: globalSettings.reviewMode,
+            settings: (globalSettings.settings ?? DEFAULT_REPO_SETTINGS),
+            source: 'global',
+        };
+    }
+    // No installation settings exist — return defaults
+    return {
+        providerChain: [],
+        aiReviewEnabled: true,
+        reviewMode: 'simple',
+        settings: DEFAULT_REPO_SETTINGS,
+        source: 'global',
+    };
 }
 // ─── Repositories ───────────────────────────────────────────────
 async function upsertRepository(db, data) {
@@ -47638,7 +47749,7 @@ async function getInstallationsByUserId(db, githubUserId) {
     return db
         .select()
         .from(installations)
-        .where(and(sql `${installations.id} = ANY(${installationIds})`, eq(installations.isActive, true)));
+        .where(and(inArray(installations.id, installationIds), eq(installations.isActive, true)));
 }
 //# sourceMappingURL=queries.js.map
 ;// CONCATENATED MODULE: ../../packages/db/dist/crypto.js
@@ -70547,6 +70658,15 @@ function validateInput(input) {
     if (!input.diff || input.diff.trim().length === 0) {
         throw new Error('Review input must include a non-empty diff');
     }
+    // If AI review is explicitly disabled, no provider/model/key needed
+    if (input.aiReviewEnabled === false) {
+        return;
+    }
+    // Provider chain mode: validate the chain has entries
+    if (input.providerChain && input.providerChain.length > 0) {
+        return;
+    }
+    // Single provider mode (CLI/Action backward compat)
     if (!input.apiKey) {
         throw new Error('Review input must include an API key');
     }
@@ -70572,6 +70692,8 @@ function validateInput(input) {
 async function reviewPipeline(input) {
     const startTime = Date.now();
     const emit = input.onProgress ?? (() => { });
+    // Resolve whether AI review is enabled
+    const aiEnabled = resolveAiEnabled(input);
     // ── Step 1: Validate ───────────────────────────────────────
     validateInput(input);
     emit({ step: 'validate', message: 'Input validated' });
@@ -70599,17 +70721,19 @@ async function reviewPipeline(input) {
         detail: stacks.length > 0 ? stacks.map((s) => `  ${s}`).join('\n') : '  (none detected)',
     });
     // ── Step 4: Truncate diff to fit token budget ──────────────
-    const { diffBudget } = calculateTokenBudget(input.model);
+    const primaryModel = resolvePrimaryModel(input);
+    const { diffBudget } = calculateTokenBudget(primaryModel);
     const { truncated: truncatedDiff } = truncateDiff(filteredDiff, diffBudget);
     emit({
         step: 'token-budget',
         message: `Token budget: ${diffBudget.toLocaleString()} tokens for diff`,
     });
     // ── Step 5: Run static analysis (in parallel with memory) ──
+    // Memory search is only useful when AI is enabled (it provides LLM context)
     emit({ step: 'static-analysis', message: 'Running static analysis & memory search...' });
     const [staticResult, memoryContext] = await Promise.all([
         runStaticAnalysisSafe(fileList, input),
-        searchMemorySafe(input, fileList),
+        aiEnabled ? searchMemorySafe(input, fileList) : Promise.resolve(null),
     ]);
     const staticContext = formatStaticAnalysisContext(staticResult);
     {
@@ -70622,53 +70746,70 @@ async function reviewPipeline(input) {
             detail: toolsSummary + (memoryContext ? '\n  memory: loaded' : '\n  memory: disabled'),
         });
     }
-    // ── Step 6: Execute agent mode ─────────────────────────────
-    emit({ step: 'agent-start', message: `Running ${input.mode} agent...` });
+    // ── Step 6: Execute agent mode (or skip if AI disabled) ────
     let result;
-    switch (input.mode) {
-        case 'simple':
-            result = await runSimpleReview({
-                diff: truncatedDiff,
-                provider: input.provider,
-                model: input.model,
-                apiKey: input.apiKey,
-                staticContext,
-                memoryContext,
-                stackHints,
-                onProgress: input.onProgress,
-            });
-            break;
-        case 'workflow':
-            result = await runWorkflowReview({
-                diff: truncatedDiff,
-                provider: input.provider,
-                model: input.model,
-                apiKey: input.apiKey,
-                staticContext,
-                memoryContext,
-                stackHints,
-                onProgress: input.onProgress,
-            });
-            break;
-        case 'consensus':
-            // Consensus mode uses the primary model with different stances
-            // In production, the caller would configure multiple models via the context
-            result = await runConsensusReview({
-                diff: truncatedDiff,
-                models: [
-                    { provider: input.provider, model: input.model, apiKey: input.apiKey, stance: 'for' },
-                    { provider: input.provider, model: input.model, apiKey: input.apiKey, stance: 'against' },
-                    { provider: input.provider, model: input.model, apiKey: input.apiKey, stance: 'neutral' },
-                ],
-                staticContext,
-                memoryContext,
-                stackHints,
-                onProgress: input.onProgress,
-            });
-            break;
-        default: {
-            const _exhaustive = input.mode;
-            throw new Error(`Unknown review mode: ${_exhaustive}`);
+    if (!aiEnabled) {
+        // Static-only mode: no LLM calls
+        emit({ step: 'agent-start', message: 'AI review disabled — returning static analysis only' });
+        result = createStaticOnlyResult(staticResult, input.mode, startTime);
+    }
+    else {
+        // Resolve the primary provider for agent calls
+        const primary = resolvePrimaryProvider(input);
+        emit({ step: 'agent-start', message: `Running ${input.mode} agent with ${primary.provider}/${primary.model}...` });
+        try {
+            switch (input.mode) {
+                case 'simple':
+                    result = await runSimpleReview({
+                        diff: truncatedDiff,
+                        provider: primary.provider,
+                        model: primary.model,
+                        apiKey: primary.apiKey,
+                        staticContext,
+                        memoryContext,
+                        stackHints,
+                        onProgress: input.onProgress,
+                    });
+                    break;
+                case 'workflow':
+                    result = await runWorkflowReview({
+                        diff: truncatedDiff,
+                        provider: primary.provider,
+                        model: primary.model,
+                        apiKey: primary.apiKey,
+                        staticContext,
+                        memoryContext,
+                        stackHints,
+                        onProgress: input.onProgress,
+                    });
+                    break;
+                case 'consensus':
+                    result = await runConsensusReview({
+                        diff: truncatedDiff,
+                        models: [
+                            { provider: primary.provider, model: primary.model, apiKey: primary.apiKey, stance: 'for' },
+                            { provider: primary.provider, model: primary.model, apiKey: primary.apiKey, stance: 'against' },
+                            { provider: primary.provider, model: primary.model, apiKey: primary.apiKey, stance: 'neutral' },
+                        ],
+                        staticContext,
+                        memoryContext,
+                        stackHints,
+                        onProgress: input.onProgress,
+                    });
+                    break;
+                default: {
+                    const _exhaustive = input.mode;
+                    throw new Error(`Unknown review mode: ${_exhaustive}`);
+                }
+            }
+        }
+        catch (error) {
+            // All providers failed — return static results with NEEDS_HUMAN_REVIEW
+            console.warn('[ghagga] All AI providers failed, returning static analysis only:', error instanceof Error ? error.message : String(error));
+            emit({ step: 'agent-failed', message: 'AI review failed — returning static analysis only' });
+            result = createStaticOnlyResult(staticResult, input.mode, startTime);
+            result.status = 'NEEDS_HUMAN_REVIEW';
+            result.summary = `AI review failed (${error instanceof Error ? error.message : 'unknown error'}). Static analysis results are shown below.`;
         }
     }
     // ── Step 7: Merge static analysis into result ──────────────
@@ -70702,6 +70843,45 @@ async function reviewPipeline(input) {
         });
     }
     return result;
+}
+// ─── Provider Resolution ────────────────────────────────────────
+/**
+ * Determine if AI review is enabled.
+ * Defaults to true for backward compatibility (CLI/Action don't set this).
+ */
+function resolveAiEnabled(input) {
+    if (input.aiReviewEnabled === false)
+        return false;
+    // If chain is explicitly empty and no single provider, treat as disabled
+    if (input.providerChain && input.providerChain.length === 0 && !input.provider) {
+        console.warn('[ghagga] AI review enabled but provider chain is empty and no single provider — treating as disabled');
+        return false;
+    }
+    return true;
+}
+/**
+ * Resolve the primary provider from chain or flat fields.
+ * Returns the first entry in the chain, or builds one from flat fields.
+ */
+function resolvePrimaryProvider(input) {
+    if (input.providerChain && input.providerChain.length > 0) {
+        return input.providerChain[0];
+    }
+    // Backward compat: single provider from flat fields
+    return {
+        provider: input.provider,
+        model: input.model,
+        apiKey: input.apiKey,
+    };
+}
+/**
+ * Resolve the model name for token budget calculation.
+ */
+function resolvePrimaryModel(input) {
+    if (input.providerChain && input.providerChain.length > 0) {
+        return input.providerChain[0].model;
+    }
+    return input.model ?? 'gpt-4o-mini';
 }
 // ─── Helpers ────────────────────────────────────────────────────
 /**
@@ -70757,6 +70937,7 @@ async function searchMemorySafe(input, fileList) {
  * Create a SKIPPED result when all files are filtered out.
  */
 function createSkippedResult(input, startTime) {
+    const primary = input.providerChain?.[0];
     return {
         status: 'SKIPPED',
         summary: 'All files in the diff matched ignore patterns. No review was performed.',
@@ -70769,12 +70950,43 @@ function createSkippedResult(input, startTime) {
         memoryContext: null,
         metadata: {
             mode: input.mode,
-            provider: input.provider,
-            model: input.model,
+            provider: primary?.provider ?? input.provider ?? 'none',
+            model: primary?.model ?? input.model ?? 'unknown',
             tokensUsed: 0,
             executionTimeMs: Date.now() - startTime,
             toolsRun: [],
             toolsSkipped: ['semgrep', 'trivy', 'cpd'],
+        },
+    };
+}
+/**
+ * Create a result with only static analysis findings (no AI).
+ * Used when AI review is disabled or when all providers fail.
+ */
+function createStaticOnlyResult(staticResult, mode, startTime) {
+    // Determine status from static findings severity
+    const allFindings = [
+        ...staticResult.semgrep.findings,
+        ...staticResult.trivy.findings,
+        ...staticResult.cpd.findings,
+    ];
+    const hasCriticalOrHigh = allFindings.some((f) => f.severity === 'critical' || f.severity === 'high');
+    return {
+        status: hasCriticalOrHigh ? 'FAILED' : 'PASSED',
+        summary: allFindings.length > 0
+            ? `Static analysis found ${allFindings.length} finding(s). AI review was not performed.`
+            : 'Static analysis found no issues. AI review was not performed.',
+        findings: [], // Will be merged in step 7
+        staticAnalysis: staticResult,
+        memoryContext: null,
+        metadata: {
+            mode,
+            provider: 'none',
+            model: 'static-only',
+            tokensUsed: 0,
+            executionTimeMs: Date.now() - startTime,
+            toolsRun: [],
+            toolsSkipped: [],
         },
     };
 }
