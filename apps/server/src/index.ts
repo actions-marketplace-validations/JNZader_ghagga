@@ -83,12 +83,24 @@ app.get('/health/tools', async (c) => {
   const { promisify } = await import('node:util');
   const exec = promisify(execFile);
 
-  const checkTool = async (cmd: string, args: string[]): Promise<{ available: boolean; version?: string; error?: string }> => {
+  const checkTool = async (cmd: string, args: string[]): Promise<{ available: boolean; version?: string; error?: string; path?: string }> => {
     try {
-      const { stdout } = await exec(cmd, args, { timeout: 5_000 });
+      const { stdout } = await exec(cmd, args, { timeout: 10_000 });
       return { available: true, version: stdout.trim().split('\n')[0] };
     } catch (e) {
-      return { available: false, error: e instanceof Error ? e.message : String(e) };
+      // Also try to find the binary
+      let path: string | undefined;
+      try {
+        const { stdout: which } = await exec('which', [cmd], { timeout: 3_000 });
+        path = which.trim();
+      } catch {
+        // Try common paths
+        const { access } = await import('node:fs/promises');
+        for (const p of [`/usr/local/bin/${cmd}`, `/opt/semgrep-venv/bin/${cmd}`, `/opt/pmd/bin/${cmd}`]) {
+          try { await access(p); path = `found at ${p} (but not in PATH)`; break; } catch {}
+        }
+      }
+      return { available: false, error: e instanceof Error ? e.message : String(e), path };
     }
   };
 
@@ -98,7 +110,16 @@ app.get('/health/tools', async (c) => {
     checkTool('pmd', ['--version']),
   ]);
 
-  return c.json({ semgrep, trivy, pmd, env: { NODE_ENV: process.env.NODE_ENV, cwd: process.cwd() } });
+  // Also check PATH and symlinks
+  let pathInfo: string | undefined;
+  try {
+    const { stdout } = await exec('sh', ['-c', 'echo $PATH && ls -la /usr/local/bin/semgrep /usr/local/bin/pmd 2>&1'], { timeout: 5_000 });
+    pathInfo = stdout.trim();
+  } catch (e) {
+    pathInfo = e instanceof Error ? e.message : String(e);
+  }
+
+  return c.json({ semgrep, trivy, pmd, pathInfo, env: { NODE_ENV: process.env.NODE_ENV, cwd: process.cwd() } });
 });
 
 // Webhook routes (no auth required — verified by signature)
