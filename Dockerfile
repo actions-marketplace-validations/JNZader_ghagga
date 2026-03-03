@@ -39,14 +39,17 @@ FROM node:22-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
+    python3-venv \
     default-jre-headless \
     curl \
     unzip \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Semgrep
-RUN pip3 install --no-cache-dir --break-system-packages semgrep
+# Install Semgrep via venv to avoid externally-managed-environment issues
+RUN python3 -m venv /opt/semgrep-venv && \
+    /opt/semgrep-venv/bin/pip install --no-cache-dir semgrep && \
+    ln -s /opt/semgrep-venv/bin/semgrep /usr/local/bin/semgrep
 
 # Install Trivy
 RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin

@@ -41,9 +41,11 @@ RUN pnpm prune --prod
 FROM node:22-slim AS runner
 
 # Install system deps for static analysis tools
+# Cache-bust: 2026-03-03 force rebuild with tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
+    python3-venv \
     default-jre-headless \
     curl \
     unzip \
@@ -51,8 +53,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Semgrep
-RUN pip3 install --no-cache-dir --break-system-packages semgrep
+# Install Semgrep via pipx to avoid externally-managed-environment issues
+RUN python3 -m venv /opt/semgrep-venv && \
+    /opt/semgrep-venv/bin/pip install --no-cache-dir semgrep && \
+    ln -s /opt/semgrep-venv/bin/semgrep /usr/local/bin/semgrep
 
 # Install Trivy
 RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
@@ -65,6 +69,9 @@ RUN curl -sL "https://github.com/pmd/pmd/releases/download/pmd_releases%2F${PMD_
     mv /opt/pmd-bin-${PMD_VERSION} /opt/pmd && \
     ln -s /opt/pmd/bin/pmd /usr/local/bin/pmd && \
     rm /tmp/pmd.zip
+
+# Verify tools are installed
+RUN semgrep --version && trivy --version && pmd --version
 
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
