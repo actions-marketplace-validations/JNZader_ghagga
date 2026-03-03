@@ -1,174 +1,628 @@
 # API Reference
 
-The GHAGGA server exposes a REST API for the dashboard and external integrations.
+The GHAGGA server exposes a REST API for the dashboard, a webhook endpoint for GitHub, and OAuth proxy routes for the Device Flow login.
+
+**Base URL**: `https://your-server.example.com` (default port `3000` in development)
 
 ## Authentication
 
-All API endpoints (except health and webhook) require a GitHub Personal Access Token in the `Authorization` header:
+All `/api/*` endpoints (except `/api/inngest`) require a GitHub access token:
 
 ```
-Authorization: Bearer ghp_xxxxxxxxxxxx
+Authorization: Bearer <github_token>
 ```
 
-The token is validated against the GitHub API to verify the user's identity and installation access.
+The server calls `GET https://api.github.com/user` to verify the token and resolve the user's identity. It then looks up which GHAGGA installations the user belongs to — only data from those installations is accessible.
 
-## Endpoints
+**Unauthenticated endpoints**: `/health`, `/webhook`, `/auth/*`, `/api/inngest`.
 
-### Health Check
+## Response Format
+
+### Success (GET endpoints)
+
+```json
+{
+  "data": { ... },
+  "pagination": { "page": 1, "limit": 50, "offset": 0 }
+}
+```
+
+The `pagination` field is only present on paginated endpoints. Non-paginated GETs return `{ "data": ... }` only.
+
+### Success (PUT/POST mutations)
+
+```json
+{ "message": "Settings updated" }
+```
+
+### Errors
+
+```json
+{ "error": "Human-readable error message" }
+```
+
+| Status | Meaning |
+|--------|---------|
+| `400` | Bad request — missing/invalid parameters or body |
+| `401` | Unauthorized — missing, invalid, or expired token |
+| `403` | Forbidden — user doesn't have access to this installation/repo |
+| `404` | Not found — repository or resource doesn't exist |
+| `500` | Internal server error |
+
+In non-production environments, `500` responses also include `detail` and `stack` fields.
+
+---
+
+## Health Check
 
 ```
 GET /health
 ```
 
-Returns server status. No authentication required.
+No authentication required.
 
-**Response**: `200 OK`
+**Response** `200`:
+
 ```json
-{ "status": "ok" }
+{
+  "status": "ok",
+  "timestamp": "2025-01-15T12:00:00.000Z"
+}
 ```
 
-### GitHub Webhook
+---
+
+## GitHub Webhook
 
 ```
-POST /webhook/github
+POST /webhook
 ```
 
-Receives GitHub webhook events. Validated via HMAC-SHA256 signature.
+Receives GitHub webhook events. No bearer auth — validated via HMAC-SHA256 signature.
 
-**Headers**:
-- `X-Hub-Signature-256`: HMAC signature
-- `X-GitHub-Event`: Event type (e.g., `pull_request`)
+**Required Headers**:
 
-**Response**: `200 OK` (event queued for processing)
+| Header | Description |
+|--------|-------------|
+| `X-Hub-Signature-256` | HMAC-SHA256 signature of the raw body using the webhook secret |
+| `X-GitHub-Event` | Event type: `pull_request`, `installation`, `installation_repositories` |
+
+**Handled Events**:
+
+| Event | Actions | Behavior |
+|-------|---------|----------|
+| `pull_request` | `opened`, `synchronize`, `reopened` | Dispatches an AI review via Inngest |
+| `installation` | `created` | Tracks the installation and its repositories |
+| `installation` | `deleted` | Deactivates the installation |
+| `installation_repositories` | `added`, `removed` | Updates tracked repositories |
+
+**Response** (pull_request) `202`:
+
+```json
+{
+  "message": "Review dispatched",
+  "pr": 42,
+  "repo": "owner/repo"
+}
+```
+
+Other events return `200` with a `message` field.
+
+---
+
+## OAuth Proxy (Device Flow)
+
+These endpoints proxy GitHub's OAuth Device Flow for the static SPA dashboard (which cannot call `github.com` directly due to CORS). **No authentication required** — these are used before the user has a token.
+
+### Request Device Code
+
+```
+POST /auth/device/code
+```
+
+Proxies to `https://github.com/login/device/code` with the GHAGGA OAuth App Client ID.
+
+**Response** `200`:
+
+```json
+{
+  "device_code": "3584d83530557fdd1f46af8289938c8ef79f9dc5",
+  "user_code": "WDJB-MJHT",
+  "verification_uri": "https://github.com/login/device",
+  "expires_in": 900,
+  "interval": 5
+}
+```
+
+### Poll for Access Token
+
+```
+POST /auth/device/token
+```
+
+Polls GitHub for an access token after the user enters their code.
+
+**Body**:
+
+```json
+{
+  "device_code": "3584d83530557fdd1f46af8289938c8ef79f9dc5"
+}
+```
+
+**Response** `200` (success — user authorized):
+
+```json
+{
+  "access_token": "ghu_xxxxxxxxxxxx",
+  "token_type": "bearer",
+  "scope": ""
+}
+```
+
+**Response** `200` (pending — user hasn't entered code yet):
+
+```json
+{
+  "error": "authorization_pending"
+}
+```
+
+---
+
+## Dashboard API
+
+All endpoints below require `Authorization: Bearer <github_token>`.
 
 ### List Repositories
 
 ```
-GET /api/repos
+GET /api/repositories
 ```
 
-Returns repositories accessible to the authenticated user's GitHub installation.
+Returns all repositories across the user's accessible installations.
 
-**Response**: `200 OK`
-```json
-[
-  {
-    "id": 1,
-    "githubRepoId": 12345,
-    "fullName": "owner/repo",
-    "isActive": true,
-    "reviewMode": "simple",
-    "llmProvider": "anthropic"
-  }
-]
-```
+**Response** `200`:
 
-### Get Repository Settings
-
-```
-GET /api/repos/:repoId/settings
-```
-
-Returns configuration for a specific repository.
-
-### Update Repository Settings
-
-```
-PUT /api/repos/:repoId/settings
-```
-
-Updates repository configuration (provider, model, mode, tools, ignore patterns).
-
-**Body**:
 ```json
 {
-  "reviewMode": "workflow",
-  "llmProvider": "openai",
-  "llmModel": "gpt-4o",
-  "settings": {
-    "enableSemgrep": true,
-    "enableTrivy": true,
-    "enableCpd": false,
-    "ignorePatterns": ["*.test.ts"]
-  }
+  "data": [
+    {
+      "id": 1,
+      "githubRepoId": 12345,
+      "fullName": "owner/repo",
+      "installationId": 100,
+      "isActive": true,
+      "reviewMode": "simple",
+      "aiReviewEnabled": true
+    }
+  ]
 }
 ```
 
-### Save Encrypted API Key
+### List Installations
 
 ```
-PUT /api/repos/:repoId/api-key
+GET /api/installations
 ```
 
-Encrypts and stores the user's LLM API key with AES-256-GCM.
+Returns installations the authenticated user has access to.
 
-**Body**:
+**Response** `200`:
+
 ```json
 {
-  "apiKey": "sk-ant-api03-..."
+  "data": [
+    {
+      "id": 100,
+      "accountLogin": "my-org",
+      "accountType": "Organization"
+    }
+  ]
 }
 ```
 
 ### List Reviews
 
 ```
-GET /api/repos/:repoId/reviews
+GET /api/reviews?repo=owner/repo&page=1&limit=50
 ```
 
-Returns review history for a repository with pagination.
+Returns review history for a repository, paginated.
 
 **Query Parameters**:
-- `page` (default: 1)
-- `limit` (default: 20)
-- `status` (filter by: `PASSED`, `FAILED`, `NEEDS_HUMAN_REVIEW`, `SKIPPED`)
 
-### Get Review Detail
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `repo` | Yes | — | Full repository name (`owner/repo`) |
+| `page` | No | `1` | Page number (1-indexed) |
+| `limit` | No | `50` | Items per page (max `100`) |
 
-```
-GET /api/repos/:repoId/reviews/:reviewId
-```
-
-Returns full review details including all findings.
-
-### Memory Search
-
-```
-GET /api/repos/:repoId/memory
-```
-
-Searches project memory using full-text search.
-
-**Query Parameters**:
-- `q` — Search query (full-text search)
-- `type` — Filter by observation type
-
-### Memory Sessions
-
-```
-GET /api/repos/:repoId/memory/sessions
-```
-
-Returns memory sessions (one per review) for the repository.
-
-## Error Responses
-
-All errors follow a consistent format:
+**Response** `200`:
 
 ```json
 {
-  "error": "Error message",
-  "code": "ERROR_CODE"
+  "data": [
+    {
+      "id": 1,
+      "prNumber": 42,
+      "status": "PASSED",
+      "reviewMode": "simple",
+      "createdAt": "2025-01-15T12:00:00.000Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 50,
+    "offset": 0
+  }
 }
 ```
 
-| Status | Code | Description |
-|--------|------|-------------|
-| 401 | `UNAUTHORIZED` | Missing or invalid authentication token |
-| 403 | `FORBIDDEN` | User doesn't have access to this resource |
-| 404 | `NOT_FOUND` | Resource not found |
-| 422 | `VALIDATION_ERROR` | Invalid request body |
-| 500 | `INTERNAL_ERROR` | Server error |
+### Review Statistics
 
-## Inngest Integration
+```
+GET /api/stats?repo=owner/repo
+```
 
-The server exposes an Inngest endpoint at `/api/inngest` for durable function execution. This is an internal endpoint used by the Inngest platform — not for direct client access.
+Returns aggregate review statistics for a repository.
+
+**Query Parameters**:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `repo` | Yes | Full repository name (`owner/repo`) |
+
+**Response** `200`:
+
+```json
+{
+  "data": {
+    "totalReviews": 150,
+    "passed": 120,
+    "failed": 10,
+    "needsHumanReview": 15,
+    "skipped": 5,
+    "passRate": 80.0,
+    "reviewsByDay": []
+  }
+}
+```
+
+### Get Repository Settings
+
+```
+GET /api/settings?repo=owner/repo
+```
+
+Returns the settings for a specific repository, including its resolved global settings for reference.
+
+**Query Parameters**:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `repo` | Yes | Full repository name (`owner/repo`) |
+
+**Response** `200`:
+
+```json
+{
+  "data": {
+    "repoId": 1,
+    "repoFullName": "owner/repo",
+    "useGlobalSettings": false,
+    "aiReviewEnabled": true,
+    "reviewMode": "simple",
+    "providerChain": [
+      {
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-20250514",
+        "hasApiKey": true,
+        "maskedApiKey": "sk-...xYzW"
+      }
+    ],
+    "enableSemgrep": true,
+    "enableTrivy": true,
+    "enableCpd": true,
+    "enableMemory": true,
+    "customRules": "rule1\nrule2",
+    "ignorePatterns": ["*.test.ts", "docs/**"],
+    "globalSettings": {
+      "providerChain": [
+        {
+          "provider": "github",
+          "model": "gpt-4o-mini",
+          "hasApiKey": false
+        }
+      ],
+      "aiReviewEnabled": true,
+      "reviewMode": "simple",
+      "enableSemgrep": true,
+      "enableTrivy": true,
+      "enableCpd": true,
+      "enableMemory": true,
+      "customRules": "",
+      "ignorePatterns": []
+    }
+  }
+}
+```
+
+> **Note**: API keys are never returned in plain text. The `maskedApiKey` field shows the first 3 and last 4 characters (e.g., `sk-...xYzW`). The `hasApiKey` boolean indicates whether a key is stored.
+
+### Update Repository Settings
+
+```
+PUT /api/settings
+```
+
+Updates configuration for a repository. Supports partial updates — only include fields you want to change.
+
+**Body**:
+
+```json
+{
+  "repoFullName": "owner/repo",
+  "useGlobalSettings": false,
+  "aiReviewEnabled": true,
+  "reviewMode": "workflow",
+  "providerChain": [
+    { "provider": "anthropic", "model": "claude-sonnet-4-20250514", "apiKey": "sk-ant-..." },
+    { "provider": "github", "model": "gpt-4o-mini" }
+  ],
+  "enableSemgrep": true,
+  "enableTrivy": true,
+  "enableCpd": false,
+  "enableMemory": true,
+  "customRules": "rule1\nrule2",
+  "ignorePatterns": ["*.test.ts", "docs/**"]
+}
+```
+
+**Body Fields**:
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `repoFullName` | `string` | Yes | Full repository name (`owner/repo`) |
+| `useGlobalSettings` | `boolean` | No | Use installation-level settings instead of per-repo |
+| `aiReviewEnabled` | `boolean` | No | Enable/disable AI review |
+| `reviewMode` | `string` | No | Review mode: `simple`, `workflow`, `consensus` |
+| `providerChain` | `array` | No | Ordered list of LLM providers (see below) |
+| `enableSemgrep` | `boolean` | No | Enable Semgrep static analysis |
+| `enableTrivy` | `boolean` | No | Enable Trivy vulnerability scanning |
+| `enableCpd` | `boolean` | No | Enable copy-paste detection |
+| `enableMemory` | `boolean` | No | Enable project memory |
+| `customRules` | `string` | No | Custom review rules (newline-separated) |
+| `ignorePatterns` | `string[]` | No | Glob patterns for files to skip |
+| `reviewLevel` | `string` | No | Review thoroughness level |
+
+**Provider Chain Entries**:
+
+```json
+{ "provider": "anthropic", "model": "claude-sonnet-4-20250514", "apiKey": "sk-ant-..." }
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `provider` | `string` | Yes | One of: `github`, `anthropic`, `openai`, `google`, `qwen` |
+| `model` | `string` | Yes | Model identifier (e.g., `gpt-4o-mini`, `claude-sonnet-4-20250514`) |
+| `apiKey` | `string` | No | API key (omit to keep existing key; `github` provider never needs one) |
+
+> **API Key Behavior**: When you send a `providerChain` entry without an `apiKey`, the server preserves the previously stored encrypted key for that provider. Send a new `apiKey` to rotate it. The `github` provider uses the user's session token and never requires an API key.
+
+> **Valid Providers**: `github`, `anthropic`, `openai`, `google`, `qwen`. The `ollama` provider is **not** available in the SaaS dashboard — use the CLI or GitHub Action instead.
+
+**Response** `200`:
+
+```json
+{ "message": "Settings updated" }
+```
+
+### Get Installation Settings (Global)
+
+```
+GET /api/installation-settings?installation_id=123
+```
+
+Returns the global (installation-level) settings that apply as defaults to all repositories in the installation.
+
+**Query Parameters**:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `installation_id` | Yes | Numeric installation ID |
+
+**Response** `200`:
+
+```json
+{
+  "data": {
+    "installationId": 123,
+    "accountLogin": "my-org",
+    "providerChain": [
+      {
+        "provider": "github",
+        "model": "gpt-4o-mini",
+        "hasApiKey": false
+      }
+    ],
+    "aiReviewEnabled": true,
+    "reviewMode": "simple",
+    "enableSemgrep": true,
+    "enableTrivy": true,
+    "enableCpd": true,
+    "enableMemory": true,
+    "customRules": "",
+    "ignorePatterns": []
+  }
+}
+```
+
+### Update Installation Settings (Global)
+
+```
+PUT /api/installation-settings
+```
+
+Updates the global settings for an installation. These settings apply to all repositories that have `useGlobalSettings: true`.
+
+**Body**:
+
+```json
+{
+  "installationId": 123,
+  "providerChain": [
+    { "provider": "github", "model": "gpt-4o-mini" }
+  ],
+  "aiReviewEnabled": true,
+  "reviewMode": "simple",
+  "enableSemgrep": true,
+  "enableTrivy": true,
+  "enableCpd": true,
+  "enableMemory": true,
+  "customRules": "rule1\nrule2",
+  "ignorePatterns": ["*.test.ts"],
+  "reviewLevel": "standard"
+}
+```
+
+**Body Fields**: Same as [Update Repository Settings](#update-repository-settings), except `installationId` (number, required) replaces `repoFullName`, and there is no `useGlobalSettings` field.
+
+**Response** `200`:
+
+```json
+{ "message": "Installation settings updated" }
+```
+
+### Validate Provider API Key
+
+```
+POST /api/providers/validate
+```
+
+Tests whether a provider API key is valid. Returns the list of available models if the key works.
+
+**Body**:
+
+```json
+{
+  "provider": "anthropic",
+  "apiKey": "sk-ant-api03-..."
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `provider` | `string` | Yes | One of: `github`, `anthropic`, `openai`, `google`, `qwen` |
+| `apiKey` | `string` | Conditional | Required for all providers except `github` (which uses the session token) |
+
+**Response** `200` (valid key):
+
+```json
+{
+  "valid": true,
+  "models": ["claude-sonnet-4-20250514", "claude-haiku-4-20250414"]
+}
+```
+
+**Response** `200` (invalid key):
+
+```json
+{
+  "valid": false,
+  "models": [],
+  "error": "Validation request failed"
+}
+```
+
+### List Memory Sessions
+
+```
+GET /api/memory/sessions?project=owner/repo
+```
+
+Returns memory sessions (one per review) for a project.
+
+**Query Parameters**:
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `project` | Yes | Full repository name (`owner/repo`) |
+
+**Response** `200`:
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "project": "owner/repo",
+      "prNumber": 42,
+      "createdAt": "2025-01-15T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+### List Session Observations
+
+```
+GET /api/memory/sessions/:id/observations
+```
+
+Returns all observations (learned facts) from a specific memory session.
+
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| `id` | Numeric session ID |
+
+**Response** `200`:
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "sessionId": 1,
+      "type": "pattern",
+      "content": "This project uses barrel exports in src/index.ts",
+      "createdAt": "2025-01-15T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+## Inngest Endpoint
+
+```
+GET|POST|PUT /api/inngest
+```
+
+Internal endpoint used by the [Inngest](https://www.inngest.com/) platform for durable function execution. Mounted **before** the auth middleware — Inngest uses its own request signing. Not intended for direct client access.
+
+---
+
+## Endpoint Summary
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| `GET` | `/health` | No | Health check |
+| `POST` | `/webhook` | HMAC | GitHub webhook receiver |
+| `POST` | `/auth/device/code` | No | OAuth Device Flow — request codes |
+| `POST` | `/auth/device/token` | No | OAuth Device Flow — poll for token |
+| `GET` | `/api/repositories` | Bearer | List user's repositories |
+| `GET` | `/api/installations` | Bearer | List user's installations |
+| `GET` | `/api/reviews` | Bearer | List reviews (paginated) |
+| `GET` | `/api/stats` | Bearer | Review statistics |
+| `GET` | `/api/settings` | Bearer | Get repository settings |
+| `PUT` | `/api/settings` | Bearer | Update repository settings |
+| `GET` | `/api/installation-settings` | Bearer | Get global installation settings |
+| `PUT` | `/api/installation-settings` | Bearer | Update global installation settings |
+| `POST` | `/api/providers/validate` | Bearer | Validate provider API key |
+| `GET` | `/api/memory/sessions` | Bearer | List memory sessions |
+| `GET` | `/api/memory/sessions/:id/observations` | Bearer | List session observations |
+| `*` | `/api/inngest` | Inngest | Inngest durable functions (internal) |

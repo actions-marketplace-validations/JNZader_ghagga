@@ -5,23 +5,24 @@ Review local changes from your terminal. No server or database required.
 ## Installation
 
 ```bash
-npm install -g @ghagga/cli
+npm install -g ghagga
 ```
 
 ## Usage
 
 ```bash
-# Set your API key
-export GHAGGA_API_KEY=sk-ant-...
+# Login with GitHub (free — uses GitHub Models, no API key needed)
+ghagga login
 
-# Review staged changes (default: simple mode, anthropic provider)
+# Review staged changes (default: simple mode, GitHub Models)
 ghagga review
 
 # Review with options
-ghagga review --mode workflow --provider openai --format json
+ghagga review --mode workflow --provider openai --api-key sk-xxx
+ghagga review --provider qwen --api-key sk-xxx --format json
 
-# Review a specific directory
-ghagga review /path/to/repo --mode consensus
+# Review with local Ollama
+ghagga review --provider ollama --model qwen2.5-coder:7b
 ```
 
 ## Options
@@ -29,13 +30,14 @@ ghagga review /path/to/repo --mode consensus
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
 | `--mode <mode>` | `-m` | `simple` | Review mode: `simple`, `workflow`, `consensus` |
-| `--provider <provider>` | `-p` | `anthropic` | LLM provider (or `GHAGGA_PROVIDER` env var) |
+| `--provider <provider>` | `-p` | `github` | LLM provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen` (or `GHAGGA_PROVIDER` env var) |
 | `--model <model>` | — | Auto | Model identifier (or `GHAGGA_MODEL` env var) |
 | `--api-key <key>` | — | — | API key (or `GHAGGA_API_KEY` env var) |
 | `--format <format>` | `-f` | `markdown` | Output format: `markdown`, `json` |
 | `--no-semgrep` | — | — | Disable Semgrep |
 | `--no-trivy` | — | — | Disable Trivy |
 | `--no-cpd` | — | — | Disable CPD |
+| `--verbose` | `-v` | — | Show real-time progress of each pipeline step |
 | `--config <path>` | `-c` | `.ghagga.json` | Path to config file |
 
 ## Exit Codes
@@ -54,7 +56,7 @@ Place a `.ghagga.json` in your repo root for project-level defaults:
 ```json
 {
   "mode": "workflow",
-  "provider": "anthropic",
+  "provider": "github",
   "model": "claude-sonnet-4-20250514",
   "enableSemgrep": true,
   "enableTrivy": true,
@@ -69,10 +71,11 @@ Place a `.ghagga.json` in your repo root for project-level defaults:
 
 ## How It Works
 
-1. Computes `git diff` for staged/unstaged changes
-2. Passes the diff to `@ghagga/core` pipeline
-3. Runs static analysis if tools are installed locally
-4. Outputs the review to stdout (markdown or JSON)
+1. Authenticates via stored GitHub token (from `ghagga login`)
+2. Computes `git diff` for staged/unstaged changes
+3. Passes the diff to `@ghagga/core` pipeline
+4. Runs static analysis if tools are installed locally
+5. Outputs the review to stdout (markdown or JSON)
 
 ## Static Analysis
 
@@ -104,5 +107,5 @@ ghagga review --mode workflow --config '{"reviewLevel": "strict"}'
 ### Quick Simple Review
 
 ```bash
-GHAGGA_API_KEY=sk-... ghagga review
+ghagga review
 ```

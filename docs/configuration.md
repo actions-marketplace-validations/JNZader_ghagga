@@ -10,8 +10,6 @@
 | `GITHUB_APP_ID` | Yes | GitHub App ID |
 | `GITHUB_PRIVATE_KEY` | Yes | Base64-encoded `.pem` file content |
 | `GITHUB_WEBHOOK_SECRET` | Yes | Secret configured in GitHub App webhook settings |
-| `GITHUB_CLIENT_ID` | Yes | For OAuth login (dashboard) |
-| `GITHUB_CLIENT_SECRET` | Yes | For OAuth login (dashboard) |
 | `INNGEST_EVENT_KEY` | Yes | Inngest event ingestion key |
 | `INNGEST_SIGNING_KEY` | Yes | Inngest webhook signing key |
 | `ENCRYPTION_KEY` | Yes | 64-character hex string for AES-256-GCM encryption |
@@ -22,8 +20,8 @@
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GHAGGA_API_KEY` | Yes | LLM provider API key |
-| `GHAGGA_PROVIDER` | No | Provider: `anthropic`, `openai`, `google` (default: `anthropic`) |
+| `GHAGGA_API_KEY` | No | LLM provider API key (not needed for GitHub Models — use `ghagga login` instead) |
+| `GHAGGA_PROVIDER` | No | Provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen` (default: `github`) |
 | `GHAGGA_MODEL` | No | Model identifier (auto-selects best per provider) |
 
 ### GitHub Action Mode
@@ -37,7 +35,7 @@ Place a `.ghagga.json` in your repo root for project-level defaults:
 ```json
 {
   "mode": "workflow",
-  "provider": "anthropic",
+  "provider": "github",
   "model": "claude-sonnet-4-20250514",
   "enableSemgrep": true,
   "enableTrivy": true,
@@ -54,9 +52,12 @@ Place a `.ghagga.json` in your repo root for project-level defaults:
 
 | Provider | Default Model |
 |----------|--------------|
+| GitHub Models | `gpt-4o-mini` |
 | Anthropic | `claude-sonnet-4-20250514` |
 | OpenAI | `gpt-4o` |
 | Google | `gemini-2.0-flash` |
+| Ollama | `qwen2.5-coder:7b` |
+| Qwen | `qwen-coder-plus` |
 
 ## Token Budget
 
@@ -103,3 +104,17 @@ Set via config file or CLI flag:
 ```bash
 ghagga review --config '{"reviewLevel": "strict"}'
 ```
+
+## Provider Chain (SaaS)
+
+In the SaaS dashboard, you can configure an ordered **provider chain** as a fallback list. If the primary provider fails (rate limit, API error), GHAGGA automatically tries the next provider in the chain.
+
+Example chain: `GitHub Models → OpenAI → Anthropic`
+
+Provider chains are configured per-repo or globally (see Global Settings).
+
+## Global Settings (SaaS)
+
+Installation-wide defaults that apply to all repositories. Each repo can override with its own settings by toggling "Use global settings" off in the dashboard.
+
+Global settings include: provider chain, review mode, AI review enabled/disabled, static analysis toggles, and ignore patterns.

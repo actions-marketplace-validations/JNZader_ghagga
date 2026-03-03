@@ -20,7 +20,7 @@ GHAGGA is a code review tool that posts intelligent comments on your Pull Reques
 | **3 Review Modes** | Simple (single LLM), Workflow (5 specialist agents), Consensus (multi-model voting) |
 | **Static Analysis Trident** | Semgrep (security), Trivy (vulnerabilities), CPD (code duplication) — zero tokens |
 | **Project Memory** | Learns patterns, decisions, and bug fixes across reviews (PostgreSQL + tsvector FTS) |
-| **Multi-Provider** | Anthropic (Claude), OpenAI (GPT-4), Google (Gemini) — bring your own key |
+| **Multi-Provider** | 6 providers: GitHub Models (free), Anthropic, OpenAI, Google, Ollama (local), Qwen (Alibaba) — bring your own key |
 | **3 Distribution Modes** | SaaS, GitHub Action, CLI |
 | **Dashboard** | React SPA on GitHub Pages — review history, stats, settings, memory browser |
 | **BYOK Security** | AES-256-GCM encryption, HMAC-SHA256 webhook verification, privacy stripping |

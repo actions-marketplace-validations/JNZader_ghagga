@@ -8,7 +8,7 @@
 | **Language** | TypeScript 5.7 (strict mode) | Type safety across all packages |
 | **Backend** | Hono 4 | Fastest TS framework, 14KB, runs anywhere |
 | **Database** | PostgreSQL 16 + Drizzle ORM | Zero-overhead SQL, tsvector FTS, plain TS migrations |
-| **AI** | Vercel AI SDK 4 | Multi-provider (Anthropic, OpenAI, Google), streaming, structured output |
+| **AI** | Vercel AI SDK 4 | Multi-provider (6 providers), streaming, structured output, fallback chains |
 | **Async** | Inngest 3 | Zero-infra durable functions, step checkpointing, automatic retries |
 | **Frontend** | React 19 + Vite + Tailwind 3 | Lazy-loaded routes, vendor splitting, dark theme |
 | **Data Fetching** | TanStack Query 5 | Caching, background refetching, optimistic updates |
@@ -42,12 +42,12 @@ Zero infrastructure — no Redis. 50k events/month free. Step-based checkpointin
 
 ## Test Suite
 
-225 tests across 18 test files in 5 packages. All passing in ~3.7 seconds.
+684 tests across 30 test files in 5 packages. All passing in ~3 seconds.
 
 | Package | Tests | What's Covered |
 |---------|------:|----------------|
-| `@ghagga/core` | 171 | Pipeline, diff parsing, stack detection, token budget, prompts, agent parsers, fallback provider, privacy, memory, formatters, tool parsers, security audit |
-| `@ghagga/action` | 18 | Input parsing, output setting, comment formatting, error handling |
-| `@ghagga/cli` | 13 | Module exports, config resolution, output formatting, exit codes |
-| `@ghagga/server` | 12 | Webhook signature verification, Inngest function, router |
-| `@ghagga/db` | 11 | AES-256-GCM encrypt/decrypt roundtrip, tamper detection, edge cases |
+| `ghagga-core` | 400 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), tools (semgrep, trivy, cpd), parsers, security audit |
+| `ghagga-db` | 64 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto |
+| `@ghagga/server` | 143 | API routes (74), webhooks (18), auth middleware (12), provider validation (28), Inngest (2), GitHub client (9) |
+| `ghagga` (CLI) | 53 | Config resolution (22), review command (31) |
+| `@ghagga/action` | 24 | Input parsing, output setting, comment formatting, error handling |

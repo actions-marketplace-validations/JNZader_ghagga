@@ -11,6 +11,7 @@
 | **No secret logging** | Console outputs and error messages never contain sensitive data |
 | **BYOK model** | Users provide their own LLM API keys. GHAGGA never pays for or sees your LLM usage in plaintext. |
 | **Installation scoping** | API routes are scoped by GitHub installation ID — users can only access their own repos |
+| **OAuth Device Flow** | GitHub OAuth Device Flow for dashboard and CLI authentication. No client secret stored — uses public client ID with device code verification. |
 
 ## AES-256-GCM Encryption
 
@@ -62,3 +63,4 @@ The test suite includes 14 dedicated security audit tests that verify:
 3. **Rotate webhook secrets** — If compromised, regenerate in GitHub App settings
 4. **Use HTTPS** — All webhook endpoints should be served over HTTPS
 5. **Limit GitHub App permissions** — Only request `pull_requests: write` and `contents: read`
+6. **Use Device Flow for auth** — Dashboard and CLI use GitHub OAuth Device Flow (no client secret needed). Never store GitHub tokens in config files — use `ghagga login` which stores tokens securely.

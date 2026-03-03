@@ -18,11 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: JNZader/ghagga@main
-        with:
-          api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          provider: anthropic
-          mode: simple
+      - uses: JNZader/ghagga@v2
 ```
 
 See [GitHub Action](github-action.md) for all inputs and outputs.
@@ -33,16 +29,16 @@ Review local changes from your terminal. No server required.
 
 ```bash
 # Install globally
-npm install -g @ghagga/cli
+npm install -g ghagga
 
-# Set your API key
-export GHAGGA_API_KEY=sk-ant-...
+# Login with GitHub (free — uses GitHub Models, no API key needed)
+ghagga login
 
-# Review staged changes
+# Review staged changes (default: simple mode, GitHub Models (free))
 ghagga review
 
 # Review with options
-ghagga review --mode workflow --provider openai --format json
+ghagga review --mode workflow --format json
 ```
 
 See [CLI](cli.md) for all options and config file support.
@@ -69,6 +65,9 @@ GHAGGA never sees or stores your keys in plaintext. They're encrypted with AES-2
 
 | Provider | Default Model |
 |----------|--------------|
+| GitHub Models | `gpt-4o-mini` |
 | Anthropic | `claude-sonnet-4-20250514` |
 | OpenAI | `gpt-4o` |
 | Google | `gemini-2.0-flash` |
+| Ollama | `qwen2.5-coder:7b` |
+| Qwen | `qwen-coder-plus` |

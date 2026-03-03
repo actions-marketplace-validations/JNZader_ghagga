@@ -7,7 +7,7 @@ Complete step-by-step guide to deploy GHAGGA with full capabilities: webhook rev
 - **Docker** and **Docker Compose** installed
 - A **GitHub account** (to create a GitHub App)
 - An **Inngest account** (free tier — [inngest.com](https://www.inngest.com/))
-- An **LLM API key** from Anthropic, OpenAI, or Google (users provide their own)
+- **Optional**: LLM API key from Anthropic, OpenAI, Google, or Qwen. GitHub Models works free with any GitHub token.
 
 ## Overview
 
@@ -85,15 +85,7 @@ App ID: 123456
 
 Save this — it's your `GITHUB_APP_ID`.
 
-### 1.8 Generate a Client Secret
-
-Scroll to **"Client secrets"** and click **"Generate a new client secret"**.
-
-Copy the value immediately — it's only shown once. This is your `GITHUB_CLIENT_SECRET`.
-
-Also note the **Client ID** shown above it. This is your `GITHUB_CLIENT_ID`.
-
-### 1.9 Generate a Private Key
+### 1.8 Generate a Private Key
 
 Scroll to **"Private keys"** and click **"Generate a private key"**.
 
@@ -113,7 +105,7 @@ Copy the entire base64 string (one long line, no line breaks). This is your `GIT
 
 > **Keep the `.pem` file safe.** If you lose it, you'll need to generate a new one.
 
-### 1.10 Install the App on your repositories
+### 1.9 Install the App on your repositories
 
 Go to: `https://github.com/settings/apps/YOUR-APP-NAME/installations`
 
@@ -173,10 +165,8 @@ By now you should have all of these:
 | Variable | Source | Example |
 |----------|--------|---------|
 | `GITHUB_APP_ID` | Step 1.7 | `123456` |
-| `GITHUB_PRIVATE_KEY` | Step 1.9 | `LS0tLS1CRUdJTi...` (base64) |
+| `GITHUB_PRIVATE_KEY` | Step 1.8 | `LS0tLS1CRUdJTi...` (base64) |
 | `GITHUB_WEBHOOK_SECRET` | Step 1.2 | `a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2` |
-| `GITHUB_CLIENT_ID` | Step 1.8 | `Iv1.abc123def456` |
-| `GITHUB_CLIENT_SECRET` | Step 1.8 | `abc123def456...` |
 | `INNGEST_EVENT_KEY` | Step 2.2 | `evt_xxxx` |
 | `INNGEST_SIGNING_KEY` | Step 2.2 | `signkey-xxxx` |
 | `ENCRYPTION_KEY` | Step 3.1 | `a1b2c3d4...` (64 hex chars) |
@@ -214,8 +204,6 @@ DATABASE_URL=postgresql://ghagga:ghagga_dev@postgres:5432/ghagga
 GITHUB_APP_ID=123456
 GITHUB_PRIVATE_KEY=LS0tLS1CRUdJTi...
 GITHUB_WEBHOOK_SECRET=a1b2c3d4e5f6...
-GITHUB_CLIENT_ID=Iv1.abc123def456
-GITHUB_CLIENT_SECRET=abc123def456...
 
 # Inngest
 INNGEST_EVENT_KEY=evt_xxxx
@@ -287,8 +275,6 @@ https://ghagga.yourdomain.com/api/inngest
 
 ---
 
----
-
 ## Step 5: Verify the Deployment
 
 ### 5.1 Health check
@@ -321,15 +307,15 @@ Log in with a GitHub PAT that has access to the repositories where GHAGGA is ins
 
 ## Step 6: Configure Repositories
 
-Once deployed, each repository needs an LLM API key configured:
+Once deployed, configure your LLM providers:
 
 1. Open the GHAGGA dashboard
-2. Go to **Settings**
-3. Select a repository
-4. Enter your LLM API key (encrypted with AES-256-GCM at rest)
-5. Choose provider (Anthropic, OpenAI, or Google)
-6. Choose review mode (Simple, Workflow, or Consensus)
-7. Configure which static analysis tools to enable
+2. Go to **Global Settings** to set installation-wide defaults
+3. Configure a **provider chain** — ordered list of providers with fallback (e.g., GitHub Models → OpenAI → Anthropic)
+4. Each provider needs an API key (except GitHub Models, which uses the installation token)
+5. Choose review mode (Simple, Workflow, or Consensus)
+6. Configure which static analysis tools to enable
+7. Individual repos can override global settings via **Settings** → toggle "Use global settings" off
 
 ---
 

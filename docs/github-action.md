@@ -16,19 +16,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: JNZader/ghagga@main
-        with:
-          api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          provider: anthropic
-          mode: simple
+      - uses: JNZader/ghagga@v2
 ```
 
 ## Inputs
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `api-key` | Yes | — | LLM provider API key |
-| `provider` | No | `anthropic` | LLM provider: `anthropic`, `openai`, `google` |
+| `api-key` | No | — | LLM provider API key. Not required for GitHub Models (free default). |
+| `provider` | No | `github` | LLM provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen` |
+| `github-token` | No | `${{ github.token }}` | GitHub token for PR access. Automatic. |
 | `model` | No | Auto | Model identifier (auto-selects best per provider) |
 | `mode` | No | `simple` | Review mode: `simple`, `workflow`, `consensus` |
 | `enable-semgrep` | No | `true` | Enable Semgrep security analysis |
@@ -49,9 +46,7 @@ jobs:
 Uses `node20` runtime. Lightweight and fast to start. Static analysis tools are skipped unless installed in a prior step.
 
 ```yaml
-- uses: JNZader/ghagga@main
-  with:
-    api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+- uses: JNZader/ghagga@v2
 ```
 
 ### Docker
@@ -60,8 +55,6 @@ Uses the `apps/action/Dockerfile` which includes Semgrep, Trivy, and PMD/CPD pre
 
 ```yaml
 - uses: docker://ghcr.io/jnzader/ghagga-action:latest
-  with:
-    api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
 ## Examples
@@ -69,7 +62,7 @@ Uses the `apps/action/Dockerfile` which includes Semgrep, Trivy, and PMD/CPD pre
 ### Workflow Mode with OpenAI
 
 ```yaml
-- uses: JNZader/ghagga@main
+- uses: JNZader/ghagga@v2
   with:
     api-key: ${{ secrets.OPENAI_API_KEY }}
     provider: openai
@@ -79,7 +72,7 @@ Uses the `apps/action/Dockerfile` which includes Semgrep, Trivy, and PMD/CPD pre
 ### Consensus Mode for Security-Sensitive Code
 
 ```yaml
-- uses: JNZader/ghagga@main
+- uses: JNZader/ghagga@v2
   with:
     api-key: ${{ secrets.ANTHROPIC_API_KEY }}
     mode: consensus
@@ -88,10 +81,8 @@ Uses the `apps/action/Dockerfile` which includes Semgrep, Trivy, and PMD/CPD pre
 ### Use Review Status in Subsequent Steps
 
 ```yaml
-- uses: JNZader/ghagga@main
+- uses: JNZader/ghagga@v2
   id: review
-  with:
-    api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 
 - name: Check review result
   if: steps.review.outputs.status == 'FAILED'
@@ -107,6 +98,15 @@ on:
       - 'src/**'
       - '!src/**/*.test.ts'
       - '!docs/**'
+```
+
+### Qwen (Alibaba Cloud)
+
+```yaml
+- uses: JNZader/ghagga@v2
+  with:
+    provider: qwen
+    api-key: ${{ secrets.DASHSCOPE_API_KEY }}
 ```
 
 ## Notes

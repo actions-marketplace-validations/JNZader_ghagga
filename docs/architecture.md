@@ -73,7 +73,7 @@ ghagga/
 
 ### Vercel AI SDK over LangChain/LangGraph
 
-GHAGGA's review flow is **predictable** (Layer 0 → 1 → 2 → 3), not a dynamic graph. Vercel AI SDK gives multi-provider support (Anthropic, OpenAI, Google) with streaming, structured output, and tool calling — without the overhead of graph management.
+GHAGGA's review flow is **predictable** (Layer 0 → 1 → 2 → 3), not a dynamic graph. Vercel AI SDK gives multi-provider support (6 providers: GitHub Models, Anthropic, OpenAI, Google, Ollama, Qwen) with streaming, structured output, and tool calling — without the overhead of graph management.
 
 ### Hono over Express/Fastify
 

@@ -45,8 +45,8 @@ You bring your own API key (BYOK). GHAGGA never sees or stores your keys in plai
 | **3 Review Modes** | Simple (single LLM), Workflow (5 specialist agents), Consensus (multi-model voting) |
 | **Static Analysis Trident** | Semgrep (security), Trivy (vulnerabilities), CPD (code duplication) — zero tokens |
 | **Project Memory** | Learns patterns, decisions, and bug fixes across reviews (PostgreSQL + tsvector FTS) |
-| **Multi-Provider** | Anthropic (Claude), OpenAI (GPT-4), Google (Gemini) — bring your own key |
-| **4 Distribution Modes** | SaaS, GitHub Action, CLI, 1-click deploy |
+| **Multi-Provider** | 6 providers: GitHub Models (free), Anthropic, OpenAI, Google, Ollama (local), Qwen (Alibaba) — bring your own key |
+| **3 Distribution Modes** | SaaS, GitHub Action, CLI |
 | **Dashboard** | React SPA on GitHub Pages — review history, stats, settings, memory browser |
 | **BYOK Security** | AES-256-GCM encryption, HMAC-SHA256 webhook verification, privacy stripping |
 
@@ -69,22 +69,18 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: JNZader/ghagga@main
-        with:
-          api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          provider: anthropic       # or: openai, google
-          mode: simple              # or: workflow, consensus
+      - uses: JNZader/ghagga@v2
 ```
 
 #### Action Inputs
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `api-key` | Yes | — | LLM provider API key |
-| `provider` | No | `anthropic` | LLM provider: `anthropic`, `openai`, `google` |
+| `api-key` | No | — | LLM provider API key. Not required for GitHub Models (free default). |
+| `provider` | No | `github` | LLM provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen` |
 | `model` | No | Auto | Model identifier (auto-selects best per provider) |
 | `mode` | No | `simple` | Review mode: `simple`, `workflow`, `consensus` |
+| `github-token` | No | `${{ github.token }}` | GitHub token for PR access. Automatic. |
 | `enable-semgrep` | No | `true` | Enable Semgrep security analysis |
 | `enable-trivy` | No | `true` | Enable Trivy vulnerability scanning |
 | `enable-cpd` | No | `true` | Enable CPD duplicate detection |
@@ -103,20 +99,18 @@ jobs:
 Review local changes from your terminal. No server required.
 
 ```bash
-# Install globally
-npm install -g @ghagga/cli
+# Install
+npm install -g ghagga
 
-# Set your API key
-export GHAGGA_API_KEY=sk-ant-...
+# Login with GitHub (free, no API key needed)
+ghagga login
 
-# Review staged changes (default: simple mode, anthropic provider)
+# Review staged changes
 ghagga review
 
 # Review with options
-ghagga review --mode workflow --provider openai --format json
-
-# Review a specific directory
-ghagga review /path/to/repo --mode consensus
+ghagga review --mode workflow --provider openai --api-key sk-xxx
+ghagga review --provider qwen --api-key sk-xxx --format json
 ```
 
 #### CLI Options
@@ -124,7 +118,7 @@ ghagga review /path/to/repo --mode consensus
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
 | `--mode <mode>` | `-m` | `simple` | Review mode: `simple`, `workflow`, `consensus` |
-| `--provider <provider>` | `-p` | `anthropic` | LLM provider (or `GHAGGA_PROVIDER` env var) |
+| `--provider <provider>` | `-p` | `github` | LLM provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen` (or `GHAGGA_PROVIDER` env var) |
 | `--model <model>` | — | Auto | Model identifier (or `GHAGGA_MODEL` env var) |
 | `--api-key <key>` | — | — | API key (or `GHAGGA_API_KEY` env var) |
 | `--format <format>` | `-f` | `markdown` | Output format: `markdown`, `json` |
@@ -132,6 +126,7 @@ ghagga review /path/to/repo --mode consensus
 | `--no-trivy` | — | — | Disable Trivy |
 | `--no-cpd` | — | — | Disable CPD |
 | `--config <path>` | `-c` | `.ghagga.json` | Path to config file |
+| `--verbose` | `-v` | — | Show real-time progress of each pipeline step |
 
 #### Exit Codes
 
@@ -208,7 +203,6 @@ graph TB
   Server --> Core
   Action --> Core
   CLI --> Core
-  OneClick --> Core
   Core --> DB
 ```
 
@@ -223,7 +217,6 @@ Each distribution mode (`apps/*`) is a thin adapter:
 | **Server** | GitHub webhook | PR comment via GitHub API | Yes (PostgreSQL) |
 | **Action** | PR event in GitHub Actions | PR comment via Octokit | No |
 | **CLI** | Local `git diff` | Terminal output (markdown/json) | No |
-| **1-Click** | Same as Server | Same as Server | Yes |
 
 ### Review Pipeline
 
@@ -380,7 +373,7 @@ Before any observation is stored in memory, GHAGGA strips sensitive data using 1
 | Password/secret assignments | `password = "..."` | `[REDACTED]` |
 | Base64 credentials | `SECRET=aGVsbG8...` | `[REDACTED_BASE64]` |
 
-> Memory is only available in Server and 1-Click deploy modes (requires PostgreSQL). CLI and Action modes run without memory — the pipeline gracefully degrades.
+> Memory is only available in Server (SaaS) mode (requires PostgreSQL). CLI and Action modes run without memory — the pipeline gracefully degrades.
 
 ---
 
@@ -394,10 +387,11 @@ React SPA deployed on GitHub Pages. Dark theme with GitHub-dark palette and purp
 
 | Page | Description |
 |------|-------------|
-| **Login** | GitHub PAT authentication |
+| **Login** | GitHub OAuth Device Flow login |
 | **Dashboard** | 4 stat cards (total reviews, pass rate, avg findings, avg time) + Recharts area chart with review trends |
 | **Reviews** | Filterable table with status badges, severity indicators, detail expansion, and pagination |
-| **Settings** | Per-repo configuration (provider, model, mode, tools, ignore patterns) + encrypted API key management |
+| **Settings** | Per-repo or global settings — provider chain, review mode, tools, ignore patterns |
+| **Global Settings** | Installation-wide provider chain and defaults that apply to all repos |
 | **Memory** | Session sidebar + observation cards with debounced search across all stored knowledge |
 
 ### Tech Details
@@ -408,7 +402,7 @@ React SPA deployed on GitHub Pages. Dark theme with GitHub-dark palette and purp
 - Tailwind CSS 3 with dark theme
 - HashRouter for GitHub Pages compatibility (no server-side routing needed)
 - Code-split: lazy-loaded page components with vendor chunk splitting
-- Base path: `/ghagga/` for GitHub Pages deployment
+- Base path: `/ghagga/app/` for GitHub Pages deployment
 
 ---
 
@@ -474,7 +468,7 @@ ghagga/
 │   │
 │   └── db/                    # @ghagga/db — Database layer
 │       └── src/
-│           ├── schema.ts          # Drizzle table definitions (6 tables)
+│           ├── schema.ts          # Drizzle table definitions (7 tables)
 │           ├── client.ts          # Database connection factory
 │           ├── crypto.ts          # AES-256-GCM encrypt/decrypt
 │           ├── queries.ts         # All typed query functions
@@ -496,7 +490,7 @@ ghagga/
 │   │       ├── components/        # Layout, Card, StatusBadge, SeverityBadge
 │   │       └── pages/             # Login, Dashboard, Reviews, Settings, Memory
 │   │
-│   ├── cli/                   # @ghagga/cli — CLI tool
+│   ├── cli/                   # ghagga — CLI tool
 │   │   └── src/
 │   │       ├── index.ts           # Commander entry point
 │   │       └── commands/review.ts # Git diff → pipeline → output
@@ -515,6 +509,7 @@ ghagga/
 │
 ├── Dockerfile                 # Multi-stage build (Semgrep + Trivy + CPD)
 ├── docker-compose.yml         # PostgreSQL + server for local dev
+├── render.yaml                # Render Blueprint for SaaS deployment
 ├── .github/workflows/
 │   ├── ci.yml                 # Typecheck + build + test pipeline
 │   └── deploy-pages.yml       # Auto-deploy dashboard to GitHub Pages
@@ -533,8 +528,6 @@ ghagga/
 | `GITHUB_APP_ID` | Server only | GitHub App ID |
 | `GITHUB_PRIVATE_KEY` | Server only | Base64-encoded `.pem` file content |
 | `GITHUB_WEBHOOK_SECRET` | Server only | Secret configured in GitHub App webhook settings |
-| `GITHUB_CLIENT_ID` | Dashboard | For OAuth login |
-| `GITHUB_CLIENT_SECRET` | Dashboard | For OAuth login |
 | `INNGEST_EVENT_KEY` | Server only | Inngest event ingestion key |
 | `INNGEST_SIGNING_KEY` | Server only | Inngest webhook signing key |
 | `ENCRYPTION_KEY` | Server only | 64-character hex string for AES-256-GCM encryption |
@@ -545,9 +538,12 @@ ghagga/
 
 | Provider | Default Model |
 |----------|--------------|
+| GitHub Models | `gpt-4o-mini` |
 | Anthropic | `claude-sonnet-4-20250514` |
 | OpenAI | `gpt-4o` |
 | Google | `gemini-2.0-flash` |
+| Ollama | `qwen2.5-coder:7b` |
+| Qwen | `qwen-coder-plus` |
 
 ### Token Budget
 
@@ -598,20 +594,20 @@ pnpm --filter @ghagga/dashboard dev
 ```bash
 pnpm exec turbo typecheck    # Typecheck all packages
 pnpm exec turbo build         # Build all packages
-pnpm exec turbo test          # Run all 225 tests
+pnpm exec turbo test          # Run all 684 tests
 ```
 
 ### Test Suite
 
-225 tests across 18 test files in 5 packages. All passing in ~3.7 seconds.
+684 tests across 30 test files in 5 packages. All passing in ~3 seconds.
 
 | Package | Tests | What's Covered |
 |---------|------:|----------------|
-| `@ghagga/core` | 171 | Pipeline (21), diff parsing (17), stack detection (8), token budget (8), prompts (20), simple agent parser (17), fallback provider (13), privacy stripping (15), memory context (6), static analysis formatters (5), tool parsers (27), security audit (14) |
-| `@ghagga/action` | 18 | Input parsing, output setting, comment formatting, error handling, diff handling |
-| `@ghagga/cli` | 13 | Module exports, config resolution, output formatting, exit codes, input validation |
-| `@ghagga/server` | 12 | Webhook signature verification (9), Inngest function export (2), router export (1) |
-| `@ghagga/db` | 11 | AES-256-GCM encrypt/decrypt roundtrip, tampered data, empty strings, unicode, key validation |
+| `ghagga-core` | 400 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), static analysis tools (semgrep, trivy, cpd), parsers, security audit |
+| `ghagga-db` | 64 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto (roundtrip, tamper, edge cases) |
+| `@ghagga/server` | 143 | API routes (74), webhook handlers (18), auth middleware (12), provider validation (28), Inngest review (2), GitHub client (9) |
+| `ghagga` (CLI) | 53 | Config resolution (22), review command (31) — input validation, output formatting, exit codes |
+| `@ghagga/action` | 24 | Input parsing, output setting, comment formatting, error handling |
 
 ---
 
@@ -623,7 +619,7 @@ pnpm exec turbo test          # Run all 225 tests
 | **Language** | TypeScript 5.7 (strict mode) | Type safety across all packages |
 | **Backend** | Hono 4 | Fastest TS framework, 14KB, runs anywhere |
 | **Database** | PostgreSQL 16 + Drizzle ORM | Zero-overhead SQL, tsvector FTS, plain TS migrations |
-| **AI** | Vercel AI SDK 4 | Multi-provider (Anthropic, OpenAI, Google), streaming, structured output |
+| **AI** | Vercel AI SDK 4 | Multi-provider (6 providers), streaming, structured output, fallback chains |
 | **Async** | Inngest 3 | Zero-infra durable functions, step checkpointing, automatic retries |
 | **Frontend** | React 19 + Vite + Tailwind 3 | Lazy-loaded routes, vendor splitting, dark theme |
 | **Data Fetching** | TanStack Query 5 | Caching, background refetching, optimistic updates |
@@ -635,7 +631,7 @@ pnpm exec turbo test          # Run all 225 tests
 
 ### Why These Choices
 
-- **Vercel AI SDK over LangGraph/agentlib**: GHAGGA's review flow is predictable (not a dynamic graph). AI SDK gives multi-provider support with less overhead. [agentlib](https://github.com/sammwy) was evaluated but is 1 week old, OpenAI only, and has zero multi-agent support.
+- **Vercel AI SDK over LangGraph/agentlib**: GHAGGA's review flow is predictable (not a dynamic graph). AI SDK gives multi-provider support with less overhead. [agentlib](https://github.com/sammwy) was evaluated but is OpenAI only and has zero multi-agent support.
 - **Hono over Express/Fastify**: 14KB, fastest benchmarks, runs on Node/Bun/Deno/Workers. Express is legacy, Fastify is heavier than needed.
 - **Drizzle over Prisma**: Zero-overhead SQL, no binary dependencies, supports raw tsvector operations.
 - **PostgreSQL memory over Engram**: Engram has great design patterns but no multi-tenancy, no auth, and is SQLite single-writer. We adopted its patterns (sessions, topic_key upserts, deduplication, privacy stripping) in PostgreSQL.
@@ -676,8 +672,8 @@ GHAGGA v2 is a **complete rewrite** from scratch. The v1 codebase (~11,000 lines
 | Runtime | Deno + Node.js + Python | Node.js only |
 | Database | Supabase (hosted PostgreSQL) | Any PostgreSQL (self-hosted or cloud) |
 | Deploy steps | 10+ manual steps | 3 env vars + `docker compose up` |
-| Test suite | 0 tests | 225 tests |
-| Distribution modes | 1 (webhook only) | 4 (SaaS, Action, CLI, 1-Click) |
+| Test suite | 0 tests | 684 tests |
+| Distribution modes | 1 (webhook only) | 3 (SaaS, Action, CLI) |
 | Static analysis | Semgrep only (via microservice) | Semgrep + Trivy + CPD (direct binary execution) |
 | Memory | Partial (stored but never consumed) | Full pipeline (search → inject → review → extract → persist) |
 | Dead code | ~40% of codebase | 0% |
