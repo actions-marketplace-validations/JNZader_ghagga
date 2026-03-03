@@ -10,7 +10,6 @@ graph TB
     Server["Server<br/><small>Hono</small>"]
     Action["Action<br/><small>GitHub Action</small>"]
     CLI["CLI"]
-    OneClick["1-Click<br/><small>Railway</small>"]
   end
 
   subgraph Core["@ghagga/core"]
@@ -29,7 +28,6 @@ graph TB
   Server --> Core
   Action --> Core
   CLI --> Core
-  OneClick --> Core
   Core --> DB
 ```
 
@@ -42,7 +40,6 @@ Each adapter does the minimum work necessary to bridge between its I/O world and
 | **Server** | GitHub webhook | PR comment via GitHub API | Yes (PostgreSQL) |
 | **Action** | PR event in GitHub Actions | PR comment via Octokit | No |
 | **CLI** | Local `git diff` | Terminal output (markdown/json) | No |
-| **1-Click** | Same as Server | Same as Server | Yes |
 
 ## Monorepo Structure
 
@@ -69,8 +66,7 @@ ghagga/
 │   ├── cli/            # CLI tool (Commander.js)
 │   └── action/         # GitHub Action (node20 + Docker)
 ├── Dockerfile          # Multi-stage with Semgrep, Trivy, CPD
-├── docker-compose.yml  # PostgreSQL + server for local dev
-└── railway.toml        # 1-click Railway deploy
+└── docker-compose.yml  # PostgreSQL + server for local dev
 ```
 
 ## Design Decisions

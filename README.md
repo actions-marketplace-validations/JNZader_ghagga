@@ -181,12 +181,6 @@ This starts:
 - **PostgreSQL 16** on port 5432 with health checks
 - **GHAGGA Server** (Hono) on port 3000 with Semgrep, Trivy, and CPD pre-installed
 
-### Option 4: 1-Click Deploy
-
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/ghagga)
-
-Railway auto-provisions PostgreSQL and sets up the environment. You just need to add your GitHub App credentials and Inngest keys.
-
 ---
 
 ## Architecture
@@ -197,7 +191,6 @@ graph TB
     Server["Server<br/><small>Hono</small>"]
     Action["Action<br/><small>GitHub Action</small>"]
     CLI["CLI"]
-    OneClick["1-Click<br/><small>Railway</small>"]
   end
 
   subgraph Core["@ghagga/core"]
@@ -522,7 +515,6 @@ ghagga/
 │
 ├── Dockerfile                 # Multi-stage build (Semgrep + Trivy + CPD)
 ├── docker-compose.yml         # PostgreSQL + server for local dev
-├── railway.toml               # 1-click Railway deploy config
 ├── .github/workflows/
 │   ├── ci.yml                 # Typecheck + build + test pipeline
 │   └── deploy-pages.yml       # Auto-deploy dashboard to GitHub Pages

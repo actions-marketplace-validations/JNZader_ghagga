@@ -21,7 +21,7 @@ GHAGGA is a code review tool that posts intelligent comments on your Pull Reques
 | **Static Analysis Trident** | Semgrep (security), Trivy (vulnerabilities), CPD (code duplication) — zero tokens |
 | **Project Memory** | Learns patterns, decisions, and bug fixes across reviews (PostgreSQL + tsvector FTS) |
 | **Multi-Provider** | Anthropic (Claude), OpenAI (GPT-4), Google (Gemini) — bring your own key |
-| **4 Distribution Modes** | SaaS, GitHub Action, CLI, 1-click deploy |
+| **3 Distribution Modes** | SaaS, GitHub Action, CLI |
 | **Dashboard** | React SPA on GitHub Pages — review history, stats, settings, memory browser |
 | **BYOK Security** | AES-256-GCM encryption, HMAC-SHA256 webhook verification, privacy stripping |
 
@@ -33,7 +33,6 @@ graph TB
     Server["Server<br/><small>Hono</small>"]
     Action["Action<br/><small>GitHub Action</small>"]
     CLI["CLI"]
-    OneClick["1-Click<br/><small>Railway</small>"]
   end
 
   subgraph Core["@ghagga/core"]
@@ -45,7 +44,6 @@ graph TB
   Server --> Core
   Action --> Core
   CLI --> Core
-  OneClick --> Core
 ```
 
 The review engine (`@ghagga/core`) is distribution-agnostic. Each app is a thin adapter that feeds diffs into the core and handles I/O.

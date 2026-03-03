@@ -63,12 +63,6 @@ This starts PostgreSQL 16 on port 5432 and the GHAGGA Server (Hono) on port 3000
 
 See [Self-Hosted](self-hosted.md) for full deployment details.
 
-## 1-Click Deploy (Railway)
-
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/ghagga)
-
-Railway auto-provisions PostgreSQL and sets up the environment. You just need to add your GitHub App credentials and Inngest keys.
-
 ## BYOK — Bring Your Own Key
 
 GHAGGA never sees or stores your keys in plaintext. They're encrypted with AES-256-GCM at rest. You bring your own API key from any supported provider:

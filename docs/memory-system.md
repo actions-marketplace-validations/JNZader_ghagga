@@ -84,12 +84,11 @@ Before any observation is stored, sensitive data is stripped using 16 regex patt
 
 ## Availability
 
-Memory requires PostgreSQL. It's only available in Server and 1-Click deploy modes.
+Memory requires PostgreSQL. It's only available in the Server (SaaS) mode.
 
 | Distribution | Memory Available |
 |-------------|-----------------|
 | Server (SaaS) | Yes |
-| 1-Click (Railway) | Yes |
 | CLI | No (no database) |
 | GitHub Action | No (no database) |
 

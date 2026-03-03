@@ -287,25 +287,6 @@ https://ghagga.yourdomain.com/api/inngest
 
 ---
 
-### Option B: Railway (1-Click)
-
-Best for: Quick deployment without managing infrastructure.
-
-#### 4B.1 Deploy
-
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/ghagga)
-
-Railway auto-provisions PostgreSQL and configures `DATABASE_URL` automatically.
-
-#### 4B.2 Set environment variables
-
-In the Railway dashboard, add all the variables from Step 3.2. Railway gives you a public URL automatically (e.g., `ghagga-production.up.railway.app`).
-
-#### 4B.3 Update webhook URLs
-
-- **GitHub App webhook**: `https://ghagga-production.up.railway.app/webhook/github`
-- **Inngest**: `https://ghagga-production.up.railway.app/api/inngest`
-
 ---
 
 ## Step 5: Verify the Deployment
