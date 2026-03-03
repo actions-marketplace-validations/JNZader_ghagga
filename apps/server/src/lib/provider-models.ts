@@ -34,10 +34,12 @@ export const CURATED_MODELS: Record<SaaSProvider, string[]> = {
     'o3-mini',
   ],
   google: [
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-3-flash',
+    'gemini-2.5-pro',
     'gemini-2.0-flash',
     'gemini-2.0-flash-lite',
-    'gemini-1.5-pro',
-    'gemini-1.5-flash',
   ],
   github: [
     'gpt-4o-mini',
@@ -223,7 +225,7 @@ async function validateQwen(apiKey: string): Promise<ValidationResult> {
  */
 async function validateGoogle(apiKey: string): Promise<ValidationResult> {
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

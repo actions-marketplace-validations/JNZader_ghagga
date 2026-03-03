@@ -25,7 +25,12 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'gpt-4-turbo': 128_000,
 
   // Google
+  'gemini-2.5-flash': 1_048_576,
+  'gemini-2.5-flash-lite': 1_048_576,
+  'gemini-2.5-pro': 1_048_576,
+  'gemini-3-flash': 1_048_576,
   'gemini-2.0-flash': 1_048_576,
+  'gemini-2.0-flash-lite': 1_048_576,
   'gemini-1.5-pro': 2_097_152,
   'gemini-1.5-flash': 1_048_576,
 };

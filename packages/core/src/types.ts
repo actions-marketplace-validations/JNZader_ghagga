@@ -301,7 +301,7 @@ export const DEFAULT_SETTINGS: ReviewSettings = {
 export const DEFAULT_MODELS: Record<LLMProvider, string> = {
   anthropic: 'claude-sonnet-4-20250514',
   openai: 'gpt-4o',
-  google: 'gemini-2.0-flash',
+  google: 'gemini-2.5-flash',
   github: 'gpt-4o-mini',
   ollama: 'qwen2.5-coder:7b',
   qwen: 'qwen-coder-plus',

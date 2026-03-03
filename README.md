@@ -542,7 +542,7 @@ ghagga/
 | GitHub Models | `gpt-4o-mini` |
 | Anthropic | `claude-sonnet-4-20250514` |
 | OpenAI | `gpt-4o` |
-| Google | `gemini-2.0-flash` |
+| Google | `gemini-2.5-flash` |
 | Ollama | `qwen2.5-coder:7b` |
 | Qwen | `qwen-coder-plus` |
 
