@@ -233,15 +233,18 @@ function makeReviewResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
 }
 
 describe('reviewCommand — functional tests', () => {
-  let logSpy: ReturnType<typeof vi.spyOn>;
-  let errorSpy: ReturnType<typeof vi.spyOn>;
-  let exitSpy: ReturnType<typeof vi.spyOn>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let logSpy: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let errorSpy: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let exitSpy: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never);
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
     mockExistsSync.mockReturnValue(false); // no .ghagga.json by default
   });
 
@@ -340,8 +343,8 @@ describe('reviewCommand — functional tests', () => {
     await reviewCommand('.', defaultOptions({ format: 'markdown' }));
 
     // The markdown output should contain the summary
-    const allLogCalls = logSpy.mock.calls.map((c) => String(c[0]));
-    const markdownOutput = allLogCalls.find((s) => s.includes('PASSED'));
+    const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const markdownOutput = allLogCalls.find((s: string) => s.includes('PASSED'));
     expect(markdownOutput).toBeDefined();
     expect(markdownOutput).toContain('Clean code, no issues found.');
   });
@@ -366,8 +369,8 @@ describe('reviewCommand — functional tests', () => {
     const { reviewCommand } = await import('./review.js');
     await reviewCommand('.', defaultOptions({ format: 'markdown' }));
 
-    const allLogCalls = logSpy.mock.calls.map((c) => String(c[0]));
-    const markdownOutput = allLogCalls.find((s) => s.includes('Findings'));
+    const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const markdownOutput = allLogCalls.find((s: string) => s.includes('Findings'));
     expect(markdownOutput).toBeDefined();
     expect(markdownOutput).toContain('src/auth.ts:42');
     expect(markdownOutput).toContain('Hardcoded secret detected');
@@ -381,8 +384,8 @@ describe('reviewCommand — functional tests', () => {
     const { reviewCommand } = await import('./review.js');
     await reviewCommand('.', defaultOptions({ format: 'markdown' }));
 
-    const allLogCalls = logSpy.mock.calls.map((c) => String(c[0]));
-    const markdownOutput = allLogCalls.find((s) => s.includes('No findings'));
+    const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const markdownOutput = allLogCalls.find((s: string) => s.includes('No findings'));
     expect(markdownOutput).toBeDefined();
   });
 
@@ -396,8 +399,8 @@ describe('reviewCommand — functional tests', () => {
     const { reviewCommand } = await import('./review.js');
     await reviewCommand('.', defaultOptions({ format: 'markdown' }));
 
-    const allLogCalls = logSpy.mock.calls.map((c) => String(c[0]));
-    const markdownOutput = allLogCalls.find((s) => s.includes('Static Analysis'));
+    const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const markdownOutput = allLogCalls.find((s: string) => s.includes('Static Analysis'));
     expect(markdownOutput).toBeDefined();
     expect(markdownOutput).toContain('semgrep');
     expect(markdownOutput).toContain('cpd');
@@ -447,7 +450,7 @@ describe('reviewCommand — functional tests', () => {
     await reviewCommand('.', defaultOptions());
 
     // reviewPipeline should have been called with settings that include the config
-    const callArgs = mockReviewPipeline.mock.calls[0]![0] as Record<string, unknown>;
+    const callArgs = mockReviewPipeline.mock.calls[0]![0] as unknown as Record<string, unknown>;
     const settings = callArgs.settings as Record<string, unknown>;
     expect(settings.reviewLevel).toBe('strict');
     expect(settings.customRules).toEqual(['/rules/custom.yml']);
@@ -486,7 +489,7 @@ describe('reviewCommand — functional tests', () => {
     const { reviewCommand } = await import('./review.js');
     await reviewCommand('.', defaultOptions({ verbose: true }));
 
-    const callArgs = mockReviewPipeline.mock.calls[0]![0] as Record<string, unknown>;
+    const callArgs = mockReviewPipeline.mock.calls[0]![0] as unknown as Record<string, unknown>;
     expect(callArgs.onProgress).toBeTypeOf('function');
   });
 
@@ -497,7 +500,7 @@ describe('reviewCommand — functional tests', () => {
     const { reviewCommand } = await import('./review.js');
     await reviewCommand('.', defaultOptions({ verbose: false }));
 
-    const callArgs = mockReviewPipeline.mock.calls[0]![0] as Record<string, unknown>;
+    const callArgs = mockReviewPipeline.mock.calls[0]![0] as unknown as Record<string, unknown>;
     expect(callArgs.onProgress).toBeUndefined();
   });
 
@@ -508,9 +511,9 @@ describe('reviewCommand — functional tests', () => {
     const { reviewCommand } = await import('./review.js');
     await reviewCommand('.', defaultOptions({ mode: 'workflow', provider: 'openai', model: 'gpt-4o' }));
 
-    const allLogCalls = logSpy.mock.calls.map((c) => String(c[0]));
-    expect(allLogCalls.some((s) => s.includes('workflow'))).toBe(true);
-    expect(allLogCalls.some((s) => s.includes('openai'))).toBe(true);
-    expect(allLogCalls.some((s) => s.includes('gpt-4o'))).toBe(true);
+    const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(allLogCalls.some((s: string) => s.includes('workflow'))).toBe(true);
+    expect(allLogCalls.some((s: string) => s.includes('openai'))).toBe(true);
+    expect(allLogCalls.some((s: string) => s.includes('gpt-4o'))).toBe(true);
   });
 });
