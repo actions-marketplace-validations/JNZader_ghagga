@@ -235,17 +235,6 @@ async function handlePullRequest(
   // Resolve effective settings (global vs per-repo)
   const effective = await getEffectiveRepoSettings(db, repo);
 
-  // Diagnostic log — remove once confirmed working
-  console.log('[ghagga] PR trigger debug:', JSON.stringify({
-    repoId: repo.id,
-    repoInstallationId: repo.installationId,
-    useGlobalSettings: repo.useGlobalSettings,
-    repoProviderChain: repo.providerChain,
-    effectiveSource: effective.source,
-    effectiveChainLength: effective.providerChain.length,
-    effectiveProviders: effective.providerChain.map((e: { provider: string }) => e.provider),
-  }));
-
   // Dispatch review to Inngest
   await inngest.send({
     name: 'ghagga/review.requested',
@@ -353,17 +342,6 @@ async function handleIssueComment(
   // Resolve effective settings and dispatch review
   const effective = await getEffectiveRepoSettings(db, repo);
   const prNumber = payload.issue.number;
-
-  // Diagnostic log — remove once confirmed working
-  console.log('[ghagga] Comment trigger debug:', JSON.stringify({
-    repoId: repo.id,
-    repoInstallationId: repo.installationId,
-    useGlobalSettings: repo.useGlobalSettings,
-    repoProviderChain: repo.providerChain,
-    effectiveSource: effective.source,
-    effectiveChainLength: effective.providerChain.length,
-    effectiveProviders: effective.providerChain.map((e: { provider: string }) => e.provider),
-  }));
 
   await inngest.send({
     name: 'ghagga/review.requested',
