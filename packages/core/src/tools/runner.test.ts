@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { formatStaticAnalysisContext } from './runner.js';
 import type { StaticAnalysisResult, ReviewFinding } from '../types.js';
 
@@ -144,5 +144,112 @@ describe('formatStaticAnalysisContext', () => {
     // The file should be shown as just path
     expect(formatted).toContain('package.json');
     expect(formatted).toContain('Outdated dependency');
+  });
+
+  it('includes the header line about pre-review static analysis', () => {
+    const result: StaticAnalysisResult = {
+      semgrep: {
+        status: 'success',
+        findings: [makeFinding()],
+        executionTimeMs: 100,
+      },
+      trivy: emptyToolResult(),
+      cpd: emptyToolResult(),
+    };
+
+    const formatted = formatStaticAnalysisContext(result);
+    expect(formatted).toContain('Pre-Review Static Analysis');
+    expect(formatted).toContain('confirmed issues');
+  });
+
+  it('includes the footer guidance about static analysis and focusing on logic', () => {
+    const result: StaticAnalysisResult = {
+      semgrep: {
+        status: 'success',
+        findings: [makeFinding()],
+        executionTimeMs: 100,
+      },
+      trivy: emptyToolResult(),
+      cpd: emptyToolResult(),
+    };
+
+    const formatted = formatStaticAnalysisContext(result);
+    expect(formatted).toContain('automated tools');
+    expect(formatted).toContain('Focus on logic');
+    expect(formatted).toContain('static analysis cannot detect');
+  });
+
+  it('uppercases source name in finding line', () => {
+    const result: StaticAnalysisResult = {
+      semgrep: {
+        status: 'success',
+        findings: [makeFinding({ source: 'semgrep', message: 'test' })],
+        executionTimeMs: 0,
+      },
+      trivy: emptyToolResult(),
+      cpd: emptyToolResult(),
+    };
+
+    const formatted = formatStaticAnalysisContext(result);
+    expect(formatted).toContain('[SEMGREP]');
+    expect(formatted).not.toContain('[semgrep]');
+  });
+
+  it('formats location as file:line when line is present', () => {
+    const result: StaticAnalysisResult = {
+      semgrep: {
+        status: 'success',
+        findings: [makeFinding({ file: 'src/db.ts', line: 99 })],
+        executionTimeMs: 0,
+      },
+      trivy: emptyToolResult(),
+      cpd: emptyToolResult(),
+    };
+
+    const formatted = formatStaticAnalysisContext(result);
+    expect(formatted).toContain('src/db.ts:99');
+  });
+
+  it('formats location as just file when line is absent', () => {
+    const result: StaticAnalysisResult = {
+      semgrep: emptyToolResult(),
+      trivy: emptyToolResult(),
+      cpd: {
+        status: 'success',
+        findings: [makeFinding({ source: 'cpd', file: 'Makefile', line: undefined })],
+        executionTimeMs: 0,
+      },
+    };
+
+    const formatted = formatStaticAnalysisContext(result);
+    expect(formatted).toContain('Makefile:');
+    expect(formatted).not.toContain('Makefile:undefined');
+  });
+
+  it('combines findings from all three tools in order', () => {
+    const result: StaticAnalysisResult = {
+      semgrep: {
+        status: 'success',
+        findings: [makeFinding({ source: 'semgrep', message: 'FIRST' })],
+        executionTimeMs: 0,
+      },
+      trivy: {
+        status: 'success',
+        findings: [makeFinding({ source: 'trivy', message: 'SECOND' })],
+        executionTimeMs: 0,
+      },
+      cpd: {
+        status: 'success',
+        findings: [makeFinding({ source: 'cpd', message: 'THIRD' })],
+        executionTimeMs: 0,
+      },
+    };
+
+    const formatted = formatStaticAnalysisContext(result);
+    const firstIdx = formatted.indexOf('FIRST');
+    const secondIdx = formatted.indexOf('SECOND');
+    const thirdIdx = formatted.indexOf('THIRD');
+    expect(firstIdx).toBeLessThan(secondIdx);
+    expect(secondIdx).toBeLessThan(thirdIdx);
   });
 });

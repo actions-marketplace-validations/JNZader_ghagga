@@ -6,7 +6,7 @@
  * needing an actual LLM API key.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ReviewResult, ReviewStatus, FindingSeverity } from 'ghagga-core';
 
 // ─── Mock ghagga-core to prevent actual LLM calls ───────────────
@@ -180,5 +180,337 @@ describe('CLI input validation', () => {
     expect(validFormats).toContain('markdown');
     expect(validFormats).toContain('json');
     expect(validFormats).not.toContain('html');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Functional tests — exercise the actual reviewCommand function
+// ═══════════════════════════════════════════════════════════════
+
+import { execSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { reviewPipeline } from 'ghagga-core';
+import type { ReviewOptions } from './review.js';
+
+const mockExecSync = vi.mocked(execSync);
+const mockExistsSync = vi.mocked(existsSync);
+const mockReadFileSync = vi.mocked(readFileSync);
+const mockReviewPipeline = vi.mocked(reviewPipeline);
+
+/** Default CLI options for tests */
+function defaultOptions(overrides: Partial<ReviewOptions> = {}): ReviewOptions {
+  return {
+    mode: 'simple',
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-20250514',
+    apiKey: 'test-key',
+    format: 'markdown',
+    semgrep: true,
+    trivy: true,
+    cpd: true,
+    verbose: false,
+    ...overrides,
+  };
+}
+
+/** A minimal ReviewResult that satisfies the type */
+function makeReviewResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
+  return {
+    status: 'PASSED',
+    summary: 'All good!',
+    findings: [],
+    metadata: {
+      mode: 'simple',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4-20250514',
+      tokensUsed: 100,
+      executionTimeMs: 1500,
+      toolsRun: ['semgrep'],
+      toolsSkipped: [],
+    },
+    ...overrides,
+  } as ReviewResult;
+}
+
+describe('reviewCommand — functional tests', () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  let errorSpy: ReturnType<typeof vi.spyOn>;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never);
+    mockExistsSync.mockReturnValue(false); // no .ghagga.json by default
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it('should exit 0 with message when there is no diff', async () => {
+    // execSync returns empty string for all git diff attempts
+    mockExecSync.mockReturnValue('' as never);
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('No changes detected'),
+    );
+  });
+
+  it('should call reviewPipeline with correct arguments and exit 0 on PASSED', async () => {
+    const diff = 'diff --git a/file.ts b/file.ts\n+console.log("hello");';
+    mockExecSync.mockReturnValue(diff as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult({ status: 'PASSED' }));
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('/tmp/repo', defaultOptions());
+
+    expect(mockReviewPipeline).toHaveBeenCalledWith(
+      expect.objectContaining({
+        diff,
+        mode: 'simple',
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+        apiKey: 'test-key',
+      }),
+    );
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it('should exit 1 when review status is FAILED', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult({ status: 'FAILED' }));
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('should exit 1 when review status is NEEDS_HUMAN_REVIEW', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(
+      makeReviewResult({ status: 'NEEDS_HUMAN_REVIEW' }),
+    );
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('should exit 0 when review status is SKIPPED', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult({ status: 'SKIPPED' }));
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it('should output JSON when format is json', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    const result = makeReviewResult();
+    mockReviewPipeline.mockResolvedValue(result);
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ format: 'json' }));
+
+    expect(logSpy).toHaveBeenCalledWith(JSON.stringify(result, null, 2));
+  });
+
+  it('should output markdown with status and summary for markdown format', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    const result = makeReviewResult({
+      status: 'PASSED',
+      summary: 'Clean code, no issues found.',
+      findings: [],
+    });
+    mockReviewPipeline.mockResolvedValue(result);
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ format: 'markdown' }));
+
+    // The markdown output should contain the summary
+    const allLogCalls = logSpy.mock.calls.map((c) => String(c[0]));
+    const markdownOutput = allLogCalls.find((s) => s.includes('PASSED'));
+    expect(markdownOutput).toBeDefined();
+    expect(markdownOutput).toContain('Clean code, no issues found.');
+  });
+
+  it('should format findings with severity and location in markdown', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    const result = makeReviewResult({
+      findings: [
+        {
+          severity: 'high' as FindingSeverity,
+          category: 'security',
+          file: 'src/auth.ts',
+          line: 42,
+          message: 'Hardcoded secret detected',
+          suggestion: 'Use environment variables',
+          source: 'ai' as const,
+        },
+      ],
+    });
+    mockReviewPipeline.mockResolvedValue(result);
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ format: 'markdown' }));
+
+    const allLogCalls = logSpy.mock.calls.map((c) => String(c[0]));
+    const markdownOutput = allLogCalls.find((s) => s.includes('Findings'));
+    expect(markdownOutput).toBeDefined();
+    expect(markdownOutput).toContain('src/auth.ts:42');
+    expect(markdownOutput).toContain('Hardcoded secret detected');
+    expect(markdownOutput).toContain('Use environment variables');
+  });
+
+  it('should show "No findings" when findings array is empty', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult({ findings: [] }));
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ format: 'markdown' }));
+
+    const allLogCalls = logSpy.mock.calls.map((c) => String(c[0]));
+    const markdownOutput = allLogCalls.find((s) => s.includes('No findings'));
+    expect(markdownOutput).toBeDefined();
+  });
+
+  it('should include tools run/skipped in markdown output', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    const result = makeReviewResult();
+    result.metadata.toolsRun = ['semgrep', 'trivy'];
+    result.metadata.toolsSkipped = ['cpd'];
+    mockReviewPipeline.mockResolvedValue(result);
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ format: 'markdown' }));
+
+    const allLogCalls = logSpy.mock.calls.map((c) => String(c[0]));
+    const markdownOutput = allLogCalls.find((s) => s.includes('Static Analysis'));
+    expect(markdownOutput).toBeDefined();
+    expect(markdownOutput).toContain('semgrep');
+    expect(markdownOutput).toContain('cpd');
+  });
+
+  it('should exit 1 and log error when reviewPipeline throws', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockRejectedValue(new Error('API rate limit exceeded'));
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('API rate limit exceeded'),
+    );
+  });
+
+  it('should exit 1 when execSync throws (no git repo)', async () => {
+    mockExecSync.mockImplementation(() => {
+      throw new Error('not a git repository');
+    });
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('/tmp/not-a-repo', defaultOptions());
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Review failed'),
+    );
+  });
+
+  it('should load .ghagga.json config file when it exists', async () => {
+    const diff = 'diff --git a/file.ts b/file.ts\n+line';
+    mockExecSync.mockReturnValue(diff as never);
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        enableSemgrep: false,
+        reviewLevel: 'strict',
+        customRules: ['/rules/custom.yml'],
+      }),
+    );
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    // reviewPipeline should have been called with settings that include the config
+    const callArgs = mockReviewPipeline.mock.calls[0]![0] as Record<string, unknown>;
+    const settings = callArgs.settings as Record<string, unknown>;
+    expect(settings.reviewLevel).toBe('strict');
+    expect(settings.customRules).toEqual(['/rules/custom.yml']);
+  });
+
+  it('should handle non-Error thrown objects in catch block', async () => {
+    mockExecSync.mockReturnValue('diff' as never);
+    mockReviewPipeline.mockRejectedValue('string error');
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('string error'),
+    );
+  });
+
+  it('should use staged diff when available', async () => {
+    const stagedDiff = 'diff --git staged changes';
+    mockExecSync.mockReturnValue(stagedDiff as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    expect(mockReviewPipeline).toHaveBeenCalledWith(
+      expect.objectContaining({ diff: stagedDiff }),
+    );
+  });
+
+  it('should pass verbose progress handler when verbose is true', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ verbose: true }));
+
+    const callArgs = mockReviewPipeline.mock.calls[0]![0] as Record<string, unknown>;
+    expect(callArgs.onProgress).toBeTypeOf('function');
+  });
+
+  it('should not pass progress handler when verbose is false', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ verbose: false }));
+
+    const callArgs = mockReviewPipeline.mock.calls[0]![0] as Record<string, unknown>;
+    expect(callArgs.onProgress).toBeUndefined();
+  });
+
+  it('should print progress header with mode, provider, and model', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ mode: 'workflow', provider: 'openai', model: 'gpt-4o' }));
+
+    const allLogCalls = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(allLogCalls.some((s) => s.includes('workflow'))).toBe(true);
+    expect(allLogCalls.some((s) => s.includes('openai'))).toBe(true);
+    expect(allLogCalls.some((s) => s.includes('gpt-4o'))).toBe(true);
   });
 });

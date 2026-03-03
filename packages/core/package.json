@@ -44,6 +44,7 @@
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:mutate": "stryker run",
     "clean": "rm -rf dist",

@@ -11,6 +11,7 @@ export default defineConfig({
         'src/**/*.test.ts',
         'src/**/*.spec.ts',
         'src/**/index.ts',
+        'src/migrate.ts',
       ],
     },
   },

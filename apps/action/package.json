@@ -6,6 +6,7 @@
     "build": "ncc build src/index.ts -o dist --source-map --license licenses.txt -t",
     "build:tsc": "tsc",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
