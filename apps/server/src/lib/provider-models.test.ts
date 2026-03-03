@@ -36,11 +36,11 @@ beforeEach(() => {
 // ─── CURATED_MODELS ─────────────────────────────────────────────
 
 describe('CURATED_MODELS', () => {
-  it('has all 4 SaaS providers', () => {
+  it('has all 5 SaaS providers', () => {
     expect(Object.keys(CURATED_MODELS)).toEqual(
-      expect.arrayContaining(['anthropic', 'openai', 'google', 'github']),
+      expect.arrayContaining(['anthropic', 'openai', 'google', 'github', 'qwen']),
     );
-    expect(Object.keys(CURATED_MODELS)).toHaveLength(4);
+    expect(Object.keys(CURATED_MODELS)).toHaveLength(5);
   });
 
   it('each provider has at least one model', () => {

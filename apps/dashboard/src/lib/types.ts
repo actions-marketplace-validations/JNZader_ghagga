@@ -2,10 +2,10 @@ export type ReviewStatus = 'PASSED' | 'FAILED' | 'NEEDS_HUMAN_REVIEW' | 'SKIPPED
 
 export type ReviewMode = 'simple' | 'workflow' | 'consensus';
 
-export type LLMProvider = 'anthropic' | 'openai' | 'google' | 'github' | 'ollama';
+export type LLMProvider = 'anthropic' | 'openai' | 'google' | 'github' | 'ollama' | 'qwen';
 
 /** Providers available in the SaaS dashboard (excludes Ollama) */
-export type SaaSProvider = 'anthropic' | 'openai' | 'google' | 'github';
+export type SaaSProvider = 'anthropic' | 'openai' | 'google' | 'github' | 'qwen';
 
 export interface User {
   githubLogin: string;

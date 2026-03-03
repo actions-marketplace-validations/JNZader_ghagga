@@ -11,7 +11,7 @@ branding:
   color: 'purple'
 inputs:
   provider:
-    description: 'LLM provider (github, openai, anthropic, google, ollama)'
+    description: 'LLM provider (github, openai, anthropic, google, ollama, qwen)'
     required: false
     default: 'github'
   model:

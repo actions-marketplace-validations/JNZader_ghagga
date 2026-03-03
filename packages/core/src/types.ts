@@ -8,10 +8,10 @@
 // ─── Review Input ───────────────────────────────────────────────
 
 export type ReviewMode = 'simple' | 'workflow' | 'consensus';
-export type LLMProvider = 'anthropic' | 'openai' | 'google' | 'github' | 'ollama';
+export type LLMProvider = 'anthropic' | 'openai' | 'google' | 'github' | 'ollama' | 'qwen';
 
 /** Providers available in the SaaS dashboard (excludes Ollama) */
-export type SaaSProvider = 'anthropic' | 'openai' | 'google' | 'github';
+export type SaaSProvider = 'anthropic' | 'openai' | 'google' | 'github' | 'qwen';
 
 export type ReviewLevel = 'soft' | 'normal' | 'strict';
 
@@ -304,4 +304,5 @@ export const DEFAULT_MODELS: Record<LLMProvider, string> = {
   google: 'gemini-2.0-flash',
   github: 'gpt-4o-mini',
   ollama: 'qwen2.5-coder:7b',
+  qwen: 'qwen-coder-plus',
 };

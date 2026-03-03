@@ -1,5 +1,5 @@
 name: 'GHAGGA Code Review'
-description: 'AI-powered multi-agent code review for PRs. Free via GitHub Models. 5 providers, 3 review modes.'
+description: 'AI-powered multi-agent code review for PRs. Free via GitHub Models. 6 providers, 3 review modes.'
 
 branding:
   icon: 'eye'
@@ -9,7 +9,7 @@ inputs:
   provider:
     description: >-
       LLM provider to use. Use "github" for free reviews via GitHub Models
-      (no API key needed). Options: github, openai, anthropic, google, ollama.
+      (no API key needed). Options: github, openai, anthropic, google, ollama, qwen.
     required: false
     default: 'github'
 
@@ -29,7 +29,7 @@ inputs:
   api-key:
     description: >-
       LLM provider API key. NOT required when using "github" provider
-      (uses GITHUB_TOKEN automatically). Required for openai, anthropic, google.
+      (uses GITHUB_TOKEN automatically). Required for openai, anthropic, google, qwen.
     required: false
 
   github-token:

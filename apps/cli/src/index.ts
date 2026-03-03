@@ -14,7 +14,7 @@
  *
  * Environment variables (override stored config):
  *   GHAGGA_API_KEY     API key for the LLM provider
- *   GHAGGA_PROVIDER    LLM provider: anthropic, openai, google, github, ollama
+ *   GHAGGA_PROVIDER    LLM provider: anthropic, openai, google, github, ollama, qwen
  *   GHAGGA_MODEL       Model identifier
  *   GITHUB_TOKEN       GitHub token (fallback for github provider)
  */
@@ -138,7 +138,7 @@ program
     }
 
     // ── Validate provider ─────────────────────────────────────
-    const validProviders: LLMProvider[] = ['anthropic', 'openai', 'google', 'github', 'ollama'];
+    const validProviders: LLMProvider[] = ['anthropic', 'openai', 'google', 'github', 'ollama', 'qwen'];
     if (!validProviders.includes(options.provider as LLMProvider)) {
       console.error(
         `\u274c Invalid provider "${options.provider}". Choose from: ${validProviders.join(', ')}`,

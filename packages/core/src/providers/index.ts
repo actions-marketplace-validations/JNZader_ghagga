@@ -11,6 +11,10 @@
  *
  * Ollama runs locally and exposes an OpenAI-compatible endpoint at
  * http://localhost:11434/v1. No API key required.
+ *
+ * Qwen (Alibaba Cloud DashScope) uses the OpenAI-compatible endpoint at
+ * https://dashscope-intl.aliyuncs.com/compatible-mode/v1. Requires a
+ * DashScope API key (DASHSCOPE_API_KEY).
  */
 
 import { createAnthropic } from '@ai-sdk/anthropic';
@@ -24,6 +28,9 @@ const GITHUB_MODELS_BASE_URL = 'https://models.inference.ai.azure.com';
 
 /** Ollama local inference endpoint (OpenAI-compatible) */
 const OLLAMA_BASE_URL = 'http://localhost:11434/v1';
+
+/** Qwen / DashScope international endpoint (OpenAI-compatible) */
+const QWEN_BASE_URL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
 
 // ─── Provider Factory ───────────────────────────────────────────
 
@@ -59,6 +66,12 @@ export function createProvider(
         apiKey: apiKey || 'ollama',
         baseURL: OLLAMA_BASE_URL,
         name: 'ollama',
+      });
+    case 'qwen':
+      return createOpenAI({
+        apiKey,
+        baseURL: QWEN_BASE_URL,
+        name: 'qwen',
       });
     default: {
       // Exhaustive check — TypeScript will error if a provider is missing

@@ -252,7 +252,7 @@ export function createApiRouter(db: Database) {
         apiKey?: string;
       }>;
 
-      const VALID_SAAS_PROVIDERS = ['anthropic', 'openai', 'google', 'github'];
+      const VALID_SAAS_PROVIDERS = ['anthropic', 'openai', 'google', 'github', 'qwen'];
       for (const entry of incomingChain) {
         if (!VALID_SAAS_PROVIDERS.includes(entry.provider)) {
           return c.json(
@@ -434,7 +434,7 @@ export function createApiRouter(db: Database) {
         apiKey?: string;
       }>;
 
-      const VALID_SAAS_PROVIDERS = ['anthropic', 'openai', 'google', 'github'];
+      const VALID_SAAS_PROVIDERS = ['anthropic', 'openai', 'google', 'github', 'qwen'];
       for (const entry of incomingChain) {
         if (!VALID_SAAS_PROVIDERS.includes(entry.provider)) {
           return c.json(
@@ -525,7 +525,7 @@ export function createApiRouter(db: Database) {
       return c.json({ error: 'Ollama is not available in the SaaS dashboard. Use CLI or Action instead.' }, 400);
     }
 
-    const validProviders = ['anthropic', 'openai', 'google', 'github'];
+    const validProviders = ['anthropic', 'openai', 'google', 'github', 'qwen'];
     if (!validProviders.includes(provider)) {
       return c.json({ error: `Unknown provider: ${provider}` }, 400);
     }

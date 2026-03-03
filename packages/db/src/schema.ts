@@ -49,7 +49,7 @@ export const DEFAULT_REPO_SETTINGS: RepoSettings = {
  * Encrypted API keys are stored here (one per provider entry).
  */
 export interface DbProviderChainEntry {
-  provider: 'anthropic' | 'openai' | 'google' | 'github';
+  provider: 'anthropic' | 'openai' | 'google' | 'github' | 'qwen';
   model: string;
   encryptedApiKey: string | null; // null for GitHub Models (uses session token)
 }

@@ -43,7 +43,7 @@ export function ProviderChainEditor({ chain, onChange }: ProviderChainEditorProp
   const handleAdd = () => {
     // Pick a provider not already in the chain, or default to github
     const usedProviders = new Set(chain.map((e) => e.provider));
-    const available = (['github', 'openai', 'anthropic', 'google'] as SaaSProvider[]).find(
+    const available = (['github', 'openai', 'anthropic', 'google', 'qwen'] as SaaSProvider[]).find(
       (p) => !usedProviders.has(p),
     );
     onChange([
@@ -82,7 +82,7 @@ export function ProviderChainEditor({ chain, onChange }: ProviderChainEditorProp
             />
           ))}
 
-          {chain.length < 4 && (
+          {chain.length < 5 && (
             <button
               type="button"
               onClick={handleAdd}

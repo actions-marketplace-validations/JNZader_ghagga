@@ -47,6 +47,14 @@ export const CURATED_MODELS: Record<SaaSProvider, string[]> = {
     'Mistral-Large-2411',
     'DeepSeek-R1',
   ],
+  qwen: [
+    'qwen-coder-plus',
+    'qwen-plus',
+    'qwen-max',
+    'qwen-turbo',
+    'qwen-coder-turbo',
+    'qwen-long',
+  ],
 };
 
 // ─── Validation ─────────────────────────────────────────────────
@@ -78,6 +86,8 @@ export async function validateProviderKey(
         return await validateAnthropic(apiKey);
       case 'google':
         return await validateGoogle(apiKey);
+      case 'qwen':
+        return await validateQwen(apiKey);
       default: {
         const _exhaustive: never = provider;
         return { valid: false, models: [], error: `Unknown provider: ${_exhaustive}` };
@@ -151,6 +161,61 @@ async function validateAnthropic(apiKey: string): Promise<ValidationResult> {
   // Any other response (200, 400, 429) means the key is valid
   // (400 = bad request but key works, 429 = rate limited but key works)
   return { valid: true, models: CURATED_MODELS.anthropic };
+}
+
+/**
+ * Qwen / DashScope validation via the OpenAI-compatible models endpoint.
+ * Uses the international (Singapore) endpoint.
+ */
+async function validateQwen(apiKey: string): Promise<ValidationResult> {
+  const response = await fetch('https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models', {
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      return { valid: false, models: [], error: 'Invalid API key' };
+    }
+    // If models endpoint fails but key format looks valid, fall back to curated list
+    // by trying a minimal chat completion
+    const chatResponse = await fetch(
+      'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'qwen-turbo',
+          messages: [{ role: 'user', content: 'hi' }],
+          max_tokens: 1,
+        }),
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+
+    if (chatResponse.status === 401 || chatResponse.status === 403) {
+      return { valid: false, models: [], error: 'Invalid API key' };
+    }
+
+    // Any other response (200, 400, 429) means the key is valid
+    return { valid: true, models: CURATED_MODELS.qwen };
+  }
+
+  // Parse models from response (OpenAI format)
+  const data = (await response.json()) as { data?: Array<{ id: string }> };
+  const allModels = data.data ?? [];
+
+  // Filter to text generation models (exclude embedding, audio, vision-only)
+  const excludePatterns = ['embedding', 'audio', 'vl-', 'ocr', 'rerank'];
+  const textModels = allModels
+    .map((m) => m.id)
+    .filter((id) => !excludePatterns.some((p) => id.toLowerCase().includes(p)))
+    .sort();
+
+  return { valid: true, models: textModels.length > 0 ? textModels : CURATED_MODELS.qwen };
 }
 
 /**

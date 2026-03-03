@@ -35,6 +35,7 @@ const PROVIDER_OPTIONS: { value: SaaSProvider; label: string }[] = [
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openai', label: 'OpenAI' },
   { value: 'google', label: 'Google' },
+  { value: 'qwen', label: 'Qwen (Alibaba Cloud)' },
 ];
 
 // ─── Component ──────────────────────────────────────────────────

@@ -12,6 +12,12 @@
  *     with:
  *       provider: anthropic
  *       api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+ *
+ *   # With Qwen (Alibaba Cloud DashScope):
+ *   - uses: JNZader/ghagga@v2
+ *     with:
+ *       provider: qwen
+ *       api-key: ${{ secrets.DASHSCOPE_API_KEY }}
  */
 
 import * as core from '@actions/core';
