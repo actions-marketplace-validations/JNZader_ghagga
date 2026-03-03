@@ -16,9 +16,9 @@ All three tools execute as child processes in parallel:
 
 ```mermaid
 flowchart TB
-  Semgrep["Semgrep<br/><small>security</small>"] --> Merge["Merged findings<br/><small>normalized</small>"]
-  Trivy["Trivy<br/><small>CVEs</small>"] --> Merge
-  CPD["CPD<br/><small>duplicates</small>"] --> Merge
+  Semgrep["Semgrep<br/>security"] --> Merge["Merged findings<br/>normalized"]
+  Trivy["Trivy<br/>CVEs"] --> Merge
+  CPD["CPD<br/>duplicates"] --> Merge
 ```
 
 Each tool's output (JSON for Semgrep/Trivy, XML for CPD) is parsed into a common `ReviewFinding` format with severity, file, line, and message.

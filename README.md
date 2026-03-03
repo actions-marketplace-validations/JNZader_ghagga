@@ -188,21 +188,21 @@ This starts:
 ```mermaid
 graph TB
   subgraph Distribution["Distribution Layer"]
-    Server["Server<br/><small>Hono</small>"]
-    Action["Action<br/><small>GitHub Action</small>"]
+    Server["Server<br/>Hono"]
+    Action["Action<br/>GitHub Action"]
     CLI["CLI"]
   end
 
   subgraph Core["@ghagga/core"]
-    SA["Static Analysis<br/><small>Semgrep · Trivy · CPD</small>"]
-    Agents["AI Agents<br/><small>Simple · Workflow · Consensus</small>"]
-    Memory["Memory<br/><small>Search · Persist · Privacy</small>"]
+    SA["Static Analysis<br/>Semgrep · Trivy · CPD"]
+    Agents["AI Agents<br/>Simple · Workflow · Consensus"]
+    Memory["Memory<br/>Search · Persist · Privacy"]
   end
 
   subgraph DB["@ghagga/db"]
-    PG["PostgreSQL<br/><small>+ tsvector</small>"]
-    Drizzle["Drizzle ORM<br/><small>+ Migrations</small>"]
-    Crypto["AES-256-GCM<br/><small>Encryption</small>"]
+    PG["PostgreSQL<br/>+ tsvector"]
+    Drizzle["Drizzle ORM<br/>+ Migrations"]
+    Crypto["AES-256-GCM<br/>Encryption"]
   end
 
   Server --> Core
@@ -231,7 +231,7 @@ Every review follows the same pipeline regardless of distribution mode:
 
 ```mermaid
 flowchart LR
-  Input["Input<br/><small>diff + config</small>"] --> S1["Validate"]
+  Input["Input<br/>diff + config"] --> S1["Validate"]
   S1 --> S2["Parse &<br/>Filter Diff"]
   S2 --> S3["Detect<br/>Stacks"]
   S3 --> S4["Token<br/>Budget"]
@@ -272,7 +272,7 @@ flowchart LR
   Input --> S3["Error Handling"]
   Input --> S4["Security Audit"]
   Input --> S5["Performance"]
-  S1 --> Synth["Synthesis<br/><small>merge + deduplicate</small>"]
+  S1 --> Synth["Synthesis<br/>merge + deduplicate"]
   S2 --> Synth
   S3 --> Synth
   S4 --> Synth
@@ -289,9 +289,9 @@ Multiple models review with assigned stances (for/against/neutral), then a weigh
 
 ```mermaid
 flowchart LR
-  Input["Diff + Context"] --> A["Advocate<br/><small>looks for good</small>"]
-  Input --> C["Critic<br/><small>looks for problems</small>"]
-  Input --> O["Observer<br/><small>balanced view</small>"]
+  Input["Diff + Context"] --> A["Advocate<br/>looks for good"]
+  Input --> C["Critic<br/>looks for problems"]
+  Input --> O["Observer<br/>balanced view"]
   A --> Vote["Weighted Vote"]
   C --> Vote
   O --> Vote

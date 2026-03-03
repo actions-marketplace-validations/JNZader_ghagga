@@ -9,9 +9,9 @@ flowchart TB
   subgraph Write["After Review"]
     direction TB
     R["Review completes"] --> Extract["Extract observations"]
-    Extract --> Dedup["Deduplicate<br/><small>content hash + 15-min window</small>"]
-    Dedup --> Upsert["Topic-key upsert<br/><small>evolve knowledge</small>"]
-    Upsert --> Strip["Privacy strip<br/><small>remove secrets</small>"]
+    Extract --> Dedup["Deduplicate<br/>content hash + 15-min window"]
+    Dedup --> Upsert["Topic-key upsert<br/>evolve knowledge"]
+    Upsert --> Strip["Privacy strip<br/>remove secrets"]
     Strip --> Store["Store in PostgreSQL"]
   end
 

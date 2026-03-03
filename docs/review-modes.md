@@ -28,7 +28,7 @@ flowchart LR
   Input --> S3["Error Handling"]
   Input --> S4["Security Audit"]
   Input --> S5["Performance"]
-  S1 --> Synth["Synthesis<br/><small>merge + deduplicate</small>"]
+  S1 --> Synth["Synthesis<br/>merge + deduplicate"]
   S2 --> Synth
   S3 --> Synth
   S4 --> Synth
@@ -57,9 +57,9 @@ Multiple models review with assigned stances (for/against/neutral), then a weigh
 
 ```mermaid
 flowchart LR
-  Input["Diff + Context"] --> A["Advocate<br/><small>looks for good</small>"]
-  Input --> C["Critic<br/><small>looks for problems</small>"]
-  Input --> O["Observer<br/><small>balanced view</small>"]
+  Input["Diff + Context"] --> A["Advocate<br/>looks for good"]
+  Input --> C["Critic<br/>looks for problems"]
+  Input --> O["Observer<br/>balanced view"]
   A --> Vote["Weighted Vote"]
   C --> Vote
   O --> Vote

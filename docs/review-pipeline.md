@@ -6,7 +6,7 @@ Every review follows the same pipeline regardless of distribution mode. Each ste
 
 ```mermaid
 flowchart LR
-  Input["Input<br/><small>diff + config</small>"] --> S1["Validate"]
+  Input["Input<br/>diff + config"] --> S1["Validate"]
   S1 --> S2["Parse &<br/>Filter Diff"]
   S2 --> S3["Detect<br/>Stacks"]
   S3 --> S4["Token<br/>Budget"]

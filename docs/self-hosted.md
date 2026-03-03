@@ -15,10 +15,10 @@ By the end of this guide you'll have:
 
 ```mermaid
 flowchart LR
-  GH["GitHub PR Event"] --> Server["GHAGGA Server<br/><small>port 3000</small>"]
-  Server --> PG["PostgreSQL<br/><small>port 5432</small>"]
-  Server --> Inngest["Inngest<br/><small>async processing</small>"]
-  Server --> LLM["LLM Provider<br/><small>Anthropic / OpenAI / Google</small>"]
+  GH["GitHub PR Event"] --> Server["GHAGGA Server<br/>port 3000"]
+  Server --> PG["PostgreSQL<br/>port 5432"]
+  Server --> Inngest["Inngest<br/>async processing"]
+  Server --> LLM["LLM Provider<br/>Anthropic / OpenAI / Google"]
   Server --> Comment["PR Comment"]
 ```
 
@@ -382,16 +382,16 @@ flowchart TB
   end
 
   subgraph Docker["Docker Compose"]
-    Server["GHAGGA Server<br/><small>Hono · port 3000</small>"]
-    PG["PostgreSQL 16<br/><small>port 5432</small>"]
+    Server["GHAGGA Server<br/>Hono · port 3000"]
+    PG["PostgreSQL 16<br/>port 5432"]
     Semgrep["Semgrep"]
     Trivy["Trivy"]
     CPD["PMD/CPD"]
   end
 
   subgraph External
-    Inngest["Inngest<br/><small>async processing</small>"]
-    LLM["LLM Provider<br/><small>Anthropic / OpenAI / Google</small>"]
+    Inngest["Inngest<br/>async processing"]
+    LLM["LLM Provider<br/>Anthropic / OpenAI / Google"]
   end
 
   PR -->|webhook| Server
