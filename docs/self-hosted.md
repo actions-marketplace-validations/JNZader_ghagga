@@ -349,13 +349,18 @@ docker compose logs server
 ### Static analysis tools not working
 
 ```bash
-# Check tools are installed in the container
+# Check tools via the diagnostic endpoint
+curl https://your-domain.com/health/tools
+
+# Or check directly in the container
 docker compose exec server semgrep --version
 docker compose exec server trivy --version
 docker compose exec server pmd --version
 ```
 
-If any tool is missing, the review continues without it (graceful degradation).
+If any tool is missing or fails, the review continues without it (graceful degradation).
+
+> **Memory requirements**: Semgrep (Python) and PMD/CPD (Java) need >512MB RAM. On hosting plans with limited memory (e.g., Render free tier at 512MB), only Trivy (Go binary) will work. Upgrade to a 1GB+ RAM plan for full static analysis.
 
 ---
 

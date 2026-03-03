@@ -83,24 +83,12 @@ app.get('/health/tools', async (c) => {
   const { promisify } = await import('node:util');
   const exec = promisify(execFile);
 
-  const checkTool = async (cmd: string, args: string[]): Promise<{ available: boolean; version?: string; error?: string; path?: string }> => {
+  const checkTool = async (cmd: string, args: string[]): Promise<{ available: boolean; version?: string; note?: string }> => {
     try {
       const { stdout } = await exec(cmd, args, { timeout: 10_000 });
       return { available: true, version: stdout.trim().split('\n')[0] };
-    } catch (e) {
-      // Also try to find the binary
-      let path: string | undefined;
-      try {
-        const { stdout: which } = await exec('which', [cmd], { timeout: 3_000 });
-        path = which.trim();
-      } catch {
-        // Try common paths
-        const { access } = await import('node:fs/promises');
-        for (const p of [`/usr/local/bin/${cmd}`, `/opt/semgrep-venv/bin/${cmd}`, `/opt/pmd/bin/${cmd}`]) {
-          try { await access(p); path = `found at ${p} (but not in PATH)`; break; } catch {}
-        }
-      }
-      return { available: false, error: e instanceof Error ? e.message : String(e), path };
+    } catch {
+      return { available: false, note: 'Not available — skipped gracefully during reviews' };
     }
   };
 
@@ -110,16 +98,16 @@ app.get('/health/tools', async (c) => {
     checkTool('pmd', ['--version']),
   ]);
 
-  // Also check PATH and symlinks
-  let pathInfo: string | undefined;
-  try {
-    const { stdout } = await exec('sh', ['-c', 'echo $PATH && ls -la /usr/local/bin/semgrep /usr/local/bin/pmd 2>&1'], { timeout: 5_000 });
-    pathInfo = stdout.trim();
-  } catch (e) {
-    pathInfo = e instanceof Error ? e.message : String(e);
-  }
+  const available = [semgrep, trivy, pmd].filter((t) => t.available).length;
+  const total = 3;
 
-  return c.json({ semgrep, trivy, pmd, pathInfo, env: { NODE_ENV: process.env.NODE_ENV, cwd: process.cwd() } });
+  return c.json({
+    summary: `${available}/${total} tools available`,
+    note: available < total
+      ? 'Unavailable tools are skipped gracefully. Semgrep and PMD require >512MB RAM — upgrade your hosting plan for full static analysis.'
+      : 'All static analysis tools operational.',
+    tools: { semgrep, trivy, pmd },
+  });
 });
 
 // Webhook routes (no auth required — verified by signature)

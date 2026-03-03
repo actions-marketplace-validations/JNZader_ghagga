@@ -25,16 +25,19 @@ Each tool's output (JSON for Semgrep/Trivy, XML for CPD) is parsed into a common
 
 ## Graceful Degradation
 
-Tools are optional. If a binary isn't installed, it's silently skipped. The review continues with whatever tools are available.
+Tools are optional. If a binary isn't installed or fails to run, it's silently skipped. The review continues with whatever tools are available. Check your deployment's tool status at `/health/tools`.
 
 | Distribution | Semgrep | Trivy | CPD |
 |-------------|---------|-------|-----|
-| Docker (server) | Pre-installed | Pre-installed | Pre-installed |
+| Docker (server, 1GB+ RAM) | Pre-installed | Pre-installed | Pre-installed |
+| Docker (server, 512MB RAM) | Skipped** | Pre-installed | Skipped** |
 | Docker (action) | Pre-installed | Pre-installed | Pre-installed |
 | GitHub Action (node20) | Skipped* | Skipped* | Skipped* |
 | CLI | If installed locally | If installed locally | If installed locally |
 
 > \* The node20 action variant doesn't include static analysis tools by default. Use the Docker action variant for full static analysis, or install tools in a prior step.
+
+> \*\* Semgrep (Python) and PMD/CPD (Java) require more than 512MB RAM. On hosting plans with limited memory (e.g., Render free tier), these tools are installed but fail at runtime due to OOM. Trivy (Go binary) works fine on 512MB. Upgrade to a plan with 1GB+ RAM for all three tools.
 
 ## Semgrep
 
