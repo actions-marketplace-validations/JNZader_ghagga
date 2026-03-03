@@ -57,7 +57,8 @@ export function Settings() {
           provider: entry.provider,
           model: entry.model,
           apiKey: '',
-          availableModels: [],
+          // Include the saved model so the <select> can display it
+          availableModels: entry.model ? [entry.model] : [],
           hasExistingKey: entry.hasApiKey,
           maskedApiKey: entry.maskedApiKey,
           validated: entry.hasApiKey || entry.provider === 'github',
@@ -78,7 +79,7 @@ export function Settings() {
           provider: entry.provider,
           model: entry.model,
           apiKey: '',
-          availableModels: [],
+          availableModels: entry.model ? [entry.model] : [],
           hasExistingKey: entry.hasApiKey,
           maskedApiKey: entry.maskedApiKey,
           validated: entry.hasApiKey || entry.provider === 'github',

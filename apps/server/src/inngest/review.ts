@@ -141,14 +141,35 @@ export const reviewFunction = inngest.createFunction(
       let providerChain: ProviderChainEntry[] | undefined;
 
       if (dbChain.length > 0) {
-        // New provider chain mode
-        providerChain = dbChain.map((entry) => ({
-          provider: entry.provider,
-          model: entry.model,
-          apiKey: entry.encryptedApiKey
-            ? decrypt(entry.encryptedApiKey)
-            : (context.token ?? ''), // GitHub Models: use installation token
-        }));
+        // New provider chain mode — decrypt API keys and filter unusable entries.
+        // GitHub Models requires a user PAT (models:read scope), but in SaaS mode
+        // we only have an installation token (ghs_*) which does NOT have models permission.
+        // Skip 'github' provider entries without an explicit API key.
+        providerChain = dbChain
+          .filter((entry) => {
+            if (entry.provider === 'github' && !entry.encryptedApiKey) {
+              console.warn(
+                '[ghagga] Skipping "github" provider in SaaS mode — installation tokens ' +
+                'cannot access GitHub Models. Configure a provider with an API key ' +
+                '(Anthropic, OpenAI, Google, or Qwen) in the dashboard.',
+              );
+              return false;
+            }
+            return true;
+          })
+          .map((entry) => ({
+            provider: entry.provider,
+            model: entry.model,
+            apiKey: entry.encryptedApiKey
+              ? decrypt(entry.encryptedApiKey)
+              : '',
+          }));
+
+        // If all providers were filtered out, clear the chain so we fall through
+        // to the legacy path or return a clear error
+        if (providerChain.length === 0) {
+          providerChain = undefined;
+        }
       }
 
       // Fallback: legacy single provider (for repos not yet migrated to chain)
@@ -160,7 +181,16 @@ export const reviewFunction = inngest.createFunction(
         legacyProvider = llmProvider as LLMProvider;
         legacyModel = llmModel;
 
-        if (encryptedApiKey) {
+        // GitHub Models cannot work in SaaS mode (installation tokens lack models:read)
+        if (legacyProvider === 'github' && !encryptedApiKey) {
+          console.warn(
+            '[ghagga] Provider "github" (GitHub Models) is not available in SaaS/webhook mode. ' +
+            'Configure a provider with an API key in the dashboard.',
+          );
+          // Disable AI review — will return static-only results
+          legacyProvider = undefined;
+          legacyApiKey = undefined;
+        } else if (encryptedApiKey) {
           legacyApiKey = decrypt(encryptedApiKey);
         } else {
           const envKey = process.env[`${llmProvider?.toUpperCase()}_API_KEY`];

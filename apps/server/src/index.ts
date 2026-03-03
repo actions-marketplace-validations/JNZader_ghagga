@@ -77,6 +77,30 @@ app.get('/health', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Diagnostic endpoint — check static analysis tool availability
+app.get('/health/tools', async (c) => {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const exec = promisify(execFile);
+
+  const checkTool = async (cmd: string, args: string[]): Promise<{ available: boolean; version?: string; error?: string }> => {
+    try {
+      const { stdout } = await exec(cmd, args, { timeout: 5_000 });
+      return { available: true, version: stdout.trim().split('\n')[0] };
+    } catch (e) {
+      return { available: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  };
+
+  const [semgrep, trivy, pmd] = await Promise.all([
+    checkTool('semgrep', ['--version']),
+    checkTool('trivy', ['--version']),
+    checkTool('pmd', ['--version']),
+  ]);
+
+  return c.json({ semgrep, trivy, pmd, env: { NODE_ENV: process.env.NODE_ENV, cwd: process.cwd() } });
+});
+
 // Webhook routes (no auth required — verified by signature)
 const webhookRouter = createWebhookRouter(db);
 app.route('/', webhookRouter);

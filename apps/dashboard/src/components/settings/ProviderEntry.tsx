@@ -180,18 +180,12 @@ export function ProviderEntry({
           {isGitHub ? 'API Key' : 'API Key'}
         </label>
         {isGitHub ? (
-          <div className="flex items-center gap-3">
-            <span className="flex-1 rounded-md border border-surface-border bg-surface-bg px-3 py-2 text-sm text-text-secondary">
-              Uses your GitHub session token
-            </span>
-            <button
-              type="button"
-              onClick={handleValidate}
-              disabled={validateProvider.isPending}
-              className="btn-secondary whitespace-nowrap text-sm"
-            >
-              {validateProvider.isPending ? 'Checking...' : entry.validated ? 'Valid ✓' : 'Validate'}
-            </button>
+          <div>
+            <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-300">
+              GitHub Models is not available in SaaS mode (webhook reviews use installation tokens
+              which lack the required <code className="font-mono">models</code> permission).
+              Use a provider with an API key instead (Anthropic, OpenAI, Google, or Qwen).
+            </div>
           </div>
         ) : (
           <div className="flex items-center gap-3">
