@@ -130,6 +130,40 @@ export async function getPRFileList(
   return files.map((f) => f.filename);
 }
 
+// ─── Reactions ──────────────────────────────────────────────────
+
+/**
+ * Add a reaction emoji to an issue comment.
+ * Used for acknowledging "ghagga review" trigger comments.
+ */
+export async function addCommentReaction(
+  owner: string,
+  repo: string,
+  commentId: number,
+  reaction: '+1' | '-1' | 'laugh' | 'confused' | 'heart' | 'hooray' | 'rocket' | 'eyes',
+  token: string,
+): Promise<void> {
+  const url = `https://api.github.com/repos/${owner}/${repo}/issues/comments/${commentId}/reactions`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+    body: JSON.stringify({ content: reaction }),
+  });
+
+  if (!response.ok) {
+    // Non-critical — log but don't throw
+    console.warn(
+      `[ghagga] Failed to add reaction: ${response.status} ${response.statusText}`,
+    );
+  }
+}
+
 // ─── Webhook Verification ───────────────────────────────────────
 
 /**

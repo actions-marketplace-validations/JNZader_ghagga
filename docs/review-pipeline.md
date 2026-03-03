@@ -87,6 +87,19 @@ Static analysis findings are merged into the agent's response. Deduplication ens
 
 Observations are extracted from the review and stored to PostgreSQL (fire-and-forget). This step never blocks the response — if it fails, the review is still returned successfully.
 
+## Trigger Modes
+
+Reviews can be triggered in two ways in SaaS mode:
+
+| Trigger | Event | When |
+|---------|-------|------|
+| **Automatic** | `pull_request` webhook | PR opened, updated (push), or reopened |
+| **On-demand** | `issue_comment` webhook | Someone comments `ghagga review` on a PR |
+
+The on-demand trigger uses the same pipeline and settings as automatic reviews. It adds reaction feedback: 👀 when the trigger is received, 🚀 when the review is posted.
+
+**Who can trigger?** Anyone with a contribution relationship to the repository: owners, members, collaborators, contributors, and first-time contributors. Users with no association (`NONE`) or placeholder accounts (`MANNEQUIN`) are rejected.
+
 ## SaaS Mode (Inngest)
 
 In server mode, the pipeline runs inside an Inngest durable function with step-based checkpointing:
@@ -99,6 +112,7 @@ Step 3: Memory Search (Layer 1)
 Step 4: AI Review (Layer 2)
 Step 5: Save Memory (Layer 3)
 Step 6: Post PR Comment
+Step 7: React to trigger comment (if on-demand)
 ```
 
 If an LLM call fails and retries, static analysis doesn't re-run. If memory search fails, the pipeline continues without it.

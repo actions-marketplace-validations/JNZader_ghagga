@@ -32,6 +32,18 @@ vi.mock('../inngest/client.js', () => ({
   inngest: { send: (...args: unknown[]) => mockInngestSend(...args) },
 }));
 
+// Mock GitHub client functions used by issue_comment handler
+const mockAddCommentReaction = vi.fn();
+const mockGetInstallationToken = vi.fn();
+vi.mock('../github/client.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('../github/client.js')>();
+  return {
+    ...original,
+    addCommentReaction: (...args: unknown[]) => mockAddCommentReaction(...args),
+    getInstallationToken: (...args: unknown[]) => mockGetInstallationToken(...args),
+  };
+});
+
 // ─── Helpers ────────────────────────────────────────────────────
 
 const WEBHOOK_SECRET = 'test-secret-key';
@@ -85,11 +97,17 @@ const FAKE_REPO = {
 
 let router: ReturnType<typeof createWebhookRouter>;
 let originalEnv: string | undefined;
+let originalAppId: string | undefined;
+let originalPrivateKey: string | undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
   originalEnv = process.env.GITHUB_WEBHOOK_SECRET;
+  originalAppId = process.env.GITHUB_APP_ID;
+  originalPrivateKey = process.env.GITHUB_PRIVATE_KEY;
   process.env.GITHUB_WEBHOOK_SECRET = WEBHOOK_SECRET;
+  process.env.GITHUB_APP_ID = '12345';
+  process.env.GITHUB_PRIVATE_KEY = 'fake-private-key';
   router = createWebhookRouter({} as any); // db is mocked at module level
 
   // Default mock returns
@@ -97,6 +115,8 @@ beforeEach(() => {
   mockUpsertRepository.mockResolvedValue({ id: 1 });
   mockDeactivateInstallation.mockResolvedValue(undefined);
   mockGetRepoByGithubId.mockResolvedValue(null);
+  mockAddCommentReaction.mockResolvedValue(undefined);
+  mockGetInstallationToken.mockResolvedValue('fake-installation-token');
   mockGetEffectiveRepoSettings.mockResolvedValue({
     providerChain: [],
     aiReviewEnabled: true,
@@ -120,6 +140,16 @@ afterEach(() => {
     process.env.GITHUB_WEBHOOK_SECRET = originalEnv;
   } else {
     delete process.env.GITHUB_WEBHOOK_SECRET;
+  }
+  if (originalAppId !== undefined) {
+    process.env.GITHUB_APP_ID = originalAppId;
+  } else {
+    delete process.env.GITHUB_APP_ID;
+  }
+  if (originalPrivateKey !== undefined) {
+    process.env.GITHUB_PRIVATE_KEY = originalPrivateKey;
+  } else {
+    delete process.env.GITHUB_PRIVATE_KEY;
   }
 });
 
@@ -396,5 +426,238 @@ describe('installation_repositories event handling', () => {
 
     expect(res.status).toBe(200);
     expect(mockGetRepoByGithubId).toHaveBeenCalledOnce();
+  });
+});
+
+// ─── Issue Comment Events (ghagga review trigger) ───────────────
+
+describe('issue_comment event handling', () => {
+  const commentPayload = {
+    action: 'created',
+    comment: {
+      id: 777,
+      body: 'ghagga review',
+      user: { login: 'contributor-user', type: 'User' },
+      author_association: 'CONTRIBUTOR',
+    },
+    issue: {
+      number: 42,
+      pull_request: { url: 'https://api.github.com/repos/owner/repo/pulls/42' },
+    },
+    repository: { id: 12345, full_name: 'owner/repo' },
+    installation: { id: 999 },
+  };
+
+  it('dispatches review when "ghagga review" keyword is found in PR comment', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify(commentPayload);
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(202);
+    const json = await res.json();
+    expect(json).toHaveProperty('message', 'Review dispatched (comment trigger)');
+    expect(json).toHaveProperty('pr', 42);
+    expect(json).toHaveProperty('triggeredBy', 'contributor-user');
+
+    expect(mockInngestSend).toHaveBeenCalledOnce();
+    const sendArg = mockInngestSend.mock.calls[0]![0];
+    expect(sendArg.name).toBe('ghagga/review.requested');
+    expect(sendArg.data.prNumber).toBe(42);
+    expect(sendArg.data.triggerCommentId).toBe(777);
+  });
+
+  it('adds 👀 reaction to acknowledge the trigger', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify(commentPayload);
+    const req = makeRequest(body, 'issue_comment');
+    await router.fetch(req);
+
+    expect(mockGetInstallationToken).toHaveBeenCalledOnce();
+    expect(mockAddCommentReaction).toHaveBeenCalledWith(
+      'owner', 'repo', 777, 'eyes', 'fake-installation-token',
+    );
+  });
+
+  it('triggers on case-insensitive "GHAGGA REVIEW"', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify({
+      ...commentPayload,
+      comment: { ...commentPayload.comment, body: 'Please GHAGGA REVIEW this PR' },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+    expect(res.status).toBe(202);
+    expect(mockInngestSend).toHaveBeenCalledOnce();
+  });
+
+  it('triggers when keyword is embedded in longer text', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify({
+      ...commentPayload,
+      comment: { ...commentPayload.comment, body: 'Hey can you do a ghagga review on this? Thanks!' },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+    expect(res.status).toBe(202);
+    expect(mockInngestSend).toHaveBeenCalledOnce();
+  });
+
+  it('ignores comments without the trigger keyword', async () => {
+    const body = JSON.stringify({
+      ...commentPayload,
+      comment: { ...commentPayload.comment, body: 'Looks good to me!' },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toContain('No review trigger keyword');
+    expect(mockInngestSend).not.toHaveBeenCalled();
+  });
+
+  it('ignores bot comments (self-trigger prevention)', async () => {
+    const body = JSON.stringify({
+      ...commentPayload,
+      comment: { ...commentPayload.comment, user: { login: 'ghagga[bot]', type: 'Bot' } },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toContain('Bot comment ignored');
+    expect(mockInngestSend).not.toHaveBeenCalled();
+  });
+
+  it('ignores edited or deleted comment actions', async () => {
+    for (const action of ['edited', 'deleted']) {
+      vi.clearAllMocks();
+      const body = JSON.stringify({ ...commentPayload, action });
+      const req = makeRequest(body, 'issue_comment');
+      const res = await router.fetch(req);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.message).toContain('ignored');
+      expect(mockInngestSend).not.toHaveBeenCalled();
+    }
+  });
+
+  it('ignores comments on regular issues (not PRs)', async () => {
+    const body = JSON.stringify({
+      ...commentPayload,
+      issue: { number: 10 }, // No pull_request field
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toContain('not on a pull request');
+    expect(mockInngestSend).not.toHaveBeenCalled();
+  });
+
+  it('rejects users with NONE association', async () => {
+    const body = JSON.stringify({
+      ...commentPayload,
+      comment: { ...commentPayload.comment, author_association: 'NONE' },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toContain('Insufficient permissions');
+    expect(mockInngestSend).not.toHaveBeenCalled();
+  });
+
+  it('rejects MANNEQUIN association', async () => {
+    const body = JSON.stringify({
+      ...commentPayload,
+      comment: { ...commentPayload.comment, author_association: 'MANNEQUIN' },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+    expect(res.status).toBe(200);
+    expect(mockInngestSend).not.toHaveBeenCalled();
+  });
+
+  it('allows OWNER association', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify({
+      ...commentPayload,
+      comment: { ...commentPayload.comment, author_association: 'OWNER' },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+    expect(res.status).toBe(202);
+    expect(mockInngestSend).toHaveBeenCalledOnce();
+  });
+
+  it('allows MEMBER association', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify({
+      ...commentPayload,
+      comment: { ...commentPayload.comment, author_association: 'MEMBER' },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+    expect(res.status).toBe(202);
+    expect(mockInngestSend).toHaveBeenCalledOnce();
+  });
+
+  it('allows FIRST_TIMER association', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify({
+      ...commentPayload,
+      comment: { ...commentPayload.comment, author_association: 'FIRST_TIMER' },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+    expect(res.status).toBe(202);
+    expect(mockInngestSend).toHaveBeenCalledOnce();
+  });
+
+  it('allows FIRST_TIME_CONTRIBUTOR association', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify({
+      ...commentPayload,
+      comment: { ...commentPayload.comment, author_association: 'FIRST_TIME_CONTRIBUTOR' },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+    expect(res.status).toBe(202);
+    expect(mockInngestSend).toHaveBeenCalledOnce();
+  });
+
+  it('returns 400 when installation ID is missing', async () => {
+    const body = JSON.stringify({
+      ...commentPayload,
+      installation: undefined,
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+    expect(res.status).toBe(400);
+    expect(mockInngestSend).not.toHaveBeenCalled();
+  });
+
+  it('returns 200 when repository is not tracked', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(null);
+    const body = JSON.stringify(commentPayload);
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toContain('not tracked');
+    expect(mockInngestSend).not.toHaveBeenCalled();
+  });
+
+  it('continues dispatching even if reaction fails', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    mockGetInstallationToken.mockRejectedValue(new Error('Token failed'));
+    const body = JSON.stringify(commentPayload);
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    // Should still dispatch the review despite reaction failure
+    expect(res.status).toBe(202);
+    expect(mockInngestSend).toHaveBeenCalledOnce();
   });
 });

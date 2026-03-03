@@ -15,6 +15,7 @@ import {
   getPRFileList,
   getInstallationToken,
   postComment,
+  addCommentReaction,
 } from '../github/client.js';
 import { reviewPipeline } from 'ghagga-core';
 import type { ReviewInput, ReviewResult, ReviewStatus, ReviewMode, LLMProvider, ReviewLevel, ProviderChainEntry } from 'ghagga-core';
@@ -101,6 +102,8 @@ export const reviewFunction = inngest.createFunction(
       repoFullName,
       prNumber,
       repositoryId,
+      // Comment trigger metadata
+      triggerCommentId,
       // Provider chain (new)
       providerChain: rawProviderChain,
       aiReviewEnabled,
@@ -273,6 +276,24 @@ export const reviewFunction = inngest.createFunction(
       const commentBody = formatReviewComment(result);
       await postComment(owner, repo, prNumber, commentBody, token);
     });
+
+    // Step 5: React with 🚀 to the trigger comment (if review was triggered by comment)
+    if (triggerCommentId) {
+      await step.run('react-to-trigger', async () => {
+        const appId = process.env.GITHUB_APP_ID;
+        const privateKey = process.env.GITHUB_PRIVATE_KEY;
+
+        if (!appId || !privateKey) return;
+
+        try {
+          const token = await getInstallationToken(installationId, appId, privateKey);
+          await addCommentReaction(owner, repo, triggerCommentId, 'rocket', token);
+        } catch (error) {
+          // Non-critical — don't fail the review
+          console.warn('[ghagga] Failed to add completion reaction:', error);
+        }
+      });
+    }
 
     return { status: result.status, prNumber, repoFullName };
   },

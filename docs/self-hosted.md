@@ -66,6 +66,7 @@ Under **Account permissions**: Leave everything as "No access".
 Check the following under **Subscribe to events**:
 
 - [x] **Pull request**
+- [x] **Issue comment** — enables on-demand review via `ghagga review` comments
 
 ### 1.5 Where can this GitHub App be installed?
 

@@ -113,6 +113,20 @@ Example chain: `GitHub Models → OpenAI → Anthropic`
 
 Provider chains are configured per-repo or globally (see Global Settings).
 
+## Comment Trigger (SaaS)
+
+In SaaS mode, you can re-trigger a review on any open PR by commenting:
+
+```
+ghagga review
+```
+
+The keyword is case-insensitive and can appear anywhere in the comment body. GHAGGA reacts with 👀 to acknowledge receipt and 🚀 when the review is posted.
+
+**Permissions**: Only users with a contribution relationship to the repository can trigger reviews — owners, members, collaborators, contributors, and first-time contributors. Users with no association are rejected.
+
+> **Note**: Your GitHub App must be subscribed to the `issue_comment` event. This is configured in the GitHub App settings under "Subscribe to events".
+
 ## Global Settings (SaaS)
 
 Installation-wide defaults that apply to all repositories. Each repo can override with its own settings by toggling "Use global settings" off in the dashboard.

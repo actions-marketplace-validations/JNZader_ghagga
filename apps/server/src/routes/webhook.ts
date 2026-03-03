@@ -3,12 +3,17 @@
  *
  * Processes incoming webhook events:
  *   - pull_request: Dispatch review via Inngest
+ *   - issue_comment: Re-trigger review on "ghagga review" keyword
  *   - installation: Track app installations
  *   - installation_repositories: Track repo additions/removals
  */
 
 import { Hono } from 'hono';
-import { verifyWebhookSignature } from '../github/client.js';
+import {
+  verifyWebhookSignature,
+  addCommentReaction,
+  getInstallationToken,
+} from '../github/client.js';
 import { inngest } from '../inngest/client.js';
 import {
   upsertInstallation,
@@ -35,6 +40,41 @@ interface PullRequestEvent {
   };
   installation?: { id: number };
 }
+
+interface IssueCommentEvent {
+  action: string;
+  comment: {
+    id: number;
+    body: string;
+    user: {
+      login: string;
+      type: string; // "User" | "Bot"
+    };
+    author_association: string;
+  };
+  issue: {
+    number: number;
+    pull_request?: { url: string }; // Present only if the issue is a PR
+  };
+  repository: {
+    id: number;
+    full_name: string;
+  };
+  installation?: { id: number };
+}
+
+/** Associations allowed to trigger reviews via comment keyword */
+const ALLOWED_ASSOCIATIONS = new Set([
+  'OWNER',
+  'MEMBER',
+  'COLLABORATOR',
+  'CONTRIBUTOR',
+  'FIRST_TIMER',
+  'FIRST_TIME_CONTRIBUTOR',
+]);
+
+/** Regex to detect "ghagga review" keyword (case-insensitive, allows leading whitespace/punctuation) */
+const REVIEW_TRIGGER_REGEX = /\bghagga\s+review\b/i;
 
 interface InstallationEvent {
   action: string;
@@ -135,6 +175,9 @@ export function createWebhookRouter(db: Database) {
         case 'pull_request':
           return await handlePullRequest(c, db, payload as PullRequestEvent);
 
+        case 'issue_comment':
+          return await handleIssueComment(c, db, payload as IssueCommentEvent);
+
         case 'installation':
           return await handleInstallation(c, db, payload as InstallationEvent);
 
@@ -229,6 +272,113 @@ async function handlePullRequest(
       message: 'Review dispatched',
       pr: payload.number,
       repo: payload.repository.full_name,
+    },
+    202,
+  );
+}
+
+async function handleIssueComment(
+  c: { json: (data: unknown, status?: number) => Response },
+  db: Database,
+  payload: IssueCommentEvent,
+) {
+  // Only handle new comments (not edits or deletions)
+  if (payload.action !== 'created') {
+    return c.json({ message: `Comment action ${payload.action} ignored` }, 200);
+  }
+
+  // Only handle comments on PRs (not regular issues)
+  if (!payload.issue.pull_request) {
+    return c.json({ message: 'Comment is not on a pull request' }, 200);
+  }
+
+  // Skip bot comments to prevent self-triggering loops
+  if (payload.comment.user.type === 'Bot') {
+    return c.json({ message: 'Bot comment ignored' }, 200);
+  }
+
+  // Check for the trigger keyword
+  if (!REVIEW_TRIGGER_REGEX.test(payload.comment.body)) {
+    return c.json({ message: 'No review trigger keyword found' }, 200);
+  }
+
+  // Check author association (only contributors/members can trigger)
+  if (!ALLOWED_ASSOCIATIONS.has(payload.comment.author_association)) {
+    console.log(
+      `[ghagga] Review trigger rejected: ${payload.comment.user.login} has association ${payload.comment.author_association}`,
+    );
+    return c.json({ message: 'Insufficient permissions to trigger review' }, 200);
+  }
+
+  if (!payload.installation?.id) {
+    return c.json({ error: 'Missing installation ID' }, 400);
+  }
+
+  // Look up the repository
+  const repo = await getRepoByGithubId(db, payload.repository.id);
+
+  if (!repo) {
+    console.warn(
+      `[ghagga] Comment trigger for unknown repo ${payload.repository.full_name}`,
+    );
+    return c.json({ message: 'Repository not tracked' }, 200);
+  }
+
+  // React with 👀 to acknowledge the trigger
+  const appId = process.env.GITHUB_APP_ID;
+  const privateKey = process.env.GITHUB_PRIVATE_KEY;
+  const [owner, repoName] = payload.repository.full_name.split('/') as [string, string];
+
+  if (appId && privateKey) {
+    try {
+      const token = await getInstallationToken(payload.installation.id, appId, privateKey);
+      await addCommentReaction(owner, repoName, payload.comment.id, 'eyes', token);
+    } catch (error) {
+      // Non-critical — don't fail the review
+      console.warn('[ghagga] Failed to add acknowledgment reaction:', error);
+    }
+  }
+
+  // Resolve effective settings and dispatch review
+  const effective = await getEffectiveRepoSettings(db, repo);
+  const prNumber = payload.issue.number;
+
+  await inngest.send({
+    name: 'ghagga/review.requested',
+    data: {
+      installationId: payload.installation.id,
+      repoFullName: payload.repository.full_name,
+      prNumber,
+      repositoryId: repo.id,
+      triggerCommentId: payload.comment.id,
+      providerChain: effective.providerChain,
+      aiReviewEnabled: effective.aiReviewEnabled,
+      llmProvider: repo.llmProvider,
+      llmModel: repo.llmModel ?? 'gpt-4o-mini',
+      reviewMode: effective.reviewMode,
+      encryptedApiKey: repo.encryptedApiKey,
+      settings: {
+        enableSemgrep: effective.settings.enableSemgrep,
+        enableTrivy: effective.settings.enableTrivy,
+        enableCpd: effective.settings.enableCpd,
+        enableMemory: effective.settings.enableMemory,
+        customRules: effective.settings.customRules,
+        ignorePatterns: effective.settings.ignorePatterns,
+        reviewLevel: effective.settings.reviewLevel,
+      },
+    },
+  });
+
+  console.log(
+    `[ghagga] Review re-triggered by ${payload.comment.user.login} for ${payload.repository.full_name}#${prNumber}`,
+  );
+
+  return c.json(
+    {
+      message: 'Review dispatched (comment trigger)',
+      pr: prNumber,
+      repo: payload.repository.full_name,
+      triggeredBy: payload.comment.user.login,
     },
     202,
   );

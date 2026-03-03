@@ -34,6 +34,11 @@ export interface ReviewRequestedData {
   /** Whether AI review is enabled for this repo */
   aiReviewEnabled?: boolean;
 
+  // ── Comment trigger metadata (optional) ────────────────────
+
+  /** If review was triggered by a comment, the comment ID for reaction feedback */
+  triggerCommentId?: number;
+
   // ── Legacy flat fields (backward compat) ──────────────────
 
   /** LLM provider to use */
