@@ -90,7 +90,7 @@ describe('runSemgrep', () => {
     expect(mockExecFile).toHaveBeenCalledWith(
       'semgrep',
       ['--version'],
-      expect.objectContaining({ timeout: 5_000 }),
+      expect.objectContaining({ timeout: 10_000 }),
     );
   });
 

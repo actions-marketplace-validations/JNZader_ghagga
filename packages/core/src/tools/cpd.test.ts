@@ -87,6 +87,8 @@ describe('runCpd', () => {
     mockExecFile
       // cpd --help fails
       .mockRejectedValueOnce(new Error('not found'))
+      // /usr/local/bin/cpd --help fails
+      .mockRejectedValueOnce(new Error('not found'))
       // pmd cpd --help succeeds
       .mockResolvedValueOnce({ stdout: 'pmd version', stderr: '' } as any)
       // pmd cpd scan
@@ -94,7 +96,7 @@ describe('runCpd', () => {
 
     await runCpd('/project');
 
-    const scanCall = mockExecFile.mock.calls[2]!;
+    const scanCall = mockExecFile.mock.calls[3]!;
     expect(scanCall[0]).toBe('pmd');
     expect((scanCall[1] as string[])[0]).toBe('cpd');
   });
