@@ -7,15 +7,22 @@
     "build:tsc": "tsc",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:mutation": "npx stryker run",
+    "test:mutation:report": "npx stryker run --reporters clear-text,html",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@actions/cache": "^4.0.0",
     "@actions/core": "^1.11.0",
+    "@actions/exec": "^1.1.1",
     "@actions/github": "^6.0.0",
     "ghagga-core": "workspace:*"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^9.6.0",
+    "@stryker-mutator/typescript-checker": "^9.6.0",
+    "@stryker-mutator/vitest-runner": "^9.6.0",
     "@types/node": "^22.0.0",
     "@vercel/ncc": "^0.38.4",
     "typescript": "^5.7.0",

@@ -33,6 +33,7 @@ import type {
   ReviewResult,
   ReviewStatus,
 } from 'ghagga-core';
+import { runLocalAnalysis } from './tools/index.js';
 
 // ─── Main ───────────────────────────────────────────────────────
 
@@ -123,6 +124,26 @@ async function run(): Promise<void> {
       return;
     }
 
+    // Step 5.5: Run local static analysis
+    core.info('Running static analysis tools...');
+    const repoDir = process.env.GITHUB_WORKSPACE ?? '.';
+    const staticAnalysis = await runLocalAnalysis({
+      enableSemgrep,
+      enableTrivy,
+      enableCpd,
+      repoDir,
+    });
+
+    // Log a summary of static analysis results
+    const semgrepCount = staticAnalysis.semgrep.findings.length;
+    const trivyCount = staticAnalysis.trivy.findings.length;
+    const cpdCount = staticAnalysis.cpd.findings.length;
+    const totalFindings = semgrepCount + trivyCount + cpdCount;
+    core.info(
+      `Static analysis summary: ${totalFindings} findings ` +
+      `(Semgrep: ${semgrepCount}, Trivy: ${trivyCount}, CPD: ${cpdCount})`,
+    );
+
     // Step 6: Run the review pipeline
     const result = await reviewPipeline({
       diff: typeof diff === 'string' ? diff : String(diff),
@@ -144,6 +165,7 @@ async function run(): Promise<void> {
         fileList: [],
       },
       db: undefined,
+      precomputedStaticAnalysis: staticAnalysis,
     });
 
     // Step 7: Post the review comment

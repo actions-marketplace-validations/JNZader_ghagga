@@ -1,5 +1,8 @@
 name: 'GHAGGA Code Review'
-description: 'AI-powered multi-agent code review for PRs. Free via GitHub Models. 6 providers, 3 review modes.'
+description: >-
+  AI-powered multi-agent code review for PRs with built-in static analysis.
+  Runs Semgrep, Trivy, and CPD directly on the GitHub Actions runner (cached).
+  Free via GitHub Models. 6 providers, 3 review modes.
 
 branding:
   icon: 'eye'
@@ -40,17 +43,23 @@ inputs:
     default: ${{ github.token }}
 
   enable-semgrep:
-    description: 'Enable Semgrep static analysis'
+    description: >-
+      Enable Semgrep security analysis. Runs directly on the runner.
+      First run installs via pip (~2 min), subsequent runs use cache (~10s).
     required: false
     default: 'true'
 
   enable-trivy:
-    description: 'Enable Trivy vulnerability scanning'
+    description: >-
+      Enable Trivy vulnerability scanning. Runs directly on the runner.
+      First run installs via official script (~1 min), subsequent runs use cache (~5s).
     required: false
     default: 'true'
 
   enable-cpd:
-    description: 'Enable CPD duplicate detection'
+    description: >-
+      Enable PMD/CPD copy-paste detection. Runs directly on the runner.
+      First run downloads PMD (~1 min), subsequent runs use cache (~5s).
     required: false
     default: 'true'
 

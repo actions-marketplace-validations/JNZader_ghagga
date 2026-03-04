@@ -93,7 +93,7 @@ jobs:
 | `status` | Review result: `PASSED`, `FAILED`, `NEEDS_HUMAN_REVIEW`, `SKIPPED` |
 | `findings-count` | Number of findings detected |
 
-> The Docker variant (`apps/action/Dockerfile`) includes Semgrep, Trivy, and PMD/CPD pre-installed. The default `node20` variant skips static analysis tools if they're not available.
+> Static analysis tools (Semgrep, Trivy, CPD) run **directly on the GitHub Actions runner** — no server or Docker image required. First run installs tools (~3-5 min), subsequent runs use `@actions/cache` (~1-2 min).
 
 ### Option 2: CLI
 
@@ -314,11 +314,10 @@ Tools are optional. If Semgrep, Trivy, or CPD aren't installed, they're silently
 | Distribution | Semgrep | Trivy | CPD |
 |-------------|---------|-------|-----|
 | Docker (server) | Pre-installed | Pre-installed | Pre-installed |
-| Docker (action) | Pre-installed | Pre-installed | Pre-installed |
-| GitHub Action (node20) | Skipped* | Skipped* | Skipped* |
+| GitHub Action (node20) | Auto-installed + cached | Auto-installed + cached | Auto-installed + cached |
 | CLI | If installed locally | If installed locally | If installed locally |
 
-> \* The node20 action variant doesn't include static analysis tools by default. Use the Docker action variant for full static analysis, or install tools in a prior step.
+> The GitHub Action installs tools directly on the `ubuntu-latest` runner and caches binaries with `@actions/cache`. First run takes ~3-5 minutes (installation); subsequent runs use cache (~1-2 minutes). Tool failures degrade gracefully — the review continues with whatever tools succeed.
 
 ### Custom Semgrep Rules
 
