@@ -4,9 +4,16 @@
  * Tests: ensureRunnerRepo, dispatchAnalysis, deleteRunnerRepo, and internal
  * helpers (workflow integrity, HMAC signature, sealed box encryption).
  *
+ * Architecture: runner repos live under a central org (JNZader-Vault)
+ * with naming pattern: JNZader-Vault/runner-{user}
+ *
+ * Dual-token pattern:
+ *   - runnerToken: from RUNNER_INSTALLATION_ID, for runner-repo operations
+ *   - userToken: from per-user installationId, for GHAGGA_TOKEN secret value
+ *
  * Mocking strategy:
  *   - `global.fetch` — mocked per-test to simulate GitHub API responses
- *   - `getInstallationToken` — mocked via vi.mock (returns fake token)
+ *   - `getInstallationToken` — mocked via vi.mock (returns fake tokens)
  *   - `libsodium-wrappers` — mocked (WASM doesn't load in Vitest)
  *   - `node:fs` readFileSync — mocked to return a known workflow template
  *   - Logger — mocked to suppress output
@@ -17,9 +24,12 @@ import { createHash, createHmac } from 'node:crypto';
 
 // ─── Constants ──────────────────────────────────────────────────
 
-const FAKE_TOKEN = 'ghs_fake_installation_token_abc123';
+const FAKE_RUNNER_TOKEN = 'ghs_runner_token_mock';
+const FAKE_USER_TOKEN = 'ghs_user_token_mock';
 const FAKE_OWNER = 'test-owner';
 const FAKE_INSTALLATION_ID = 12345;
+const FAKE_RUNNER_INSTALLATION_ID = '99999';
+const RUNNER_ORG = 'JNZader-Vault';
 const FAKE_APP_ID = '99999';
 const FAKE_PRIVATE_KEY = 'fake-private-key-pem';
 const WEBHOOK_SECRET = 'test-webhook-secret-for-hmac';
@@ -45,8 +55,8 @@ const FAKE_WORKFLOW_B64 = Buffer.from(FAKE_WORKFLOW_CONTENT).toString('base64');
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
-// Mock getInstallationToken
-const mockGetInstallationToken = vi.fn().mockResolvedValue(FAKE_TOKEN);
+// Mock getInstallationToken — returns different tokens based on installationId
+const mockGetInstallationToken = vi.fn();
 vi.mock('../client.js', () => ({
   getInstallationToken: (...args: unknown[]) => mockGetInstallationToken(...args),
 }));
@@ -168,16 +178,28 @@ let originalEnv: Record<string, string | undefined>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.resetModules();
   originalFetch = global.fetch;
   originalEnv = {
     GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET,
     GITHUB_APP_ID: process.env.GITHUB_APP_ID,
     GITHUB_PRIVATE_KEY: process.env.GITHUB_PRIVATE_KEY,
+    RUNNER_ORG: process.env.RUNNER_ORG,
+    RUNNER_INSTALLATION_ID: process.env.RUNNER_INSTALLATION_ID,
   };
   process.env.GITHUB_WEBHOOK_SECRET = WEBHOOK_SECRET;
   process.env.GITHUB_APP_ID = FAKE_APP_ID;
   process.env.GITHUB_PRIVATE_KEY = FAKE_PRIVATE_KEY;
-  mockGetInstallationToken.mockResolvedValue(FAKE_TOKEN);
+  process.env.RUNNER_ORG = RUNNER_ORG;
+  process.env.RUNNER_INSTALLATION_ID = FAKE_RUNNER_INSTALLATION_ID;
+
+  // Default: runner installation → runner token, user installation → user token
+  mockGetInstallationToken.mockImplementation((installationId: number) => {
+    if (installationId === Number(FAKE_RUNNER_INSTALLATION_ID)) {
+      return Promise.resolve(FAKE_RUNNER_TOKEN);
+    }
+    return Promise.resolve(FAKE_USER_TOKEN);
+  });
 });
 
 afterEach(() => {
@@ -210,7 +232,7 @@ describe('ensureRunnerRepo', () => {
     setupFetchRoutes([
       // 1. repoExists check → 404
       {
-        match: `/repos/${FAKE_OWNER}/ghagga-runner`,
+        match: `/repos/${RUNNER_ORG}/runner-${FAKE_OWNER}`,
         method: 'GET',
         response: (url) => {
           // Only match exact repo check, not contents
@@ -219,25 +241,16 @@ describe('ensureRunnerRepo', () => {
           return mockFetchResponse(404);
         },
       },
-      // 2. isOrganization check
+      // 2. createRepo (org endpoint)
       {
-        match: `/users/${FAKE_OWNER}`,
-        method: 'GET',
-        response: () => {
-          apiCalls.push('GET user');
-          return mockFetchResponse(200, { type: 'User' });
-        },
-      },
-      // 3. createRepo (user repos)
-      {
-        match: '/user/repos',
+        match: `/orgs/${RUNNER_ORG}/repos`,
         method: 'POST',
         response: () => {
-          apiCalls.push('POST user/repos');
-          return mockFetchResponse(201, { full_name: `${FAKE_OWNER}/ghagga-runner` });
+          apiCalls.push('POST org/repos');
+          return mockFetchResponse(201, { full_name: `${RUNNER_ORG}/runner-${FAKE_OWNER}` });
         },
       },
-      // 4. commitWorkflowFile (PUT contents)
+      // 3. commitWorkflowFile (PUT contents)
       {
         match: '/contents/.github/workflows/ghagga-analysis.yml',
         method: 'PUT',
@@ -246,7 +259,7 @@ describe('ensureRunnerRepo', () => {
           return mockFetchResponse(201, { content: { sha: 'abc123' } });
         },
       },
-      // 5. setLogRetention (PUT retention)
+      // 4. setLogRetention (PUT retention)
       {
         match: '/actions/permissions/artifact-and-log-retention',
         method: 'PUT',
@@ -255,7 +268,7 @@ describe('ensureRunnerRepo', () => {
           return mockFetchResponse(204);
         },
       },
-      // 6. setLogRetention (PUT actions permissions)
+      // 5. setLogRetention (PUT actions permissions)
       {
         match: '/actions/permissions',
         method: 'PUT',
@@ -277,15 +290,15 @@ describe('ensureRunnerRepo', () => {
     // Assert return value
     expect(result).toEqual({ created: true, existed: false });
 
-    // Assert getInstallationToken was called
+    // Assert getInstallationToken was called with RUNNER_INSTALLATION_ID
     expect(mockGetInstallationToken).toHaveBeenCalledWith(
-      FAKE_INSTALLATION_ID,
+      Number(FAKE_RUNNER_INSTALLATION_ID),
       FAKE_APP_ID,
       FAKE_PRIVATE_KEY,
     );
 
-    // Assert repo creation API was called
-    expect(apiCalls).toContain('POST user/repos');
+    // Assert repo creation API was called via org endpoint
+    expect(apiCalls).toContain('POST org/repos');
 
     // Assert workflow commit API was called
     expect(apiCalls).toContain('PUT workflow');
@@ -297,11 +310,11 @@ describe('ensureRunnerRepo', () => {
     setupFetchRoutes([
       // 1. repoExists → 200
       {
-        match: new RegExp(`/repos/${FAKE_OWNER}/ghagga-runner$`),
+        match: new RegExp(`/repos/${RUNNER_ORG}/runner-${FAKE_OWNER}$`),
         method: 'GET',
         response: () => {
           apiCalls.push('GET repo');
-          return mockFetchResponse(200, { full_name: `${FAKE_OWNER}/ghagga-runner` });
+          return mockFetchResponse(200, { full_name: `${RUNNER_ORG}/runner-${FAKE_OWNER}` });
         },
       },
       // 2. verifyWorkflowIntegrity → return content with CORRECT hash
@@ -330,7 +343,6 @@ describe('ensureRunnerRepo', () => {
     expect(result).toEqual({ created: false, existed: true });
 
     // Assert NO creation API calls were made
-    expect(apiCalls).not.toContain('POST user/repos');
     expect(apiCalls).not.toContain('POST org/repos');
 
     // Assert workflow content was checked
@@ -345,11 +357,11 @@ describe('ensureRunnerRepo', () => {
     setupFetchRoutes([
       // 1. repoExists → 200
       {
-        match: new RegExp(`/repos/${FAKE_OWNER}/ghagga-runner$`),
+        match: new RegExp(`/repos/${RUNNER_ORG}/runner-${FAKE_OWNER}$`),
         method: 'GET',
         response: () => {
           apiCalls.push('GET repo');
-          return mockFetchResponse(200, { full_name: `${FAKE_OWNER}/ghagga-runner` });
+          return mockFetchResponse(200, { full_name: `${RUNNER_ORG}/runner-${FAKE_OWNER}` });
         },
       },
       // 2. verifyWorkflowIntegrity → tampered content (wrong hash)
@@ -393,6 +405,15 @@ describe('ensureRunnerRepo', () => {
     // Assert workflow was re-committed via PUT Contents API
     expect(apiCalls).toContain('PUT workflow-recommit');
   });
+
+  it('throws when RUNNER_INSTALLATION_ID is not set', async () => {
+    delete process.env.RUNNER_INSTALLATION_ID;
+
+    const { ensureRunnerRepo } = await importRunner();
+    await expect(
+      ensureRunnerRepo(FAKE_OWNER, FAKE_INSTALLATION_ID, FAKE_APP_ID, FAKE_PRIVATE_KEY),
+    ).rejects.toThrow('RUNNER_INSTALLATION_ID not configured');
+  });
 });
 
 describe('dispatchAnalysis', () => {
@@ -407,13 +428,14 @@ describe('dispatchAnalysis', () => {
 
   it('happy path returns dispatched: true with callbackId', async () => {
     let dispatchBody: Record<string, unknown> | undefined;
+    const secretsPut: string[] = [];
 
     setupFetchRoutes([
       // 1. repoExists → 200
       {
-        match: new RegExp(`/repos/${FAKE_OWNER}/ghagga-runner$`),
+        match: new RegExp(`/repos/${RUNNER_ORG}/runner-${FAKE_OWNER}$`),
         method: 'GET',
-        response: mockFetchResponse(200, { full_name: `${FAKE_OWNER}/ghagga-runner` }),
+        response: mockFetchResponse(200, { full_name: `${RUNNER_ORG}/runner-${FAKE_OWNER}` }),
       },
       // 2. verifyWorkflowIntegrity → valid
       {
@@ -433,13 +455,25 @@ describe('dispatchAnalysis', () => {
           key_id: 'key-id-123',
         }),
       },
-      // 4. PUT secret
+      // 4. PUT GHAGGA_TOKEN secret
       {
         match: '/actions/secrets/GHAGGA_TOKEN',
         method: 'PUT',
-        response: mockFetchResponse(204),
+        response: () => {
+          secretsPut.push('GHAGGA_TOKEN');
+          return mockFetchResponse(204);
+        },
       },
-      // 5. repository_dispatch
+      // 5. PUT RUNNER_TOKEN secret
+      {
+        match: '/actions/secrets/RUNNER_TOKEN',
+        method: 'PUT',
+        response: () => {
+          secretsPut.push('RUNNER_TOKEN');
+          return mockFetchResponse(204);
+        },
+      },
+      // 6. repository_dispatch
       {
         match: '/dispatches',
         method: 'POST',
@@ -479,6 +513,22 @@ describe('dispatchAnalysis', () => {
     expect(clientPayload.prNumber).toBe(42);
     expect(clientPayload.headSha).toBe('abc123def456');
     expect(clientPayload.callbackUrl).toBe(dispatchContext.callbackUrl);
+
+    // Assert dual tokens: getInstallationToken called for BOTH runner and user
+    expect(mockGetInstallationToken).toHaveBeenCalledWith(
+      Number(FAKE_RUNNER_INSTALLATION_ID),
+      FAKE_APP_ID,
+      FAKE_PRIVATE_KEY,
+    );
+    expect(mockGetInstallationToken).toHaveBeenCalledWith(
+      FAKE_INSTALLATION_ID,
+      FAKE_APP_ID,
+      FAKE_PRIVATE_KEY,
+    );
+
+    // Assert BOTH secrets were set
+    expect(secretsPut).toContain('GHAGGA_TOKEN');
+    expect(secretsPut).toContain('RUNNER_TOKEN');
   });
 
   it('returns dispatched: false when workflow integrity fails after re-commit', async () => {
@@ -488,7 +538,7 @@ describe('dispatchAnalysis', () => {
     setupFetchRoutes([
       // 1. repoExists → 200
       {
-        match: new RegExp(`/repos/${FAKE_OWNER}/ghagga-runner$`),
+        match: new RegExp(`/repos/${RUNNER_ORG}/runner-${FAKE_OWNER}$`),
         method: 'GET',
         response: mockFetchResponse(200, {}),
       },
@@ -538,7 +588,7 @@ describe('dispatchAnalysis', () => {
     setupFetchRoutes([
       // 1. repoExists → 200
       {
-        match: new RegExp(`/repos/${FAKE_OWNER}/ghagga-runner$`),
+        match: new RegExp(`/repos/${RUNNER_ORG}/runner-${FAKE_OWNER}$`),
         method: 'GET',
         response: mockFetchResponse(200, {}),
       },
@@ -560,9 +610,15 @@ describe('dispatchAnalysis', () => {
           key_id: 'key-id-123',
         }),
       },
-      // 4. PUT secret
+      // 4. PUT GHAGGA_TOKEN secret
       {
         match: '/actions/secrets/GHAGGA_TOKEN',
+        method: 'PUT',
+        response: mockFetchResponse(204),
+      },
+      // 5. PUT RUNNER_TOKEN secret
+      {
+        match: '/actions/secrets/RUNNER_TOKEN',
         method: 'PUT',
         response: mockFetchResponse(204),
       },
@@ -580,6 +636,23 @@ describe('dispatchAnalysis', () => {
     expect(result.dispatched).toBe(false);
     if (result.dispatched) throw new Error('Expected dispatched to be false');
     expect(result.reason).toContain('GITHUB_WEBHOOK_SECRET');
+  });
+
+  it('returns dispatched: false when RUNNER_INSTALLATION_ID is not set', async () => {
+    delete process.env.RUNNER_INSTALLATION_ID;
+
+    const { dispatchAnalysis } = await importRunner();
+    const result = await dispatchAnalysis(
+      FAKE_OWNER,
+      FAKE_INSTALLATION_ID,
+      FAKE_APP_ID,
+      FAKE_PRIVATE_KEY,
+      dispatchContext,
+    );
+
+    expect(result.dispatched).toBe(false);
+    if (result.dispatched) throw new Error('Expected dispatched to be false');
+    expect(result.reason).toContain('RUNNER_INSTALLATION_ID');
   });
 });
 
@@ -600,7 +673,7 @@ describe('HMAC signature generation', () => {
     setupFetchRoutes([
       // 1. repoExists → 200
       {
-        match: new RegExp(`/repos/${FAKE_OWNER}/ghagga-runner$`),
+        match: new RegExp(`/repos/${RUNNER_ORG}/runner-${FAKE_OWNER}$`),
         method: 'GET',
         response: mockFetchResponse(200, {}),
       },
@@ -622,13 +695,19 @@ describe('HMAC signature generation', () => {
           key_id: 'key-123',
         }),
       },
-      // 4. PUT secret
+      // 4. PUT GHAGGA_TOKEN secret
       {
         match: '/actions/secrets/GHAGGA_TOKEN',
         method: 'PUT',
         response: mockFetchResponse(204),
       },
-      // 5. dispatch — capture the payload
+      // 5. PUT RUNNER_TOKEN secret
+      {
+        match: '/actions/secrets/RUNNER_TOKEN',
+        method: 'PUT',
+        response: mockFetchResponse(204),
+      },
+      // 6. dispatch — capture the payload
       {
         match: '/dispatches',
         method: 'POST',
@@ -688,7 +767,7 @@ describe('deleteRunnerRepo', () => {
   it('succeeds when repo exists (200)', async () => {
     setupFetchRoutes([
       {
-        match: `/repos/${FAKE_OWNER}/ghagga-runner`,
+        match: `/repos/${RUNNER_ORG}/runner-${FAKE_OWNER}`,
         method: 'DELETE',
         response: mockFetchResponse(204),
       },
@@ -704,7 +783,7 @@ describe('deleteRunnerRepo', () => {
   it('succeeds when repo does not exist (404)', async () => {
     setupFetchRoutes([
       {
-        match: `/repos/${FAKE_OWNER}/ghagga-runner`,
+        match: `/repos/${RUNNER_ORG}/runner-${FAKE_OWNER}`,
         method: 'DELETE',
         response: mockFetchResponse(404),
       },
@@ -720,7 +799,7 @@ describe('deleteRunnerRepo', () => {
   it('does not throw when deletion fails (500)', async () => {
     setupFetchRoutes([
       {
-        match: `/repos/${FAKE_OWNER}/ghagga-runner`,
+        match: `/repos/${RUNNER_ORG}/runner-${FAKE_OWNER}`,
         method: 'DELETE',
         response: mockFetchResponse(500, { message: 'Internal Server Error' }),
       },
@@ -732,63 +811,18 @@ describe('deleteRunnerRepo', () => {
       deleteRunnerRepo(FAKE_OWNER, FAKE_INSTALLATION_ID, FAKE_APP_ID, FAKE_PRIVATE_KEY),
     ).resolves.toBeUndefined();
   });
-});
 
-describe('ensureRunnerRepo — organization path', () => {
-  it('creates repo via orgs API when owner is an Organization', async () => {
-    let repoCreateUrl = '';
+  it('logs warning and returns when RUNNER_INSTALLATION_ID is not set', async () => {
+    delete process.env.RUNNER_INSTALLATION_ID;
 
-    setupFetchRoutes([
-      // 1. repoExists → 404
-      {
-        match: new RegExp(`/repos/${FAKE_OWNER}/ghagga-runner$`),
-        method: 'GET',
-        response: mockFetchResponse(404),
-      },
-      // 2. isOrganization → true
-      {
-        match: `/users/${FAKE_OWNER}`,
-        method: 'GET',
-        response: mockFetchResponse(200, { type: 'Organization' }),
-      },
-      // 3. createRepo — org endpoint
-      {
-        match: `/orgs/${FAKE_OWNER}/repos`,
-        method: 'POST',
-        response: (_url) => {
-          repoCreateUrl = `/orgs/${FAKE_OWNER}/repos`;
-          return mockFetchResponse(201, { full_name: `${FAKE_OWNER}/ghagga-runner` });
-        },
-      },
-      // 4. commitWorkflowFile
-      {
-        match: '/contents/.github/workflows/ghagga-analysis.yml',
-        method: 'PUT',
-        response: mockFetchResponse(201, { content: { sha: 'abc' } }),
-      },
-      // 5-6. setLogRetention
-      {
-        match: '/actions/permissions/artifact-and-log-retention',
-        method: 'PUT',
-        response: mockFetchResponse(204),
-      },
-      {
-        match: '/actions/permissions',
-        method: 'PUT',
-        response: mockFetchResponse(204),
-      },
-    ]);
+    const { deleteRunnerRepo } = await importRunner();
+    // Should return without throwing or making any API calls
+    await expect(
+      deleteRunnerRepo(FAKE_OWNER, FAKE_INSTALLATION_ID, FAKE_APP_ID, FAKE_PRIVATE_KEY),
+    ).resolves.toBeUndefined();
 
-    const { ensureRunnerRepo } = await importRunner();
-    const result = await ensureRunnerRepo(
-      FAKE_OWNER,
-      FAKE_INSTALLATION_ID,
-      FAKE_APP_ID,
-      FAKE_PRIVATE_KEY,
-    );
-
-    expect(result).toEqual({ created: true, existed: false });
-    expect(repoCreateUrl).toBe(`/orgs/${FAKE_OWNER}/repos`);
+    // No fetch calls should have been made
+    expect(mockGetInstallationToken).not.toHaveBeenCalled();
   });
 });
 
@@ -808,29 +842,23 @@ describe('dispatchAnalysis — repo creation on dispatch', () => {
     setupFetchRoutes([
       // 1. repoExists → 404
       {
-        match: new RegExp(`/repos/${FAKE_OWNER}/ghagga-runner$`),
+        match: new RegExp(`/repos/${RUNNER_ORG}/runner-${FAKE_OWNER}$`),
         method: 'GET',
         response: () => {
           apiCalls.push('GET repo → 404');
           return mockFetchResponse(404);
         },
       },
-      // 2. isOrganization
+      // 2. createRepo (org endpoint)
       {
-        match: `/users/${FAKE_OWNER}`,
-        method: 'GET',
-        response: mockFetchResponse(200, { type: 'User' }),
-      },
-      // 3. createRepo
-      {
-        match: '/user/repos',
+        match: `/orgs/${RUNNER_ORG}/repos`,
         method: 'POST',
         response: () => {
           apiCalls.push('POST create-repo');
           return mockFetchResponse(201, {});
         },
       },
-      // 4. commitWorkflowFile
+      // 3. commitWorkflowFile
       {
         match: '/contents/.github/workflows/ghagga-analysis.yml',
         method: 'PUT',
@@ -839,7 +867,7 @@ describe('dispatchAnalysis — repo creation on dispatch', () => {
           return mockFetchResponse(201, { content: { sha: 'wf-sha' } });
         },
       },
-      // 5-6. setLogRetention
+      // 4-5. setLogRetention
       {
         match: '/actions/permissions/artifact-and-log-retention',
         method: 'PUT',
@@ -850,7 +878,7 @@ describe('dispatchAnalysis — repo creation on dispatch', () => {
         method: 'PUT',
         response: mockFetchResponse(204),
       },
-      // 7. setRepoSecret — public key
+      // 6. setRepoSecret — public key
       {
         match: '/actions/secrets/public-key',
         method: 'GET',
@@ -859,9 +887,15 @@ describe('dispatchAnalysis — repo creation on dispatch', () => {
           key_id: 'key-456',
         }),
       },
-      // 8. setRepoSecret — PUT secret
+      // 7. PUT GHAGGA_TOKEN secret
       {
         match: '/actions/secrets/GHAGGA_TOKEN',
+        method: 'PUT',
+        response: mockFetchResponse(204),
+      },
+      // 8. PUT RUNNER_TOKEN secret
+      {
+        match: '/actions/secrets/RUNNER_TOKEN',
         method: 'PUT',
         response: mockFetchResponse(204),
       },
@@ -895,19 +929,13 @@ describe('dispatchAnalysis — repo creation on dispatch', () => {
     setupFetchRoutes([
       // 1. repoExists → 404
       {
-        match: new RegExp(`/repos/${FAKE_OWNER}/ghagga-runner$`),
+        match: new RegExp(`/repos/${RUNNER_ORG}/runner-${FAKE_OWNER}$`),
         method: 'GET',
         response: mockFetchResponse(404),
       },
-      // 2. isOrganization
+      // 2. createRepo → 403 (forbidden)
       {
-        match: `/users/${FAKE_OWNER}`,
-        method: 'GET',
-        response: mockFetchResponse(200, { type: 'User' }),
-      },
-      // 3. createRepo → 403 (forbidden)
-      {
-        match: '/user/repos',
+        match: `/orgs/${RUNNER_ORG}/repos`,
         method: 'POST',
         response: mockFetchText(403, 'Forbidden: insufficient permissions'),
       },
@@ -929,7 +957,7 @@ describe('dispatchAnalysis — repo creation on dispatch', () => {
 });
 
 describe('sealed box encryption (setRepoSecret)', () => {
-  it('calls libsodium to encrypt and PUTs the encrypted secret', async () => {
+  it('calls libsodium to encrypt and PUTs both GHAGGA_TOKEN and RUNNER_TOKEN secrets', async () => {
     const dispatchContext = {
       repoFullName: 'test-owner/my-app',
       prNumber: 1,
@@ -939,12 +967,12 @@ describe('sealed box encryption (setRepoSecret)', () => {
       callbackUrl: 'https://example.com/callback',
     };
 
-    let secretPutBody: Record<string, unknown> | undefined;
+    const secretPutBodies: Record<string, Record<string, unknown>> = {};
 
     setupFetchRoutes([
       // 1. repoExists → 200
       {
-        match: new RegExp(`/repos/${FAKE_OWNER}/ghagga-runner$`),
+        match: new RegExp(`/repos/${RUNNER_ORG}/runner-${FAKE_OWNER}$`),
         method: 'GET',
         response: mockFetchResponse(200, {}),
       },
@@ -966,16 +994,25 @@ describe('sealed box encryption (setRepoSecret)', () => {
           key_id: 'sealed-box-key-id',
         }),
       },
-      // 4. PUT secret
+      // 4. PUT GHAGGA_TOKEN secret
       {
         match: '/actions/secrets/GHAGGA_TOKEN',
         method: 'PUT',
         response: (_url, init) => {
-          secretPutBody = JSON.parse(init?.body as string);
+          secretPutBodies.GHAGGA_TOKEN = JSON.parse(init?.body as string);
           return mockFetchResponse(204);
         },
       },
-      // 5. dispatch
+      // 5. PUT RUNNER_TOKEN secret
+      {
+        match: '/actions/secrets/RUNNER_TOKEN',
+        method: 'PUT',
+        response: (_url, init) => {
+          secretPutBodies.RUNNER_TOKEN = JSON.parse(init?.body as string);
+          return mockFetchResponse(204);
+        },
+      },
+      // 6. dispatch
       {
         match: '/dispatches',
         method: 'POST',
@@ -994,15 +1031,23 @@ describe('sealed box encryption (setRepoSecret)', () => {
 
     expect(result.dispatched).toBe(true);
 
-    // Verify libsodium functions were called
+    // Verify libsodium functions were called for encryption
     expect(mockSodium.from_base64).toHaveBeenCalled();
-    expect(mockSodium.from_string).toHaveBeenCalledWith(FAKE_TOKEN);
     expect(mockSodium.crypto_box_seal).toHaveBeenCalled();
     expect(mockSodium.to_base64).toHaveBeenCalled();
 
-    // Verify the PUT body contains encrypted_value and key_id
-    expect(secretPutBody).toBeDefined();
-    expect(secretPutBody!.encrypted_value).toBe('bW9ja19lbmNyeXB0ZWRfdmFsdWU=');
-    expect(secretPutBody!.key_id).toBe('sealed-box-key-id');
+    // Verify GHAGGA_TOKEN was encrypted with userToken
+    expect(mockSodium.from_string).toHaveBeenCalledWith(FAKE_USER_TOKEN);
+    // Verify RUNNER_TOKEN was encrypted with runnerToken
+    expect(mockSodium.from_string).toHaveBeenCalledWith(FAKE_RUNNER_TOKEN);
+
+    // Verify BOTH PUT bodies contain encrypted_value and key_id
+    expect(secretPutBodies.GHAGGA_TOKEN).toBeDefined();
+    expect(secretPutBodies.GHAGGA_TOKEN!.encrypted_value).toBe('bW9ja19lbmNyeXB0ZWRfdmFsdWU=');
+    expect(secretPutBodies.GHAGGA_TOKEN!.key_id).toBe('sealed-box-key-id');
+
+    expect(secretPutBodies.RUNNER_TOKEN).toBeDefined();
+    expect(secretPutBodies.RUNNER_TOKEN!.encrypted_value).toBe('bW9ja19lbmNyeXB0ZWRfdmFsdWU=');
+    expect(secretPutBodies.RUNNER_TOKEN!.key_id).toBe('sealed-box-key-id');
   });
 });
