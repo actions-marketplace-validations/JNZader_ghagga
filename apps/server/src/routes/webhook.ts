@@ -13,6 +13,7 @@ import {
   verifyWebhookSignature,
   addCommentReaction,
   getInstallationToken,
+  fetchPRDetails,
 } from '../github/client.js';
 import { ensureRunnerRepo, deleteRunnerRepo } from '../github/runner.js';
 import { inngest } from '../inngest/client.js';
@@ -326,24 +327,43 @@ async function handleIssueComment(
     return c.json({ message: 'Repository not tracked' }, 200);
   }
 
-  // React with 👀 to acknowledge the trigger
+  // React with 👀 to acknowledge the trigger and fetch PR details for headSha/baseBranch
   const appId = process.env.GITHUB_APP_ID;
   const privateKey = process.env.GITHUB_PRIVATE_KEY;
   const [owner, repoName] = payload.repository.full_name.split('/') as [string, string];
+  const prNumber = payload.issue.number;
+
+  let installationToken: string | undefined;
+  let headSha: string | undefined;
+  let baseBranch: string | undefined;
 
   if (appId && privateKey) {
     try {
-      const token = await getInstallationToken(payload.installation.id, appId, privateKey);
-      await addCommentReaction(owner, repoName, payload.comment.id, 'eyes', token);
+      installationToken = await getInstallationToken(payload.installation.id, appId, privateKey);
+      await addCommentReaction(owner, repoName, payload.comment.id, 'eyes', installationToken);
     } catch (error) {
       // Non-critical — don't fail the review
       logger.warn({ repo: payload.repository.full_name, error: String(error) }, 'Failed to add acknowledgment reaction');
+    }
+
+    // Fetch PR details to get headSha and baseBranch for runner dispatch
+    if (installationToken) {
+      try {
+        const prDetails = await fetchPRDetails(owner, repoName, prNumber, installationToken);
+        headSha = prDetails.headSha;
+        baseBranch = prDetails.baseBranch;
+      } catch (error) {
+        // Non-critical — review will proceed without static analysis runner
+        logger.warn(
+          { repo: payload.repository.full_name, pr: prNumber, error: String(error) },
+          'Failed to fetch PR details for comment trigger, runner dispatch will be skipped',
+        );
+      }
     }
   }
 
   // Resolve effective settings and dispatch review
   const effective = await getEffectiveRepoSettings(db, repo);
-  const prNumber = payload.issue.number;
 
   await inngest.send({
     name: 'ghagga/review.requested',
@@ -353,6 +373,9 @@ async function handleIssueComment(
       prNumber,
       repositoryId: repo.id,
       triggerCommentId: payload.comment.id,
+      // PR context for runner dispatch (fetched from GitHub API)
+      headSha,
+      baseBranch,
       providerChain: effective.providerChain,
       aiReviewEnabled: effective.aiReviewEnabled,
       llmProvider: repo.llmProvider,

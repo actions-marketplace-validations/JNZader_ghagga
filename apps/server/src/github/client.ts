@@ -10,6 +10,40 @@ import { createHmac, createSign, timingSafeEqual } from 'node:crypto';
 // ─── PR Data ────────────────────────────────────────────────────
 
 /**
+ * Fetch pull request details (head SHA, base branch, etc.).
+ * Used by the issue_comment handler to enrich the Inngest event.
+ */
+export async function fetchPRDetails(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  token: string,
+): Promise<{ headSha: string; baseBranch: string }> {
+  const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`;
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github.v3+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `GitHub API error fetching PR details: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const data = (await response.json()) as {
+    head: { sha: string };
+    base: { ref: string };
+  };
+
+  return { headSha: data.head.sha, baseBranch: data.base.ref };
+}
+
+/**
  * Fetch the unified diff for a pull request.
  */
 export async function fetchPRDiff(

@@ -35,12 +35,14 @@ vi.mock('../inngest/client.js', () => ({
 // Mock GitHub client functions used by issue_comment handler
 const mockAddCommentReaction = vi.fn();
 const mockGetInstallationToken = vi.fn();
+const mockFetchPRDetails = vi.fn();
 vi.mock('../github/client.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../github/client.js')>();
   return {
     ...original,
     addCommentReaction: (...args: unknown[]) => mockAddCommentReaction(...args),
     getInstallationToken: (...args: unknown[]) => mockGetInstallationToken(...args),
+    fetchPRDetails: (...args: unknown[]) => mockFetchPRDetails(...args),
   };
 });
 
@@ -117,6 +119,7 @@ beforeEach(() => {
   mockGetRepoByGithubId.mockResolvedValue(null);
   mockAddCommentReaction.mockResolvedValue(undefined);
   mockGetInstallationToken.mockResolvedValue('fake-installation-token');
+  mockFetchPRDetails.mockResolvedValue({ headSha: 'pr-head-sha-abc', baseBranch: 'main' });
   mockGetEffectiveRepoSettings.mockResolvedValue({
     providerChain: [],
     aiReviewEnabled: true,
@@ -465,6 +468,38 @@ describe('issue_comment event handling', () => {
     expect(sendArg.name).toBe('ghagga/review.requested');
     expect(sendArg.data.prNumber).toBe(42);
     expect(sendArg.data.triggerCommentId).toBe(777);
+    expect(sendArg.data.headSha).toBe('pr-head-sha-abc');
+    expect(sendArg.data.baseBranch).toBe('main');
+  });
+
+  it('fetches PR details to include headSha and baseBranch', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    mockFetchPRDetails.mockResolvedValue({ headSha: 'def456', baseBranch: 'develop' });
+    const body = JSON.stringify(commentPayload);
+    const req = makeRequest(body, 'issue_comment');
+    await router.fetch(req);
+
+    expect(mockFetchPRDetails).toHaveBeenCalledWith(
+      'owner', 'repo', 42, 'fake-installation-token',
+    );
+    const sendArg = mockInngestSend.mock.calls[0]![0];
+    expect(sendArg.data.headSha).toBe('def456');
+    expect(sendArg.data.baseBranch).toBe('develop');
+  });
+
+  it('dispatches review without headSha when PR details fetch fails', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    mockFetchPRDetails.mockRejectedValue(new Error('API rate limit'));
+    const body = JSON.stringify(commentPayload);
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    // Should still dispatch the review (LLM-only, no runner)
+    expect(res.status).toBe(202);
+    expect(mockInngestSend).toHaveBeenCalledOnce();
+    const sendArg = mockInngestSend.mock.calls[0]![0];
+    expect(sendArg.data.headSha).toBeUndefined();
+    expect(sendArg.data.baseBranch).toBeUndefined();
   });
 
   it('adds 👀 reaction to acknowledge the trigger', async () => {
