@@ -99,6 +99,13 @@ export interface ReviewInput {
    * Called at each pipeline step with status updates.
    */
   onProgress?: ProgressCallback;
+
+  /**
+   * Pre-computed static analysis results from an external runner (e.g., GitHub Actions).
+   * When provided, the pipeline skips local tool execution and uses these results directly.
+   * Undefined in CLI/Action modes where tools run locally.
+   */
+  precomputedStaticAnalysis?: StaticAnalysisResult;
 }
 
 export interface ReviewSettings {

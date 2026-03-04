@@ -124,10 +124,16 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
   });
 
   // ── Step 5: Run static analysis (in parallel with memory) ──
-  // Memory search is only useful when AI is enabled (it provides LLM context)
-  emit({ step: 'static-analysis', message: 'Running static analysis & memory search...' });
+  // If precomputed results are available (from GitHub Actions runner), use those directly.
+  // Otherwise, run tools locally (CLI/Action modes).
+  emit({ step: 'static-analysis', message: input.precomputedStaticAnalysis
+    ? 'Using precomputed static analysis from runner...'
+    : 'Running static analysis & memory search...',
+  });
   const [staticResult, memoryContext] = await Promise.all([
-    runStaticAnalysisSafe(fileList, input),
+    input.precomputedStaticAnalysis
+      ? Promise.resolve(input.precomputedStaticAnalysis)
+      : runStaticAnalysisSafe(fileList, input),
     aiEnabled ? searchMemorySafe(input, fileList) : Promise.resolve(null),
   ]);
 
