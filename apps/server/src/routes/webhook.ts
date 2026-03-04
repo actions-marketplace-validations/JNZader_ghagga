@@ -15,7 +15,6 @@ import {
   getInstallationToken,
   fetchPRDetails,
 } from '../github/client.js';
-import { ensureRunnerRepo, deleteRunnerRepo } from '../github/runner.js';
 import { inngest } from '../inngest/client.js';
 import { logger as rootLogger } from '../lib/logger.js';
 import {
@@ -246,7 +245,6 @@ async function handlePullRequest(
       repoFullName: payload.repository.full_name,
       prNumber: payload.number,
       repositoryId: repo.id,
-      // PR context for runner dispatch
       headSha: payload.pull_request.head.sha,
       baseBranch: payload.pull_request.base.ref,
       // Resolved provider chain (from global or repo)
@@ -327,7 +325,7 @@ async function handleIssueComment(
     return c.json({ message: 'Repository not tracked' }, 200);
   }
 
-  // React with 👀 to acknowledge the trigger and fetch PR details for headSha/baseBranch
+   // React with 👀 to acknowledge the trigger and fetch PR details
   const appId = process.env.GITHUB_APP_ID;
   const privateKey = process.env.GITHUB_PRIVATE_KEY;
   const [owner, repoName] = payload.repository.full_name.split('/') as [string, string];
@@ -346,17 +344,17 @@ async function handleIssueComment(
       logger.warn({ repo: payload.repository.full_name, error: String(error) }, 'Failed to add acknowledgment reaction');
     }
 
-    // Fetch PR details to get headSha and baseBranch for runner dispatch
+    // Fetch PR details to get headSha and baseBranch
     if (installationToken) {
       try {
         const prDetails = await fetchPRDetails(owner, repoName, prNumber, installationToken);
         headSha = prDetails.headSha;
         baseBranch = prDetails.baseBranch;
       } catch (error) {
-        // Non-critical — review will proceed without static analysis runner
+        // Non-critical — review will proceed without headSha/baseBranch
         logger.warn(
           { repo: payload.repository.full_name, pr: prNumber, error: String(error) },
-          'Failed to fetch PR details for comment trigger, runner dispatch will be skipped',
+          'Failed to fetch PR details for comment trigger',
         );
       }
     }
@@ -373,7 +371,6 @@ async function handleIssueComment(
       prNumber,
       repositoryId: repo.id,
       triggerCommentId: payload.comment.id,
-      // PR context for runner dispatch (fetched from GitHub API)
       headSha,
       baseBranch,
       providerChain: effective.providerChain,
@@ -441,17 +438,6 @@ async function handleInstallation(
       'Installation created',
     );
 
-    // Create runner repo for static analysis (fire-and-forget)
-    const appId = process.env.GITHUB_APP_ID!;
-    const privateKey = process.env.GITHUB_PRIVATE_KEY!;
-    ensureRunnerRepo(installation.account.login, installation.id, appId, privateKey)
-      .then((result) => {
-        logger.info({ owner: installation.account.login, created: result.created }, 'Runner repo ensured');
-      })
-      .catch((err) => {
-        logger.warn({ owner: installation.account.login, error: err instanceof Error ? err.message : String(err) }, 'Runner repo creation failed');
-      });
-
     return c.json({ message: 'Installation tracked' }, 200);
   }
 
@@ -462,14 +448,6 @@ async function handleInstallation(
       { account: installation.account.login, installationId: installation.id },
       'Installation deactivated',
     );
-
-    // Delete runner repo (fire-and-forget, best-effort)
-    const appId = process.env.GITHUB_APP_ID!;
-    const privateKey = process.env.GITHUB_PRIVATE_KEY!;
-    deleteRunnerRepo(installation.account.login, installation.id, appId, privateKey)
-      .catch((err) => {
-        logger.warn({ owner: installation.account.login, error: err instanceof Error ? err.message : String(err) }, 'Runner repo deletion failed');
-      });
 
     return c.json({ message: 'Installation deactivated' }, 200);
   }

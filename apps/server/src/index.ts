@@ -19,7 +19,6 @@ import { inngest } from './inngest/client.js';
 import { reviewFunction } from './inngest/review.js';
 import { createWebhookRouter } from './routes/webhook.js';
 import { createOAuthRouter } from './routes/oauth.js';
-import { createRunnerCallbackRouter } from './routes/runner-callback.js';
 import { createApiRouter } from './routes/api.js';
 import { authMiddleware } from './middleware/auth.js';
 
@@ -78,11 +77,11 @@ app.get('/health', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Static analysis tools now run in GitHub Actions runners (not on this server)
+// Static analysis tools run locally in the GitHub Action (not on this server)
 app.get('/health/tools', (c) => {
   return c.json({
-    architecture: 'github-actions-runner',
-    note: 'Static analysis tools (Semgrep, Trivy, PMD/CPD) run in per-user GitHub Actions runners, not on this server.',
+    architecture: 'github-action-local',
+    note: 'Static analysis tools (Semgrep, Trivy, PMD/CPD) run locally in the GitHub Action on the PR runner.',
     tools: ['semgrep', 'trivy', 'cpd'],
   });
 });
@@ -94,10 +93,6 @@ app.route('/', webhookRouter);
 // OAuth proxy routes (no auth required — used during login)
 const oauthRouter = createOAuthRouter();
 app.route('/', oauthRouter);
-
-// Runner callback route (before auth middleware — uses HMAC authentication)
-const runnerCallbackRouter = createRunnerCallbackRouter();
-app.route('/', runnerCallbackRouter);
 
 // Inngest serve endpoint (before auth middleware — Inngest uses its own signing)
 app.on(

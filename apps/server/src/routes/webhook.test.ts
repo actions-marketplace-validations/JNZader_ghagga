@@ -494,7 +494,7 @@ describe('issue_comment event handling', () => {
     const req = makeRequest(body, 'issue_comment');
     const res = await router.fetch(req);
 
-    // Should still dispatch the review (LLM-only, no runner)
+    // Should still dispatch the review without headSha/baseBranch
     expect(res.status).toBe(202);
     expect(mockInngestSend).toHaveBeenCalledOnce();
     const sendArg = mockInngestSend.mock.calls[0]![0];

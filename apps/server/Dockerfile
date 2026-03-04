@@ -72,9 +72,6 @@ COPY --from=builder /app/apps/server/dist ./apps/server/dist
 COPY --from=builder /app/apps/server/package.json ./apps/server/
 COPY --from=builder /app/apps/server/node_modules ./apps/server/node_modules
 
-# Runner workflow template (read at startup for SHA-256 hash verification)
-COPY templates/runner-workflow.yml ./templates/runner-workflow.yml
-
 ENV NODE_ENV=production
 
 # Startup: run migrations then start server
