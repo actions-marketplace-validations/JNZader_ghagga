@@ -19,6 +19,7 @@ import { inngest } from './inngest/client.js';
 import { reviewFunction } from './inngest/review.js';
 import { createWebhookRouter } from './routes/webhook.js';
 import { createOAuthRouter } from './routes/oauth.js';
+import { createRunnerCallbackRouter } from './routes/runner-callback.js';
 import { createApiRouter } from './routes/api.js';
 import { authMiddleware } from './middleware/auth.js';
 
@@ -77,36 +78,12 @@ app.get('/health', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Diagnostic endpoint — check static analysis tool availability
-app.get('/health/tools', async (c) => {
-  const { execFile } = await import('node:child_process');
-  const { promisify } = await import('node:util');
-  const exec = promisify(execFile);
-
-  const checkTool = async (cmd: string, args: string[]): Promise<{ available: boolean; version?: string; note?: string }> => {
-    try {
-      const { stdout } = await exec(cmd, args, { timeout: 10_000 });
-      return { available: true, version: stdout.trim().split('\n')[0] };
-    } catch {
-      return { available: false, note: 'Not available — skipped gracefully during reviews' };
-    }
-  };
-
-  const [semgrep, trivy, pmd] = await Promise.all([
-    checkTool('semgrep', ['--version']),
-    checkTool('trivy', ['--version']),
-    checkTool('pmd', ['--version']),
-  ]);
-
-  const available = [semgrep, trivy, pmd].filter((t) => t.available).length;
-  const total = 3;
-
+// Static analysis tools now run in GitHub Actions runners (not on this server)
+app.get('/health/tools', (c) => {
   return c.json({
-    summary: `${available}/${total} tools available`,
-    note: available < total
-      ? 'Unavailable tools are skipped gracefully. Semgrep and PMD require >512MB RAM — upgrade your hosting plan for full static analysis.'
-      : 'All static analysis tools operational.',
-    tools: { semgrep, trivy, pmd },
+    architecture: 'github-actions-runner',
+    note: 'Static analysis tools (Semgrep, Trivy, PMD/CPD) run in per-user GitHub Actions runners, not on this server.',
+    tools: ['semgrep', 'trivy', 'cpd'],
   });
 });
 
@@ -117,6 +94,10 @@ app.route('/', webhookRouter);
 // OAuth proxy routes (no auth required — used during login)
 const oauthRouter = createOAuthRouter();
 app.route('/', oauthRouter);
+
+// Runner callback route (before auth middleware — uses HMAC authentication)
+const runnerCallbackRouter = createRunnerCallbackRouter();
+app.route('/', runnerCallbackRouter);
 
 // Inngest serve endpoint (before auth middleware — Inngest uses its own signing)
 app.on(

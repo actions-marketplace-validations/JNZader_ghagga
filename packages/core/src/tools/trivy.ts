@@ -10,6 +10,10 @@ import type { ToolResult, ReviewFinding, FindingSeverity } from '../types.js';
 const execFileAsync = promisify(execFile);
 const TIMEOUT_MS = 120_000; // Trivy can be slow on first run (downloading DB)
 
+function resolveTrivyBinary(): string {
+  return process.env.TRIVY_PATH ?? 'trivy';
+}
+
 interface TrivyResult {
   Results?: Array<{
     Target: string;
@@ -47,9 +51,11 @@ export function mapSeverity(trivySeverity: string): FindingSeverity {
 export async function runTrivy(scanPath: string): Promise<ToolResult> {
   const start = Date.now();
 
+  const trivyBin = resolveTrivyBinary();
+
   try {
     // Check if trivy is available
-    await execFileAsync('trivy', ['--version'], { timeout: 5_000 });
+    await execFileAsync(trivyBin, ['--version'], { timeout: 5_000 });
   } catch {
     return {
       status: 'skipped',
@@ -61,7 +67,7 @@ export async function runTrivy(scanPath: string): Promise<ToolResult> {
 
   try {
     const { stdout } = await execFileAsync(
-      'trivy',
+      trivyBin,
       ['fs', '--format', 'json', '--scanners', 'vuln', '--quiet', scanPath],
       { timeout: TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
     );

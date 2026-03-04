@@ -1,6 +1,9 @@
 /**
  * Static analysis tool runner.
- * Runs Semgrep, Trivy, and CPD in parallel and merges results.
+ * Runs Semgrep, Trivy, and CPD sequentially to avoid memory pressure.
+ *
+ * These tools are run one at a time because running them in parallel
+ * (Python + JVM + Go) can exceed container memory limits (2GB on Cloud Run).
  */
 
 import { runSemgrep } from './semgrep.js';
@@ -16,7 +19,23 @@ const SKIPPED_RESULT: ToolResult = {
 };
 
 /**
- * Run all enabled static analysis tools in parallel.
+ * Safely run a tool, catching any errors.
+ */
+async function safeRun(fn: () => Promise<ToolResult>): Promise<ToolResult> {
+  try {
+    return await fn();
+  } catch (error) {
+    return {
+      status: 'error',
+      findings: [],
+      error: String(error instanceof Error ? error.message : error),
+      executionTimeMs: 0,
+    };
+  }
+}
+
+/**
+ * Run all enabled static analysis tools sequentially.
  *
  * @param files - Map of file paths to file contents (for Semgrep)
  * @param scanPath - Directory path on disk (for Trivy and CPD)
@@ -27,23 +46,26 @@ export async function runStaticAnalysis(
   scanPath: string,
   settings: Pick<ReviewSettings, 'enableSemgrep' | 'enableTrivy' | 'enableCpd' | 'customRules'>,
 ): Promise<StaticAnalysisResult> {
-  const [semgrepResult, trivyResult, cpdResult] = await Promise.allSettled([
-    settings.enableSemgrep ? runSemgrep(files) : Promise.resolve(SKIPPED_RESULT),
-    settings.enableTrivy ? runTrivy(scanPath) : Promise.resolve(SKIPPED_RESULT),
-    settings.enableCpd ? runCpd(scanPath) : Promise.resolve(SKIPPED_RESULT),
-  ]);
+  // Run sequentially to avoid OOM in memory-constrained containers.
+  // Order: Trivy (lightest, Go binary) → Semgrep (Python) → CPD (JVM, heaviest)
+  console.log('[ghagga:tools] Running static analysis sequentially...');
 
-  return {
-    semgrep: semgrepResult.status === 'fulfilled'
-      ? semgrepResult.value
-      : { status: 'error', findings: [], error: String(semgrepResult.reason), executionTimeMs: 0 },
-    trivy: trivyResult.status === 'fulfilled'
-      ? trivyResult.value
-      : { status: 'error', findings: [], error: String(trivyResult.reason), executionTimeMs: 0 },
-    cpd: cpdResult.status === 'fulfilled'
-      ? cpdResult.value
-      : { status: 'error', findings: [], error: String(cpdResult.reason), executionTimeMs: 0 },
-  };
+  const trivyResult = settings.enableTrivy
+    ? await safeRun(() => runTrivy(scanPath))
+    : SKIPPED_RESULT;
+  console.log(`[ghagga:tools] Trivy: ${trivyResult.status} (${trivyResult.findings.length} findings)`);
+
+  const semgrepResult = settings.enableSemgrep
+    ? await safeRun(() => runSemgrep(files))
+    : SKIPPED_RESULT;
+  console.log(`[ghagga:tools] Semgrep: ${semgrepResult.status} (${semgrepResult.findings.length} findings)`);
+
+  const cpdResult = settings.enableCpd
+    ? await safeRun(() => runCpd(scanPath))
+    : SKIPPED_RESULT;
+  console.log(`[ghagga:tools] CPD: ${cpdResult.status} (${cpdResult.findings.length} findings)`);
+
+  return { semgrep: semgrepResult, trivy: trivyResult, cpd: cpdResult };
 }
 
 /**

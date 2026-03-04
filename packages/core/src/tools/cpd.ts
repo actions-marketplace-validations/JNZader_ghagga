@@ -65,19 +65,30 @@ export function parseCpdXml(xml: string, basePath: string): ReviewFinding[] {
  * and `pmd cpd` (PMD 7+ CLI).
  */
 async function findCpdBinary(): Promise<{ cmd: string; args: string[] } | null> {
-  // Try standalone cpd first
-  try {
-    await execFileAsync('cpd', ['--help'], { timeout: 5_000 });
-    return { cmd: 'cpd', args: [] };
-  } catch {
-    // Try pmd CLI (PMD 7+)
+  // Try standalone cpd first (with absolute path fallback)
+  const cpdPaths = ['cpd', '/usr/local/bin/cpd'];
+  for (const cmd of cpdPaths) {
     try {
-      await execFileAsync('pmd', ['cpd', '--help'], { timeout: 5_000 });
-      return { cmd: 'pmd', args: ['cpd'] };
+      await execFileAsync(cmd, ['--help'], { timeout: 5_000 });
+      return { cmd, args: [] };
     } catch {
-      return null;
+      // Continue to next
     }
   }
+
+  // Try pmd CLI (PMD 7+) with absolute path fallback
+  const pmdPaths = ['pmd', '/usr/local/bin/pmd', '/opt/pmd/bin/pmd'];
+  for (const cmd of pmdPaths) {
+    try {
+      await execFileAsync(cmd, ['cpd', '--help'], { timeout: 5_000 });
+      console.log(`[ghagga:cpd] Found pmd at: ${cmd}`);
+      return { cmd, args: ['cpd'] };
+    } catch {
+      // Continue to next
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -92,6 +103,7 @@ export async function runCpd(
 
   const binary = await findCpdBinary();
   if (!binary) {
+    console.error('[ghagga:cpd] Binary check FAILED: neither cpd nor pmd found');
     return {
       status: 'skipped',
       findings: [],
@@ -99,6 +111,7 @@ export async function runCpd(
       executionTimeMs: Date.now() - start,
     };
   }
+  console.log(`[ghagga:cpd] Binary found: ${binary.cmd} ${binary.args.join(' ')}`);
 
   try {
     const args = [

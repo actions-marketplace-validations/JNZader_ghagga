@@ -10,10 +10,11 @@ rules:
     patterns:
       - pattern-either:
           - pattern: $VAR = "..."
-          - pattern: "$VAR": "..."
-    metavariable-regex:
-      metavariable: $VAR
-      regex: (?i)(password|secret|api_key|apikey|token|credentials|auth)
+          - pattern: |
+              "$VAR": "..."
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: (?i)(password|secret|api_key|apikey|token|credentials|auth)
     message: "Possible hardcoded secret. Use environment variables."
     severity: ERROR
     languages: [java, kotlin, javascript, typescript, python, go, rust]

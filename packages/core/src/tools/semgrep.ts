@@ -17,6 +17,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const RULES_PATH = join(__dirname, 'semgrep-rules.yml');
 const TIMEOUT_MS = 60_000;
 
+/**
+ * Resolve the semgrep binary path.
+ * Uses SEMGREP_PATH env var if set, otherwise falls back to PATH lookup.
+ */
+function resolveSemgrepBinary(): string {
+  return process.env.SEMGREP_PATH ?? 'semgrep';
+}
+
 interface SemgrepResult {
   results: Array<{
     check_id: string;
@@ -55,14 +63,21 @@ export async function runSemgrep(
 ): Promise<ToolResult> {
   const start = Date.now();
 
+  const semgrepBin = resolveSemgrepBinary();
+
   try {
     // Check if semgrep is available
-    await execFileAsync('semgrep', ['--version'], { timeout: 5_000 });
-  } catch {
+    const { stdout: semVer } = await execFileAsync(semgrepBin, ['--version'], { timeout: 10_000 });
+    console.log(`[ghagga:semgrep] Version check OK (${semgrepBin}): ${semVer.trim()}`);
+  } catch (err: any) {
+    const stderr = err?.stderr ?? '';
+    const code = err?.code ?? '';
+    const signal = err?.signal ?? '';
+    console.error(`[ghagga:semgrep] Version check FAILED (${semgrepBin}): code=${code} signal=${signal} stderr=${stderr} message=${err?.message}`);
     return {
       status: 'skipped',
       findings: [],
-      error: 'Semgrep not available. Install with: pip install semgrep',
+      error: `Semgrep not available: ${err?.message}`,
       executionTimeMs: Date.now() - start,
     };
   }
@@ -84,13 +99,14 @@ export async function runSemgrep(
     }
 
     // Run semgrep
+    console.log(`[ghagga:semgrep] Scanning ${files.size} files in ${tempDir}, rules: ${RULES_PATH}`);
     const configArgs = ['--config', RULES_PATH];
     if (customRulesPath) {
       configArgs.push('--config', customRulesPath);
     }
 
     const { stdout } = await execFileAsync(
-      'semgrep',
+      semgrepBin,
       ['--json', ...configArgs, tempDir],
       { timeout: TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
     );
@@ -112,7 +128,10 @@ export async function runSemgrep(
       findings,
       executionTimeMs: Date.now() - start,
     };
-  } catch (error) {
+  } catch (error: any) {
+    const stderr = error?.stderr ?? '';
+    const stdout = error?.stdout ?? '';
+    console.error(`[ghagga:semgrep] Scan FAILED: ${error?.message}\n  stderr: ${stderr.substring(0, 500)}\n  stdout: ${stdout.substring(0, 500)}`);
     return {
       status: 'error',
       findings: [],
