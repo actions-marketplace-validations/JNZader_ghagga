@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/stryker-mutator/stryker/master/packages/core/schema/stryker-schema.json",
+  "mutate": [
+    "src/tools/**/*.ts",
+    "!src/tools/**/__tests__/**",
+    "!src/tools/types.ts",
+    "!src/tools/index.ts"
+  ],
+  "testRunner": "vitest",
+  "checkers": ["typescript"],
+  "plugins": [
+    "@stryker-mutator/vitest-runner",
+    "@stryker-mutator/typescript-checker"
+  ],
+  "tsconfigFile": "tsconfig.json",
+  "reporters": ["clear-text", "html", "progress"],
+  "thresholds": {
+    "high": 80,
+    "low": 60,
+    "break": 60
+  },
+  "timeoutMS": 60000,
+  "concurrency": 2
+}
