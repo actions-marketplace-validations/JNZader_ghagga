@@ -82,15 +82,33 @@ export async function ensureRunnerRepo(
     logger.info({ owner, repo: runnerRepoFullName(owner) }, 'Creating runner repo');
     await createRepo(owner, token);
 
+    // Wait for GitHub to propagate the repo to the installation (longer delay)
+    logger.info({ owner, repo: runnerRepoFullName(owner) }, 'Waiting for GitHub to propagate repo to installation...');
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+
     // IMPORTANT: GitHub auto-adds the new repo to the installation, but the
     // current token was issued BEFORE the repo was added. We need a fresh token
     // that includes the new repo in its scope.
     logger.info({ owner, repo: runnerRepoFullName(owner) }, 'Refreshing token after repo creation');
     const freshToken = await getInstallationToken(RUNNER_INSTALLATION_ID, appId, privateKey);
 
-    await commitWorkflowFile(owner, freshToken);
-    await setLogRetention(owner, freshToken);
-    return { created: true, existed: false };
+    // Retry commit with exponential backoff (GitHub propagation can be slow)
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await commitWorkflowFile(owner, freshToken);
+        await setLogRetention(owner, freshToken);
+        return { created: true, existed: false };
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        logger.warn({ owner, repo: runnerRepoFullName(owner), attempt, error: errorMsg }, 'Workflow commit failed, retrying...');
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+        }
+      }
+    }
+    // If all retries fail, throw the error
+    throw new Error(`Failed to commit workflow after ${maxRetries} attempts`);
   }
 
   // Repo exists — verify workflow integrity
