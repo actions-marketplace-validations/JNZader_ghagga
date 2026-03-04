@@ -14,7 +14,9 @@ import {
   addCommentReaction,
   getInstallationToken,
 } from '../github/client.js';
+import { ensureRunnerRepo, deleteRunnerRepo } from '../github/runner.js';
 import { inngest } from '../inngest/client.js';
+import { logger as rootLogger } from '../lib/logger.js';
 import {
   upsertInstallation,
   deactivateInstallation,
@@ -23,6 +25,8 @@ import {
   getEffectiveRepoSettings,
 } from 'ghagga-db';
 import type { Database } from 'ghagga-db';
+
+const logger = rootLogger.child({ module: 'webhook' });
 
 // ─── Minimal Webhook Event Types ────────────────────────────────
 
@@ -143,7 +147,7 @@ export function createWebhookRouter(db: Database) {
     const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
 
     if (!webhookSecret) {
-      console.error('[ghagga] GITHUB_WEBHOOK_SECRET is not set');
+      logger.error('GITHUB_WEBHOOK_SECRET is not set');
       return c.json({ error: 'Server misconfiguration' }, 500);
     }
 
@@ -192,7 +196,7 @@ export function createWebhookRouter(db: Database) {
           return c.json({ message: `Event ${eventType} ignored` }, 200);
       }
     } catch (error) {
-      console.error(`[ghagga] Error handling ${eventType} webhook:`, error);
+      logger.error({ eventType, error: String(error) }, 'Error handling webhook event');
       return c.json({ error: 'Internal server error' }, 500);
     }
   });
@@ -221,9 +225,7 @@ async function handlePullRequest(
   const repo = await getRepoByGithubId(db, payload.repository.id);
 
   if (!repo) {
-    console.warn(
-      `[ghagga] Received PR webhook for unknown repo ${payload.repository.full_name}`,
-    );
+    logger.warn({ repo: payload.repository.full_name }, 'Received PR webhook for unknown repo');
     return c.json({ message: 'Repository not tracked' }, 200);
   }
 
@@ -243,6 +245,9 @@ async function handlePullRequest(
       repoFullName: payload.repository.full_name,
       prNumber: payload.number,
       repositoryId: repo.id,
+      // PR context for runner dispatch
+      headSha: payload.pull_request.head.sha,
+      baseBranch: payload.pull_request.base.ref,
       // Resolved provider chain (from global or repo)
       providerChain: effective.providerChain,
       aiReviewEnabled: effective.aiReviewEnabled,
@@ -263,9 +268,7 @@ async function handlePullRequest(
     },
   });
 
-  console.log(
-    `[ghagga] Dispatched review for ${payload.repository.full_name}#${payload.number}`,
-  );
+  logger.info({ repo: payload.repository.full_name, pr: payload.number }, 'Review dispatched');
 
   return c.json(
     {
@@ -304,8 +307,9 @@ async function handleIssueComment(
 
   // Check author association (only contributors/members can trigger)
   if (!ALLOWED_ASSOCIATIONS.has(payload.comment.author_association)) {
-    console.log(
-      `[ghagga] Review trigger rejected: ${payload.comment.user.login} has association ${payload.comment.author_association}`,
+    logger.info(
+      { user: payload.comment.user.login, association: payload.comment.author_association, repo: payload.repository.full_name },
+      'Review trigger rejected: insufficient permissions',
     );
     return c.json({ message: 'Insufficient permissions to trigger review' }, 200);
   }
@@ -318,9 +322,7 @@ async function handleIssueComment(
   const repo = await getRepoByGithubId(db, payload.repository.id);
 
   if (!repo) {
-    console.warn(
-      `[ghagga] Comment trigger for unknown repo ${payload.repository.full_name}`,
-    );
+    logger.warn({ repo: payload.repository.full_name }, 'Comment trigger for unknown repo');
     return c.json({ message: 'Repository not tracked' }, 200);
   }
 
@@ -335,7 +337,7 @@ async function handleIssueComment(
       await addCommentReaction(owner, repoName, payload.comment.id, 'eyes', token);
     } catch (error) {
       // Non-critical — don't fail the review
-      console.warn('[ghagga] Failed to add acknowledgment reaction:', error);
+      logger.warn({ repo: payload.repository.full_name, error: String(error) }, 'Failed to add acknowledgment reaction');
     }
   }
 
@@ -369,8 +371,9 @@ async function handleIssueComment(
     },
   });
 
-  console.log(
-    `[ghagga] Review re-triggered by ${payload.comment.user.login} for ${payload.repository.full_name}#${prNumber}`,
+  logger.info(
+    { repo: payload.repository.full_name, pr: prNumber, triggeredBy: payload.comment.user.login },
+    'Review re-triggered via comment',
   );
 
   return c.json(
@@ -410,9 +413,21 @@ async function handleInstallation(
       }
     }
 
-    console.log(
-      `[ghagga] Installation created: ${installation.account.login} (${installation.id})`,
+    logger.info(
+      { account: installation.account.login, installationId: installation.id },
+      'Installation created',
     );
+
+    // Create runner repo for static analysis (fire-and-forget)
+    const appId = process.env.GITHUB_APP_ID!;
+    const privateKey = process.env.GITHUB_PRIVATE_KEY!;
+    ensureRunnerRepo(installation.account.login, installation.id, appId, privateKey)
+      .then((result) => {
+        logger.info({ owner: installation.account.login, created: result.created }, 'Runner repo ensured');
+      })
+      .catch((err) => {
+        logger.warn({ owner: installation.account.login, error: err instanceof Error ? err.message : String(err) }, 'Runner repo creation failed');
+      });
 
     return c.json({ message: 'Installation tracked' }, 200);
   }
@@ -420,9 +435,18 @@ async function handleInstallation(
   if (action === 'deleted') {
     await deactivateInstallation(db, installation.id);
 
-    console.log(
-      `[ghagga] Installation deactivated: ${installation.account.login} (${installation.id})`,
+    logger.info(
+      { account: installation.account.login, installationId: installation.id },
+      'Installation deactivated',
     );
+
+    // Delete runner repo (fire-and-forget, best-effort)
+    const appId = process.env.GITHUB_APP_ID!;
+    const privateKey = process.env.GITHUB_PRIVATE_KEY!;
+    deleteRunnerRepo(installation.account.login, installation.id, appId, privateKey)
+      .catch((err) => {
+        logger.warn({ owner: installation.account.login, error: err instanceof Error ? err.message : String(err) }, 'Runner repo deletion failed');
+      });
 
     return c.json({ message: 'Installation deactivated' }, 200);
   }
@@ -454,8 +478,9 @@ async function handleInstallationRepositories(
       });
     }
 
-    console.log(
-      `[ghagga] Added ${payload.repositories_added.length} repos to installation ${installation.id}`,
+    logger.info(
+      { installationId: installation.id, count: payload.repositories_added.length },
+      'Repositories added to installation',
     );
   }
 
@@ -468,7 +493,7 @@ async function handleInstallationRepositories(
         // We don't have a dedicated deactivateRepository function,
         // but we can update settings to mark it
         // For now, just log — the repo will still exist but won't receive webhooks
-        console.log(`[ghagga] Repo removed from installation: ${repo.full_name}`);
+        logger.info({ repo: repo.full_name, installationId: installation.id }, 'Repo removed from installation');
       }
     }
   }

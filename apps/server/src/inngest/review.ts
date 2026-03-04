@@ -3,9 +3,12 @@
  *
  * Orchestrates the full review lifecycle:
  *   1. Fetch PR context from GitHub
- *   2. Run the core review pipeline
- *   3. Save results to the database
- *   4. Post the review comment to GitHub
+ *   2. Dispatch static analysis to GitHub Actions runner
+ *   3. Wait for runner callback with results (10m timeout)
+ *   4. Run the core review pipeline (with precomputed static analysis)
+ *   5. Save results to the database
+ *   6. Post the review comment to GitHub
+ *   7. React to trigger comment (if applicable)
  */
 
 import { inngest } from './client.js';
@@ -17,8 +20,12 @@ import {
   postComment,
   addCommentReaction,
 } from '../github/client.js';
+import { dispatchAnalysis } from '../github/runner.js';
+import { logger as rootLogger } from '../lib/logger.js';
 import { reviewPipeline } from 'ghagga-core';
-import type { ReviewInput, ReviewResult, ReviewStatus, ReviewMode, LLMProvider, ReviewLevel, ProviderChainEntry } from 'ghagga-core';
+
+const logger = rootLogger.child({ module: 'review' });
+import type { ReviewInput, ReviewResult, ReviewStatus, ReviewMode, LLMProvider, ReviewLevel, ProviderChainEntry, StaticAnalysisResult } from 'ghagga-core';
 import { createDatabaseFromEnv, saveReview, decrypt } from 'ghagga-db';
 import type { Database, DbProviderChainEntry } from 'ghagga-db';
 
@@ -102,6 +109,8 @@ export const reviewFunction = inngest.createFunction(
       repoFullName,
       prNumber,
       repositoryId,
+      headSha,
+      baseBranch,
       // Comment trigger metadata
       triggerCommentId,
       // Provider chain (new)
@@ -137,7 +146,72 @@ export const reviewFunction = inngest.createFunction(
       return { token, diff, commitMessages, fileList };
     });
 
-    // Step 2: Run the core review pipeline
+    // Step 2: Dispatch static analysis to GitHub Actions runner
+    const dispatchResult = await step.run('dispatch-runner', async () => {
+      const appId = process.env.GITHUB_APP_ID;
+      const privateKey = process.env.GITHUB_PRIVATE_KEY;
+
+      if (!appId || !privateKey) {
+        logger.warn('Missing GITHUB_APP_ID or GITHUB_PRIVATE_KEY, skipping runner dispatch');
+        return { dispatched: false as const, reason: 'Missing GitHub App credentials' };
+      }
+
+      if (!headSha) {
+        logger.warn({ repoFullName, prNumber }, 'Missing headSha, skipping runner dispatch');
+        return { dispatched: false as const, reason: 'Missing headSha' };
+      }
+
+      try {
+        const callbackUrl = `${process.env.RENDER_EXTERNAL_URL ?? 'https://ghagga.onrender.com'}/api/runner-callback`;
+
+        return await dispatchAnalysis(owner, installationId, appId, privateKey, {
+          repoFullName,
+          prNumber,
+          headSha,
+          baseBranch: baseBranch ?? 'main',
+          toolSettings: {
+            enableSemgrep: settings.enableSemgrep,
+            enableTrivy: settings.enableTrivy,
+            enableCpd: settings.enableCpd,
+          },
+          callbackUrl,
+        });
+      } catch (error) {
+        logger.warn({ repoFullName, prNumber, error: String(error) }, 'Runner dispatch failed, proceeding with LLM-only');
+        return { dispatched: false as const, reason: String(error) };
+      }
+    });
+
+    // Step 3: Wait for runner callback with static analysis results
+    let precomputedStaticAnalysis: StaticAnalysisResult | undefined;
+
+    if (dispatchResult.dispatched) {
+      const runnerEvent = await step.waitForEvent('wait-for-runner', {
+        event: 'ghagga/runner.completed',
+        match: 'data.callbackId',
+        timeout: '10m',
+      });
+
+      if (runnerEvent) {
+        precomputedStaticAnalysis = runnerEvent.data.staticAnalysis as StaticAnalysisResult;
+      } else {
+        // Timeout — construct all-skipped result so review can proceed with LLM-only
+        logger.warn({ repoFullName, prNumber }, 'Runner timed out after 10 minutes, proceeding with LLM-only');
+        const skippedTool = {
+          status: 'skipped' as const,
+          findings: [],
+          error: 'Runner timeout (10 min)',
+          executionTimeMs: 0,
+        };
+        precomputedStaticAnalysis = {
+          semgrep: skippedTool,
+          trivy: skippedTool,
+          cpd: skippedTool,
+        };
+      }
+    }
+
+    // Step 4: Run the core review pipeline
     const result = await step.run('run-review', async () => {
       // Build the provider chain (decrypt API keys)
       const dbChain = (rawProviderChain ?? []) as DbProviderChainEntry[];
@@ -151,10 +225,9 @@ export const reviewFunction = inngest.createFunction(
         providerChain = dbChain
           .filter((entry) => {
             if (entry.provider === 'github' && !entry.encryptedApiKey) {
-              console.warn(
-                '[ghagga] Skipping "github" provider in SaaS mode — installation tokens ' +
-                'cannot access GitHub Models. Configure a provider with an API key ' +
-                '(Anthropic, OpenAI, Google, or Qwen) in the dashboard.',
+              logger.warn(
+                { repoFullName, provider: 'github' },
+                'Skipping "github" provider in SaaS mode — installation tokens cannot access GitHub Models',
               );
               return false;
             }
@@ -186,9 +259,9 @@ export const reviewFunction = inngest.createFunction(
 
         // GitHub Models cannot work in SaaS mode (installation tokens lack models:read)
         if (legacyProvider === 'github' && !encryptedApiKey) {
-          console.warn(
-            '[ghagga] Provider "github" (GitHub Models) is not available in SaaS/webhook mode. ' +
-            'Configure a provider with an API key in the dashboard.',
+          logger.warn(
+            { repoFullName, provider: 'github' },
+            'Provider "github" (GitHub Models) not available in SaaS/webhook mode — disabling AI review',
           );
           // Disable AI review — will return static-only results
           legacyProvider = undefined;
@@ -212,7 +285,7 @@ export const reviewFunction = inngest.createFunction(
         db = createDatabaseFromEnv();
       } catch {
         // Memory features degrade gracefully without DB
-        console.warn('[ghagga] Database unavailable for memory features');
+        logger.warn({ repoFullName }, 'Database unavailable for memory features');
       }
 
       const input: ReviewInput = {
@@ -241,12 +314,13 @@ export const reviewFunction = inngest.createFunction(
           fileList: context.fileList,
         },
         db,
+        precomputedStaticAnalysis,
       };
 
       return await reviewPipeline(input);
     });
 
-    // Step 3: Save review to database
+    // Step 5: Save review to database
     await step.run('save-review', async () => {
       const db = createDatabaseFromEnv();
       await saveReview(db, {
@@ -262,7 +336,7 @@ export const reviewFunction = inngest.createFunction(
       });
     });
 
-    // Step 4: Post comment to GitHub PR
+    // Step 6: Post comment to GitHub PR
     await step.run('post-comment', async () => {
       const appId = process.env.GITHUB_APP_ID;
       const privateKey = process.env.GITHUB_PRIVATE_KEY;
@@ -277,7 +351,7 @@ export const reviewFunction = inngest.createFunction(
       await postComment(owner, repo, prNumber, commentBody, token);
     });
 
-    // Step 5: React with 🚀 to the trigger comment (if review was triggered by comment)
+    // Step 7: React with 🚀 to the trigger comment (if review was triggered by comment)
     if (triggerCommentId) {
       await step.run('react-to-trigger', async () => {
         const appId = process.env.GITHUB_APP_ID;
@@ -290,7 +364,7 @@ export const reviewFunction = inngest.createFunction(
           await addCommentReaction(owner, repo, triggerCommentId, 'rocket', token);
         } catch (error) {
           // Non-critical — don't fail the review
-          console.warn('[ghagga] Failed to add completion reaction:', error);
+          logger.warn({ repoFullName, prNumber, error: String(error) }, 'Failed to add completion reaction');
         }
       });
     }
