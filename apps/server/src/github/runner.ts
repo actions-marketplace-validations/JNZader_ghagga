@@ -81,8 +81,15 @@ export async function ensureRunnerRepo(
   if (!exists) {
     logger.info({ owner, repo: runnerRepoFullName(owner) }, 'Creating runner repo');
     await createRepo(owner, token);
-    await commitWorkflowFile(owner, token);
-    await setLogRetention(owner, token);
+
+    // IMPORTANT: GitHub auto-adds the new repo to the installation, but the
+    // current token was issued BEFORE the repo was added. We need a fresh token
+    // that includes the new repo in its scope.
+    logger.info({ owner, repo: runnerRepoFullName(owner) }, 'Refreshing token after repo creation');
+    const freshToken = await getInstallationToken(RUNNER_INSTALLATION_ID, appId, privateKey);
+
+    await commitWorkflowFile(owner, freshToken);
+    await setLogRetention(owner, freshToken);
     return { created: true, existed: false };
   }
 
