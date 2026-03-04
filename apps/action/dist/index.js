@@ -43699,7 +43699,12 @@ const MODEL_CONTEXT_WINDOWS = {
     'gpt-4o-mini': 128_000,
     'gpt-4-turbo': 128_000,
     // Google
+    'gemini-2.5-flash': 1_048_576,
+    'gemini-2.5-flash-lite': 1_048_576,
+    'gemini-2.5-pro': 1_048_576,
+    'gemini-3-flash': 1_048_576,
     'gemini-2.0-flash': 1_048_576,
+    'gemini-2.0-flash-lite': 1_048_576,
     'gemini-1.5-pro': 2_097_152,
     'gemini-1.5-flash': 1_048_576,
 };
@@ -43764,6 +43769,13 @@ const execFileAsync = (0,external_node_util_.promisify)(external_node_child_proc
 const semgrep_dirname = (0,external_node_path_namespaceObject.dirname)((0,external_node_url_namespaceObject.fileURLToPath)(require("url").pathToFileURL(__filename).href));
 const RULES_PATH = (0,external_node_path_namespaceObject.join)(semgrep_dirname, 'semgrep-rules.yml');
 const TIMEOUT_MS = 60_000;
+/**
+ * Resolve the semgrep binary path.
+ * Uses SEMGREP_PATH env var if set, otherwise falls back to PATH lookup.
+ */
+function resolveSemgrepBinary() {
+    return process.env.SEMGREP_PATH ?? 'semgrep';
+}
 function mapSeverity(semgrepSeverity) {
     switch (semgrepSeverity.toUpperCase()) {
         case 'ERROR':
@@ -43782,15 +43794,21 @@ function mapSeverity(semgrepSeverity) {
  */
 async function runSemgrep(files, customRulesPath) {
     const start = Date.now();
+    const semgrepBin = resolveSemgrepBinary();
     try {
         // Check if semgrep is available
-        await execFileAsync('semgrep', ['--version'], { timeout: 5_000 });
+        const { stdout: semVer } = await execFileAsync(semgrepBin, ['--version'], { timeout: 10_000 });
+        console.log(`[ghagga:semgrep] Version check OK (${semgrepBin}): ${semVer.trim()}`);
     }
-    catch {
+    catch (err) {
+        const stderr = err?.stderr ?? '';
+        const code = err?.code ?? '';
+        const signal = err?.signal ?? '';
+        console.error(`[ghagga:semgrep] Version check FAILED (${semgrepBin}): code=${code} signal=${signal} stderr=${stderr} message=${err?.message}`);
         return {
             status: 'skipped',
             findings: [],
-            error: 'Semgrep not available. Install with: pip install semgrep',
+            error: `Semgrep not available: ${err?.message}`,
             executionTimeMs: Date.now() - start,
         };
     }
@@ -43810,11 +43828,12 @@ async function runSemgrep(files, customRulesPath) {
             });
         }
         // Run semgrep
+        console.log(`[ghagga:semgrep] Scanning ${files.size} files in ${tempDir}, rules: ${RULES_PATH}`);
         const configArgs = ['--config', RULES_PATH];
         if (customRulesPath) {
             configArgs.push('--config', customRulesPath);
         }
-        const { stdout } = await execFileAsync('semgrep', ['--json', ...configArgs, tempDir], { timeout: TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 });
+        const { stdout } = await execFileAsync(semgrepBin, ['--json', ...configArgs, tempDir], { timeout: TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 });
         const result = JSON.parse(stdout);
         const findings = result.results.map((r) => ({
             severity: mapSeverity(r.extra.severity),
@@ -43832,6 +43851,9 @@ async function runSemgrep(files, customRulesPath) {
         };
     }
     catch (error) {
+        const stderr = error?.stderr ?? '';
+        const stdout = error?.stdout ?? '';
+        console.error(`[ghagga:semgrep] Scan FAILED: ${error?.message}\n  stderr: ${stderr.substring(0, 500)}\n  stdout: ${stdout.substring(0, 500)}`);
         return {
             status: 'error',
             findings: [],
@@ -43855,6 +43877,9 @@ async function runSemgrep(files, customRulesPath) {
 
 const trivy_execFileAsync = (0,external_node_util_.promisify)(external_node_child_process_namespaceObject.execFile);
 const trivy_TIMEOUT_MS = 120_000; // Trivy can be slow on first run (downloading DB)
+function resolveTrivyBinary() {
+    return process.env.TRIVY_PATH ?? 'trivy';
+}
 function trivy_mapSeverity(trivySeverity) {
     switch (trivySeverity.toUpperCase()) {
         case 'CRITICAL':
@@ -43874,9 +43899,10 @@ function trivy_mapSeverity(trivySeverity) {
  */
 async function runTrivy(scanPath) {
     const start = Date.now();
+    const trivyBin = resolveTrivyBinary();
     try {
         // Check if trivy is available
-        await trivy_execFileAsync('trivy', ['--version'], { timeout: 5_000 });
+        await trivy_execFileAsync(trivyBin, ['--version'], { timeout: 5_000 });
     }
     catch {
         return {
@@ -43887,7 +43913,7 @@ async function runTrivy(scanPath) {
         };
     }
     try {
-        const { stdout } = await trivy_execFileAsync('trivy', ['fs', '--format', 'json', '--scanners', 'vuln', '--quiet', scanPath], { timeout: trivy_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 });
+        const { stdout } = await trivy_execFileAsync(trivyBin, ['fs', '--format', 'json', '--scanners', 'vuln', '--quiet', scanPath], { timeout: trivy_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 });
         const result = JSON.parse(stdout);
         const findings = [];
         for (const target of result.Results ?? []) {
@@ -43980,21 +44006,30 @@ function parseCpdXml(xml, basePath) {
  * and `pmd cpd` (PMD 7+ CLI).
  */
 async function findCpdBinary() {
-    // Try standalone cpd first
-    try {
-        await cpd_execFileAsync('cpd', ['--help'], { timeout: 5_000 });
-        return { cmd: 'cpd', args: [] };
-    }
-    catch {
-        // Try pmd CLI (PMD 7+)
+    // Try standalone cpd first (with absolute path fallback)
+    const cpdPaths = ['cpd', '/usr/local/bin/cpd'];
+    for (const cmd of cpdPaths) {
         try {
-            await cpd_execFileAsync('pmd', ['cpd', '--help'], { timeout: 5_000 });
-            return { cmd: 'pmd', args: ['cpd'] };
+            await cpd_execFileAsync(cmd, ['--help'], { timeout: 5_000 });
+            return { cmd, args: [] };
         }
         catch {
-            return null;
+            // Continue to next
         }
     }
+    // Try pmd CLI (PMD 7+) with absolute path fallback
+    const pmdPaths = ['pmd', '/usr/local/bin/pmd', '/opt/pmd/bin/pmd'];
+    for (const cmd of pmdPaths) {
+        try {
+            await cpd_execFileAsync(cmd, ['cpd', '--help'], { timeout: 5_000 });
+            console.log(`[ghagga:cpd] Found pmd at: ${cmd}`);
+            return { cmd, args: ['cpd'] };
+        }
+        catch {
+            // Continue to next
+        }
+    }
+    return null;
 }
 /**
  * Run CPD against a directory to find duplicated code.
@@ -44004,6 +44039,7 @@ async function runCpd(scanPath, options = {}) {
     const minimumTokens = options.minimumTokens ?? DEFAULT_MIN_TOKENS;
     const binary = await findCpdBinary();
     if (!binary) {
+        console.error('[ghagga:cpd] Binary check FAILED: neither cpd nor pmd found');
         return {
             status: 'skipped',
             findings: [],
@@ -44011,6 +44047,7 @@ async function runCpd(scanPath, options = {}) {
             executionTimeMs: Date.now() - start,
         };
     }
+    console.log(`[ghagga:cpd] Binary found: ${binary.cmd} ${binary.args.join(' ')}`);
     try {
         const args = [
             ...binary.args,
@@ -44055,7 +44092,10 @@ async function runCpd(scanPath, options = {}) {
 ;// CONCATENATED MODULE: ../../packages/core/dist/tools/runner.js
 /**
  * Static analysis tool runner.
- * Runs Semgrep, Trivy, and CPD in parallel and merges results.
+ * Runs Semgrep, Trivy, and CPD sequentially to avoid memory pressure.
+ *
+ * These tools are run one at a time because running them in parallel
+ * (Python + JVM + Go) can exceed container memory limits (2GB on Cloud Run).
  */
 
 
@@ -44067,29 +44107,45 @@ const SKIPPED_RESULT = {
     executionTimeMs: 0,
 };
 /**
- * Run all enabled static analysis tools in parallel.
+ * Safely run a tool, catching any errors.
+ */
+async function safeRun(fn) {
+    try {
+        return await fn();
+    }
+    catch (error) {
+        return {
+            status: 'error',
+            findings: [],
+            error: String(error instanceof Error ? error.message : error),
+            executionTimeMs: 0,
+        };
+    }
+}
+/**
+ * Run all enabled static analysis tools sequentially.
  *
  * @param files - Map of file paths to file contents (for Semgrep)
  * @param scanPath - Directory path on disk (for Trivy and CPD)
  * @param settings - Which tools are enabled
  */
 async function runStaticAnalysis(files, scanPath, settings) {
-    const [semgrepResult, trivyResult, cpdResult] = await Promise.allSettled([
-        settings.enableSemgrep ? runSemgrep(files) : Promise.resolve(SKIPPED_RESULT),
-        settings.enableTrivy ? runTrivy(scanPath) : Promise.resolve(SKIPPED_RESULT),
-        settings.enableCpd ? runCpd(scanPath) : Promise.resolve(SKIPPED_RESULT),
-    ]);
-    return {
-        semgrep: semgrepResult.status === 'fulfilled'
-            ? semgrepResult.value
-            : { status: 'error', findings: [], error: String(semgrepResult.reason), executionTimeMs: 0 },
-        trivy: trivyResult.status === 'fulfilled'
-            ? trivyResult.value
-            : { status: 'error', findings: [], error: String(trivyResult.reason), executionTimeMs: 0 },
-        cpd: cpdResult.status === 'fulfilled'
-            ? cpdResult.value
-            : { status: 'error', findings: [], error: String(cpdResult.reason), executionTimeMs: 0 },
-    };
+    // Run sequentially to avoid OOM in memory-constrained containers.
+    // Order: Trivy (lightest, Go binary) → Semgrep (Python) → CPD (JVM, heaviest)
+    console.log('[ghagga:tools] Running static analysis sequentially...');
+    const trivyResult = settings.enableTrivy
+        ? await safeRun(() => runTrivy(scanPath))
+        : SKIPPED_RESULT;
+    console.log(`[ghagga:tools] Trivy: ${trivyResult.status} (${trivyResult.findings.length} findings)`);
+    const semgrepResult = settings.enableSemgrep
+        ? await safeRun(() => runSemgrep(files))
+        : SKIPPED_RESULT;
+    console.log(`[ghagga:tools] Semgrep: ${semgrepResult.status} (${semgrepResult.findings.length} findings)`);
+    const cpdResult = settings.enableCpd
+        ? await safeRun(() => runCpd(scanPath))
+        : SKIPPED_RESULT;
+    console.log(`[ghagga:tools] CPD: ${cpdResult.status} (${cpdResult.findings.length} findings)`);
+    return { semgrep: semgrepResult, trivy: trivyResult, cpd: cpdResult };
 }
 /**
  * Format static analysis findings into a prompt context block.
@@ -70078,6 +70134,10 @@ var google = createGoogleGenerativeAI();
  *
  * Ollama runs locally and exposes an OpenAI-compatible endpoint at
  * http://localhost:11434/v1. No API key required.
+ *
+ * Qwen (Alibaba Cloud DashScope) uses the OpenAI-compatible endpoint at
+ * https://dashscope-intl.aliyuncs.com/compatible-mode/v1. Requires a
+ * DashScope API key (DASHSCOPE_API_KEY).
  */
 
 
@@ -70086,6 +70146,8 @@ var google = createGoogleGenerativeAI();
 const GITHUB_MODELS_BASE_URL = 'https://models.inference.ai.azure.com';
 /** Ollama local inference endpoint (OpenAI-compatible) */
 const OLLAMA_BASE_URL = 'http://localhost:11434/v1';
+/** Qwen / DashScope international endpoint (OpenAI-compatible) */
+const QWEN_BASE_URL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
 // ─── Provider Factory ───────────────────────────────────────────
 /**
  * Create a provider instance configured with the given API key.
@@ -70116,6 +70178,12 @@ function createProvider(provider, apiKey) {
                 apiKey: apiKey || 'ollama',
                 baseURL: OLLAMA_BASE_URL,
                 name: 'ollama',
+            });
+        case 'qwen':
+            return createOpenAI({
+                apiKey,
+                baseURL: QWEN_BASE_URL,
+                name: 'qwen',
             });
         default: {
             // Exhaustive check — TypeScript will error if a provider is missing
@@ -70729,10 +70797,16 @@ async function reviewPipeline(input) {
         message: `Token budget: ${diffBudget.toLocaleString()} tokens for diff`,
     });
     // ── Step 5: Run static analysis (in parallel with memory) ──
-    // Memory search is only useful when AI is enabled (it provides LLM context)
-    emit({ step: 'static-analysis', message: 'Running static analysis & memory search...' });
+    // If precomputed results are available (from GitHub Actions runner), use those directly.
+    // Otherwise, run tools locally (CLI/Action modes).
+    emit({ step: 'static-analysis', message: input.precomputedStaticAnalysis
+            ? 'Using precomputed static analysis from runner...'
+            : 'Running static analysis & memory search...',
+    });
     const [staticResult, memoryContext] = await Promise.all([
-        runStaticAnalysisSafe(fileList, input),
+        input.precomputedStaticAnalysis
+            ? Promise.resolve(input.precomputedStaticAnalysis)
+            : runStaticAnalysisSafe(fileList, input),
         aiEnabled ? searchMemorySafe(input, fileList) : Promise.resolve(null),
     ]);
     const staticContext = formatStaticAnalysisContext(staticResult);
@@ -71011,9 +71085,10 @@ const DEFAULT_SETTINGS = {
 const DEFAULT_MODELS = {
     anthropic: 'claude-sonnet-4-20250514',
     openai: 'gpt-4o',
-    google: 'gemini-2.0-flash',
+    google: 'gemini-2.5-flash',
     github: 'gpt-4o-mini',
     ollama: 'qwen2.5-coder:7b',
+    qwen: 'qwen-coder-plus',
 };
 //# sourceMappingURL=types.js.map
 ;// CONCATENATED MODULE: ../../packages/core/dist/index.js
@@ -71053,6 +71128,12 @@ const DEFAULT_MODELS = {
  *     with:
  *       provider: anthropic
  *       api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+ *
+ *   # With Qwen (Alibaba Cloud DashScope):
+ *   - uses: JNZader/ghagga@v2
+ *     with:
+ *       provider: qwen
+ *       api-key: ${{ secrets.DASHSCOPE_API_KEY }}
  */
 
 
