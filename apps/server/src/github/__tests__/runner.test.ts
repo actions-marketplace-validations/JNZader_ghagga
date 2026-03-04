@@ -227,7 +227,6 @@ async function importRunner() {
 
 describe('ensureRunnerRepo', () => {
   it('creates repo + commits workflow when repo does not exist', async () => {
-  }, 30000); // 30s timeout due to 5s delay + retries in production code
     const apiCalls: string[] = [];
 
     setupFetchRoutes([
