@@ -18,13 +18,16 @@ import {
   CONSENSUS_FOR_SYSTEM,
   CONSENSUS_AGAINST_SYSTEM,
   CONSENSUS_NEUTRAL_SYSTEM,
+  REVIEW_CALIBRATION,
   buildMemoryContext,
+  buildReviewLevelInstruction,
 } from './prompts.js';
 import type {
   LLMProvider,
   ProgressCallback,
   ReviewResult,
   ReviewStatus,
+  ReviewLevel,
   ConsensusStance,
   ConsensusVote,
 } from '../types.js';
@@ -44,6 +47,7 @@ export interface ConsensusReviewInput {
   staticContext: string;
   memoryContext: string | null;
   stackHints: string;
+  reviewLevel: ReviewLevel;
   onProgress?: ProgressCallback;
 }
 
@@ -186,7 +190,7 @@ export function calculateConsensus(votes: ConsensusVote[]): {
 export async function runConsensusReview(
   input: ConsensusReviewInput,
 ): Promise<ReviewResult> {
-  const { diff, models, staticContext, memoryContext, stackHints } = input;
+  const { diff, models, staticContext, memoryContext, stackHints, reviewLevel } = input;
   const emit = input.onProgress ?? (() => {});
 
   const startTime = Date.now();
@@ -207,6 +211,8 @@ export async function runConsensusReview(
       staticContext,
       buildMemoryContext(memoryContext),
       stackHints,
+      buildReviewLevelInstruction(reviewLevel),
+      REVIEW_CALIBRATION,
     ]
       .filter(Boolean)
       .join('\n');

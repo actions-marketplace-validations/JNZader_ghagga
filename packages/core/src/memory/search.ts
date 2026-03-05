@@ -84,7 +84,7 @@ export async function searchMemoryForContext(
       db as Parameters<typeof searchObservations>[0],
       project,
       query,
-      { limit: 8 },
+      { limit: 3 },
     );
 
     if (!observations || observations.length === 0) return null;

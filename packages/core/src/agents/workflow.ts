@@ -25,13 +25,16 @@ import {
   WORKFLOW_SECURITY_SYSTEM,
   WORKFLOW_PERFORMANCE_SYSTEM,
   WORKFLOW_SYNTHESIS_SYSTEM,
+  REVIEW_CALIBRATION,
   buildMemoryContext,
+  buildReviewLevelInstruction,
 } from './prompts.js';
 import { parseReviewResponse } from './simple.js';
 import type {
   LLMProvider,
   ProgressCallback,
   ReviewResult,
+  ReviewLevel,
   WorkflowSpecialist,
 } from '../types.js';
 
@@ -45,6 +48,7 @@ export interface WorkflowReviewInput {
   staticContext: string;
   memoryContext: string | null;
   stackHints: string;
+  reviewLevel: ReviewLevel;
   onProgress?: ProgressCallback;
 }
 
@@ -77,7 +81,7 @@ const SPECIALISTS: SpecialistConfig[] = [
  * @returns Parsed ReviewResult from the synthesis step
  */
 export async function runWorkflowReview(input: WorkflowReviewInput): Promise<ReviewResult> {
-  const { diff, provider, model, apiKey, staticContext, memoryContext, stackHints } = input;
+  const { diff, provider, model, apiKey, staticContext, memoryContext, stackHints, reviewLevel } = input;
   const emit = input.onProgress ?? (() => {});
 
   const startTime = Date.now();
@@ -99,6 +103,8 @@ export async function runWorkflowReview(input: WorkflowReviewInput): Promise<Rev
       staticContext,
       buildMemoryContext(memoryContext),
       stackHints,
+      buildReviewLevelInstruction(reviewLevel),
+      REVIEW_CALIBRATION,
     ]
       .filter(Boolean)
       .join('\n');
@@ -162,9 +168,17 @@ export async function runWorkflowReview(input: WorkflowReviewInput): Promise<Rev
     '\n\n---\n\nNow provide the unified review in the required format.',
   ].join('\n\n');
 
+  const synthesisSystem = [
+    WORKFLOW_SYNTHESIS_SYSTEM,
+    buildReviewLevelInstruction(reviewLevel),
+    REVIEW_CALIBRATION,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
   const synthesisResult = await generateText({
     model: languageModel,
-    system: WORKFLOW_SYNTHESIS_SYSTEM,
+    system: synthesisSystem,
     prompt: synthesisPrompt,
     temperature: 0.3,
   });

@@ -3,6 +3,8 @@
  * Rescued and refined from GHAGGA v1.
  */
 
+import type { ReviewLevel } from '../types.js';
+
 // ─── Simple Review ──────────────────────────────────────────────
 
 export const SIMPLE_REVIEW_SYSTEM = `You are an expert code reviewer. Analyze the provided code changes and provide a thorough review.
@@ -12,7 +14,6 @@ export const SIMPLE_REVIEW_SYSTEM = `You are an expert code reviewer. Analyze th
 3. Assess code quality, readability, and maintainability
 4. Identify security vulnerabilities (SQL injection, XSS, auth issues, etc.)
 5. Evaluate performance implications
-6. Check adherence to the repository's coding standards and rules
 
 Format your response EXACTLY as:
 
@@ -174,6 +175,32 @@ DECISION: [approve|reject|abstain]
 CONFIDENCE: [0.0 to 1.0]
 REASONING: [balanced analysis of pros and cons]`;
 
+// ─── Review Calibration ─────────────────────────────────────────
+
+export const REVIEW_CALIBRATION = `## Review Calibration
+- Only report findings you are 80%+ confident about based on the actual code shown.
+- Do NOT flag stylistic preferences unless they violate an explicitly provided rule.
+- Do NOT invent or assume coding standards that are not provided.
+- Do NOT flag hypothetical edge cases that are unlikely in practice.
+- If the diff is small and clean, it is OK to return STATUS: PASSED with zero findings.`;
+
+/**
+ * Build a review-level-specific calibration instruction.
+ *
+ * Returns text that tells the LLM how aggressively to review
+ * based on the configured review level.
+ */
+export function buildReviewLevelInstruction(level: ReviewLevel): string {
+  switch (level) {
+    case 'soft':
+      return 'Only flag issues you are very confident about (90%+). Focus exclusively on bugs, security vulnerabilities, and logic errors. Ignore style, naming, and maintainability concerns.';
+    case 'normal':
+      return 'Flag issues you are confident about (80%+). Cover bugs, security, performance, and error handling. Be cautious with style-only findings.';
+    case 'strict':
+      return 'Perform a thorough review covering all categories including style, naming, and documentation. Flag anything that could be improved.';
+  }
+}
+
 // ─── Context Injection Templates ────────────────────────────────
 
 export function buildStaticAnalysisContext(staticFindings: string): string {
@@ -183,7 +210,7 @@ export function buildStaticAnalysisContext(staticFindings: string): string {
 
 export function buildMemoryContext(memoryContext: string | null): string {
   if (!memoryContext) return '';
-  return `\n\n## Past Review Memory (learned from previous reviews)\n\n${memoryContext}\n\n> Use these past observations to give more informed, context-aware reviews.\n`;
+  return `\n\n## Background Context from Past Reviews\n\nThe following observations are background context from past reviews of this project. They are provided for situational awareness only. Do NOT use them as reasons to flag issues. Only flag issues you can justify from the code diff itself.\n\n${memoryContext}\n`;
 }
 
 export function buildStackHints(stacks: string[]): string {

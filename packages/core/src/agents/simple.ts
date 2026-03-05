@@ -10,9 +10,11 @@ import { generateText } from 'ai';
 import { createModel } from '../providers/index.js';
 import {
   SIMPLE_REVIEW_SYSTEM,
+  REVIEW_CALIBRATION,
   buildStaticAnalysisContext,
   buildMemoryContext,
   buildStackHints,
+  buildReviewLevelInstruction,
 } from './prompts.js';
 import type {
   LLMProvider,
@@ -22,6 +24,7 @@ import type {
   ReviewStatus,
   FindingSeverity,
   FindingSource,
+  ReviewLevel,
 } from '../types.js';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -34,6 +37,7 @@ export interface SimpleReviewInput {
   staticContext: string;
   memoryContext: string | null;
   stackHints: string;
+  reviewLevel: ReviewLevel;
   onProgress?: ProgressCallback;
 }
 
@@ -147,7 +151,7 @@ function parseFindingsBlock(text: string): ReviewFinding[] {
  * @returns Parsed ReviewResult
  */
 export async function runSimpleReview(input: SimpleReviewInput): Promise<ReviewResult> {
-  const { diff, provider, model, apiKey, staticContext, memoryContext, stackHints } = input;
+  const { diff, provider, model, apiKey, staticContext, memoryContext, stackHints, reviewLevel } = input;
   const emit = input.onProgress ?? (() => {});
 
   const startTime = Date.now();
@@ -158,6 +162,8 @@ export async function runSimpleReview(input: SimpleReviewInput): Promise<ReviewR
     staticContext,
     buildMemoryContext(memoryContext),
     stackHints,
+    buildReviewLevelInstruction(reviewLevel),
+    REVIEW_CALIBRATION,
   ]
     .filter(Boolean)
     .join('\n');

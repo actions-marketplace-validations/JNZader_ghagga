@@ -173,6 +173,7 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
             staticContext,
             memoryContext,
             stackHints,
+            reviewLevel: input.settings.reviewLevel,
             onProgress: input.onProgress,
           });
           break;
@@ -186,6 +187,7 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
             staticContext,
             memoryContext,
             stackHints,
+            reviewLevel: input.settings.reviewLevel,
             onProgress: input.onProgress,
           });
           break;
@@ -201,6 +203,7 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
             staticContext,
             memoryContext,
             stackHints,
+            reviewLevel: input.settings.reviewLevel,
             onProgress: input.onProgress,
           });
           break;
