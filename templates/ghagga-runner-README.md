@@ -12,14 +12,17 @@ This repository runs static analysis tools (Semgrep, Trivy, PMD/CPD) on behalf o
 
 ## How It Works
 
-```
-┌─────────────┐    webhook    ┌──────────────┐   dispatch   ┌──────────────────┐
-│   GitHub     │ ───────────► │ GHAGGA Server│ ──────────►  │ This Runner Repo │
-│ (PR opened)  │              │  (Render)    │              │ (GitHub Actions) │
-└─────────────┘              └──────────────┘              └──────────────────┘
-                                    ▲                              │
-                                    │         callback (results)   │
-                                    └──────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant GH as GitHub (PR opened)
+    participant SRV as GHAGGA Server (Render)
+    participant RUN as This Runner Repo (Actions)
+
+    GH->>SRV: webhook (PR event)
+    SRV->>RUN: workflow_dispatch
+    RUN->>RUN: Clone, Semgrep, Trivy, CPD
+    RUN->>SRV: callback (JSON results)
+    SRV->>GH: Post review comment
 ```
 
 1. You open a Pull Request on one of your repositories

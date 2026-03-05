@@ -179,7 +179,7 @@ export const reviewFunction = inngest.createFunction(
 
       // Build callback URL
       const serverUrl = process.env.RENDER_EXTERNAL_URL ?? process.env.SERVER_URL ?? `http://localhost:${process.env.PORT ?? '3000'}`;
-      const callbackUrl = `${serverUrl}/api/runner/callback`;
+      const callbackUrl = `${serverUrl}/runner/callback`;
 
       try {
         const callbackId = await dispatchWorkflow({

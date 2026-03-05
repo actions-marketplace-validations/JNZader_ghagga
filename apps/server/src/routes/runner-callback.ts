@@ -5,7 +5,7 @@
  * workflow. Authenticates via per-dispatch HMAC signatures
  * (not the user session auth middleware).
  *
- * POST /api/runner/callback
+ * POST /runner/callback
  *
  * Headers:
  *   x-ghagga-signature: sha256=<hex>   — HMAC of raw body using per-dispatch secret
@@ -37,7 +37,7 @@ interface CallbackPayload {
 export function createRunnerCallbackRouter() {
   const router = new Hono();
 
-  router.post('/api/runner/callback', async (c) => {
+  router.post('/runner/callback', async (c) => {
     // Read raw body for HMAC verification
     const rawBody = await c.req.text();
 

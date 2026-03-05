@@ -1,7 +1,7 @@
 /**
  * Runner callback route tests.
  *
- * Tests POST /api/runner/callback with mocked HMAC verification
+ * Tests POST /runner/callback with mocked HMAC verification
  * and Inngest event dispatching.
  */
 
@@ -65,7 +65,7 @@ function postCallback(
   body: string,
   headers: Record<string, string> = {},
 ) {
-  return app.request('/api/runner/callback', {
+  return app.request('/runner/callback', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -101,10 +101,10 @@ describe('logger initialisation', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// POST /api/runner/callback — Valid callback
+// POST /runner/callback — Valid callback
 // ═══════════════════════════════════════════════════════════════════
 
-describe('POST /api/runner/callback', () => {
+describe('POST /runner/callback', () => {
   describe('valid callback', () => {
     it('returns 200 { ok: true } when HMAC and all fields are valid', async () => {
       mockVerifyAndConsumeSecret.mockReturnValue(true);

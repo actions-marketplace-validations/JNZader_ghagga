@@ -102,7 +102,8 @@ app.on(
   serveInngest({ client: inngest, functions: [reviewFunction] }),
 );
 
-// Runner callback route (before auth middleware — uses per-dispatch HMAC auth)
+// Runner callback route — intentionally outside /api/* namespace to avoid the
+// session auth middleware at app.use('/api/*', authMiddleware). Uses per-dispatch HMAC auth.
 const runnerCallbackRouter = createRunnerCallbackRouter();
 app.route('/', runnerCallbackRouter);
 
