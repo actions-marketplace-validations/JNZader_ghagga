@@ -63,9 +63,11 @@ See [Self-Hosted](self-hosted.md) for full deployment details.
 
 If you're using the hosted GHAGGA SaaS (Render deployment), static analysis runs on a delegated runner. To enable it:
 
-1. **Create a runner repo** from the template: [`JNZader/ghagga-runner-template`](https://github.com/JNZader/ghagga-runner-template)
-2. **Name it `ghagga-runner`** — the server discovers it by convention
-3. **Keep it public** — required for free GitHub Actions minutes
+1. **Open the Dashboard** and go to **Global Settings**
+2. **Click "Enable Runner"** in the Static Analysis Runner card
+3. A public repository named `ghagga-runner` will be created in your GitHub account from the official template
+
+If your account was created before the `public_repo` scope was added, you'll be prompted to re-authenticate. This is a one-time step.
 
 That's it. The server will auto-discover your runner and dispatch static analysis to it. If you skip this step, reviews still work — they just skip static analysis.
 

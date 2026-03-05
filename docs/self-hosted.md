@@ -332,6 +332,8 @@ For deployments on limited-memory platforms (like Render free tier), delegate st
 
 The runner setup is per-user — each GitHub user/org that installs GHAGGA can have their own runner repo.
 
+> **Note**: The SaaS Dashboard has an "Enable Runner" button that auto-creates the runner repo via the GitHub Template API. This feature is **SaaS-only** — self-hosted users must create the runner repo manually from the template as described above.
+
 ---
 
 ## Troubleshooting

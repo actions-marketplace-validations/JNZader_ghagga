@@ -18,8 +18,14 @@ GHAGGA delegates static analysis to **user-owned GitHub Actions runners** on pub
 
 ### Setup
 
-1. User creates a public repo from [`JNZader/ghagga-runner-template`](https://github.com/JNZader/ghagga-runner-template)
-2. The repo must be named `ghagga-runner` (convention-based discovery)
+**SaaS Dashboard (recommended)**:
+1. Open the Dashboard → **Global Settings**
+2. Click **"Enable Runner"** — this auto-creates a public `ghagga-runner` repo from the template using the GitHub Template API
+3. The server auto-discovers and uses it
+
+**Manual (self-hosted or advanced)**:
+1. Create a public repo from [`JNZader/ghagga-runner-template`](https://github.com/JNZader/ghagga-runner-template)
+2. Name it `ghagga-runner` (convention-based discovery)
 3. That's it — the server auto-discovers and uses it
 
 ### Flow

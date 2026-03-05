@@ -98,7 +98,18 @@ This prevents:
 2. **Generate a strong ENCRYPTION_KEY** — Use `openssl rand -hex 32` to generate 64 hex characters
 3. **Rotate webhook secrets** — If compromised, regenerate in GitHub App settings
 4. **Use HTTPS** — All webhook endpoints should be served over HTTPS
-5. **Limit GitHub App permissions** — Only request `pull_requests: write` and `contents: read`
-6. **Use Device Flow for auth** — Dashboard and CLI use GitHub OAuth Device Flow (no client secret needed). Never store GitHub tokens in config files — use `ghagga login` which stores tokens securely.
+5. **Limit GitHub App permissions** — Only request `pull_requests: write`, `actions: write`, `secrets: read-write`, and `metadata: read` (auto). The `administration` and `contents` permissions are no longer needed — runner repo creation is handled via the user's OAuth token.
+6. **Use Device Flow for auth** — Dashboard and CLI use GitHub OAuth Device Flow (no client secret needed). Never store GitHub tokens in config files — use `ghagga login` which stores tokens securely. The OAuth scope `public_repo` is requested to enable runner repo creation.
 7. **Configure runner repo as public** — The `ghagga-runner` repo must be public for free GitHub Actions minutes. Never put sensitive code in this repo — it only contains the analysis workflow.
 8. **Review runner workflow changes** — The `ghagga-analysis.yml` workflow is the trust boundary. Only accept changes from the template repository.
+
+## OAuth Scope: `public_repo`
+
+The Dashboard requests the `public_repo` OAuth scope during login. This is required to create the `ghagga-runner` repository in the user's GitHub account via the Template Repository API.
+
+**Why `public_repo`?** GitHub's OAuth scopes are coarse-grained. There is no scope that only allows creating a single repository. `public_repo` grants read/write access to all public repositories. This is a known limitation.
+
+**Mitigations**:
+- The token is only used **server-side** — it's sent in the `Authorization` header to the GHAGGA server, which uses it transiently for GitHub API calls. The server never persists the token.
+- The Dashboard warns users about the scope before they click "Enable Runner".
+- The token is stored in `localStorage` (existing behavior for all auth) and cleared on logout.
