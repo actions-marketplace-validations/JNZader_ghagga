@@ -351,9 +351,9 @@ describe('inngest/review — dispatch-runner step', () => {
     expect(waitCalls[0]!.name).toBe('wait-for-runner');
     expect(waitCalls[0]!.args).toMatchObject({
       event: 'ghagga/runner.completed',
-      match: 'data.callbackId',
       timeout: '10m',
     });
+    expect(waitCalls[0]!.args.if).toContain('async.data.callbackId');
 
     // reviewPipeline should have received the precomputed static analysis
     expect(mockReviewPipeline).toHaveBeenCalledWith(

@@ -216,7 +216,7 @@ export const reviewFunction = inngest.createFunction(
     if (runnerResult.dispatched && runnerResult.callbackId) {
       const runnerEvent = await step.waitForEvent('wait-for-runner', {
         event: 'ghagga/runner.completed',
-        match: 'data.callbackId',
+        if: `async.data.callbackId == '${runnerResult.callbackId}'`,
         timeout: '10m',
       });
 
