@@ -47,7 +47,7 @@ You bring your own API key (BYOK). GHAGGA never sees or stores your keys in plai
 | **Static Analysis Trident** | Semgrep (security), Trivy (vulnerabilities), CPD (code duplication) — zero tokens |
 | **Project Memory** | Learns patterns, decisions, and bug fixes across reviews (PostgreSQL + tsvector FTS) |
 | **Multi-Provider** | 6 providers: GitHub Models (free), Anthropic, OpenAI, Google, Ollama (local), Qwen (Alibaba) — bring your own key |
-| **4 Distribution Modes** | SaaS, GitHub Action, CLI, Delegated Runner |
+| **3 Distribution Modes** | SaaS, GitHub Action, CLI |
 | **Comment Trigger** | Type `ghagga review` on any PR to re-trigger a review on demand |
 | **Dashboard** | React SPA on GitHub Pages — review history, stats, settings, memory browser |
 | **BYOK Security** | AES-256-GCM encryption, HMAC-SHA256 webhook verification, privacy stripping |
@@ -735,7 +735,7 @@ GHAGGA v2 is a **complete rewrite** from scratch. The v1 codebase (~11,000 lines
 | Database | Supabase (hosted PostgreSQL) | Any PostgreSQL (self-hosted or cloud) |
 | Deploy steps | 10+ manual steps | 3 env vars + `docker compose up` |
 | Test suite | 0 tests | 1021 tests |
-| Distribution modes | 1 (webhook only) | 4 (SaaS, Action, CLI, Runner delegate) |
+| Distribution modes | 1 (webhook only) | 3 (SaaS, Action, CLI) |
 | Static analysis | Semgrep only (via microservice) | Semgrep + Trivy + CPD (direct binary execution) |
 | Memory | Partial (stored but never consumed) | Full pipeline (search → inject → review → extract → persist) |
 | Dead code | ~40% of codebase | 0% |
