@@ -31,7 +31,7 @@ export interface WorkflowDispatchInputs {
   headSha: string;
   baseBranch: string;
   callbackUrl: string;
-  callbackSignature: string;
+  callbackSecret: string;
   enableSemgrep: string;
   enableTrivy: string;
   enableCpd: string;
@@ -283,13 +283,7 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
   const runnerRepo = `${ownerLogin}/ghagga-runner`;
   await setRunnerSecret(runnerRepo, 'GHAGGA_CALLBACK_SECRET', callbackSecret, token);
 
-  // Generate the HMAC signature the workflow should include in its callback
-  // This lets the workflow sign the callback payload
-  const callbackSignature = createHmac('sha256', callbackSecret)
-    .update(callbackId)
-    .digest('hex');
-
-  // Dispatch the workflow
+  // Dispatch the workflow — send the raw secret so it can compute HMAC over the actual payload
   const inputs: WorkflowDispatchInputs = {
     callbackId,
     repoFullName,
@@ -297,7 +291,7 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
     headSha,
     baseBranch,
     callbackUrl,
-    callbackSignature: `sha256=${callbackSignature}`,
+    callbackSecret,
     enableSemgrep: String(enableSemgrep),
     enableTrivy: String(enableTrivy),
     enableCpd: String(enableCpd),

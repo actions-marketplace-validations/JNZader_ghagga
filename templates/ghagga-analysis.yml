@@ -39,8 +39,8 @@ on:
         description: 'Server URL to POST results to'
         required: true
         type: string
-      callbackSignature:
-        description: 'HMAC signature for callback authentication'
+      callbackSecret:
+        description: 'HMAC secret for computing callback signatures'
         required: true
         type: string
       enableSemgrep:
@@ -78,7 +78,7 @@ jobs:
         run: |
           echo "::add-mask::${{ secrets.GHAGGA_TOKEN }}"
           echo "::add-mask::${{ github.event.inputs.repoFullName }}"
-          echo "::add-mask::${{ github.event.inputs.callbackSignature }}"
+          echo "::add-mask::${{ github.event.inputs.callbackSecret }}"
           REPO_NAME=$(echo "${{ github.event.inputs.repoFullName }}" | cut -d'/' -f2)
           echo "::add-mask::${REPO_NAME}"
           echo "::add-mask::$(pwd)/target-repo"
@@ -114,9 +114,10 @@ jobs:
                 cpd: {status:"error",findings:[],error:"Clone failed",executionTimeMs:0}
               }
             }')
+          SIGNATURE=$(echo -n "$RESULT" | openssl dgst -sha256 -hmac "${{ github.event.inputs.callbackSecret }}" | awk '{print $NF}')
           curl -s -X POST "${{ github.event.inputs.callbackUrl }}" \
             -H "Content-Type: application/json" \
-            -H "X-Ghagga-Signature: ${{ github.event.inputs.callbackSignature }}" \
+            -H "X-Ghagga-Signature: sha256=${SIGNATURE}" \
             -d "$RESULT" 2>/dev/null || true
           exit 0
 
@@ -318,9 +319,10 @@ jobs:
               }
             }')
 
+          SIGNATURE=$(echo -n "$PAYLOAD" | openssl dgst -sha256 -hmac "${{ github.event.inputs.callbackSecret }}" | awk '{print $NF}')
           curl -s -X POST "${{ github.event.inputs.callbackUrl }}" \
             -H "Content-Type: application/json" \
-            -H "X-Ghagga-Signature: ${{ github.event.inputs.callbackSignature }}" \
+            -H "X-Ghagga-Signature: sha256=${SIGNATURE}" \
             -d "$PAYLOAD" 2>/dev/null || echo "::warning::Callback POST failed"
 
       # ── Delete workflow logs ──────────────────────────────────

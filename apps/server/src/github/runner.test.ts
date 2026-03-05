@@ -623,7 +623,7 @@ describe('dispatchWorkflow', () => {
     const body = JSON.parse(dispatchCall[1].body as string);
     expect(body.ref).toBe('main');
     expect(body.inputs.callbackId).toBe(callbackId);
-    expect(body.inputs.callbackSignature).toMatch(/^sha256=[0-9a-f]{64}$/);
+    expect(body.inputs.callbackSecret).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('dispatch URL includes ownerLogin/ghagga-runner path', async () => {
@@ -681,17 +681,18 @@ describe('dispatchWorkflow', () => {
     expect(inputs.enableTrivy).toBe('true');
     expect(inputs.enableCpd).toBe('false');
 
-    // callbackSignature must start with sha256= and be 64 hex chars
-    expect(inputs.callbackSignature).toMatch(/^sha256=[0-9a-f]{64}$/);
+    // callbackSecret must be a raw 64-char hex string (32 bytes)
+    expect(inputs.callbackSecret).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('callbackSignature starts with sha256= prefix', async () => {
+  it('callbackSecret is a raw 64-char hex string (no sha256= prefix)', async () => {
     setupMockChain(204);
 
     await dispatchWorkflow(makeDispatchParams());
 
     const body = JSON.parse(mockFetch.mock.calls[2][1].body as string);
-    expect(body.inputs.callbackSignature.startsWith('sha256=')).toBe(true);
+    expect(body.inputs.callbackSecret).toMatch(/^[0-9a-f]{64}$/);
+    expect(body.inputs.callbackSecret.startsWith('sha256=')).toBe(false);
   });
 
   it('dispatch body ref is "main"', async () => {
