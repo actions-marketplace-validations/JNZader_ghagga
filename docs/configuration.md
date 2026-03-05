@@ -103,8 +103,15 @@ Add custom patterns in `.ghagga.json`:
 
 Set via config file or CLI flag:
 
+```json
+// .ghagga.json
+{
+  "reviewLevel": "strict"
+}
+```
+
 ```bash
-ghagga review --config '{"reviewLevel": "strict"}'
+ghagga review --config .ghagga.json
 ```
 
 ## Provider Chain (SaaS)

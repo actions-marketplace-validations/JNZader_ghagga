@@ -3,8 +3,8 @@
 AI-powered code review from the command line. **Free** with GitHub Models.
 
 ```bash
-npx @ghagga/cli login
-npx @ghagga/cli review
+npx ghagga login
+npx ghagga review
 ```
 
 That's it. Zero config, zero cost.
@@ -24,7 +24,7 @@ GHAGGA is a multi-agent AI code reviewer that analyzes your code changes using L
 ### 1. Login (one time)
 
 ```bash
-npx @ghagga/cli login
+npx ghagga login
 ```
 
 This authenticates with GitHub using Device Flow. Your GitHub token gives you **free access** to AI models via [GitHub Models](https://github.com/marketplace/models).
@@ -33,23 +33,23 @@ This authenticates with GitHub using Device Flow. Your GitHub token gives you **
 
 ```bash
 # Review staged/uncommitted changes (simple mode)
-npx @ghagga/cli review
+npx ghagga review
 
 # Thorough review with 5 specialist agents
-npx @ghagga/cli review --mode workflow
+npx ghagga review --mode workflow
 
 # Balanced review with for/against/neutral voting
-npx @ghagga/cli review --mode consensus
+npx ghagga review --mode consensus
 
 # See detailed progress of each step
-npx @ghagga/cli review --mode workflow --verbose
+npx ghagga review --mode workflow --verbose
 ```
 
 ### 3. Check your status
 
 ```bash
-npx @ghagga/cli status    # Show auth & config
-npx @ghagga/cli logout    # Clear credentials
+npx ghagga status    # Show auth & config
+npx ghagga logout    # Clear credentials
 ```
 
 ## Global Installation
@@ -57,7 +57,7 @@ npx @ghagga/cli logout    # Clear credentials
 If you use it frequently:
 
 ```bash
-npm install -g @ghagga/cli
+npm install -g ghagga
 
 ghagga login
 ghagga review
@@ -71,7 +71,7 @@ Usage: ghagga review [options] [path]
 
 Options:
   -m, --mode <mode>          Review mode: simple, workflow, consensus (default: "simple")
-  -p, --provider <provider>  LLM provider: github, openai, anthropic, google
+  -p, --provider <provider>  LLM provider: github, anthropic, openai, google, ollama, qwen
   --model <model>            LLM model identifier
   --api-key <key>            LLM provider API key
   -f, --format <format>      Output format: markdown, json (default: "markdown")
@@ -102,6 +102,9 @@ ghagga review --provider anthropic --api-key sk-ant-...
 
 # Google
 ghagga review --provider google --api-key AIza...
+
+# Qwen (Alibaba Cloud)
+ghagga review --provider qwen --api-key sk-...
 ```
 
 ## Local Models with Ollama
@@ -167,5 +170,6 @@ MIT
 ## Links
 
 - [GitHub Repository](https://github.com/JNZader/ghagga)
+- [Full CLI Guide](https://jnzader.github.io/ghagga/docs/#/cli) — Complete setup guide with troubleshooting
 - [Documentation](https://jnzader.github.io/ghagga/docs/)
 - [Landing Page](https://jnzader.github.io/ghagga/)
