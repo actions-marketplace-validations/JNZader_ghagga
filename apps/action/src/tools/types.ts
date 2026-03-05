@@ -24,7 +24,7 @@ export type ToolName = 'semgrep' | 'trivy' | 'cpd';
  */
 export const TOOL_VERSIONS = {
   semgrep: '1.90.0',
-  trivy: '0.58.1',
+  trivy: '0.69.3',
   pmd: '7.8.0',
 } as const;
 

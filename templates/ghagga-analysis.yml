@@ -162,7 +162,7 @@ jobs:
         continue-on-error: true
         run: |
           if ! command -v trivy &>/dev/null; then
-            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.58.1 2>/dev/null
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.69.3 2>/dev/null
           fi
 
       # ── Install PMD/CPD ─────────────────────────────────────
