@@ -1,5 +1,17 @@
 # Proposal: User Onboarding Documentation Overhaul
 
+> **Status**: ARCHIVED
+> **Archived date**: 2026-03-05
+> **Verification**: PASS WITH WARNINGS (all warnings non-critical)
+>
+> **Commits**:
+> - `046944a` — docs(sdd): add user-onboarding-docs change artifacts
+> - `302d189` — docs(onboarding): add SaaS getting started guide and onboarding overhaul
+> - `3e00003` — docs(sdd): archive auto-runner-creation change
+>
+> **Files created** (1): `docs/saas-getting-started.md`
+> **Files modified** (7): `README.md`, `docs/quick-start.md`, `docs/_sidebar.md`, `docs/README.md`, `docs/configuration.md`, `docs/runner-architecture.md`, `landing/index.html`
+
 ## Intent
 
 The SaaS GitHub App is GHAGGA's primary distribution mode — the lowest-friction path for most users. Yet the self-hosted guide has 424 lines of step-by-step instructions while the SaaS path has **zero** dedicated getting-started documentation. A first-time user who installs the GitHub App today lands in a dead end: no guide tells them what to configure, the Dashboard URL isn't linked where it's referenced, the landing page has no "Install App" CTA, and the cost model (free by default!) is never clearly stated.

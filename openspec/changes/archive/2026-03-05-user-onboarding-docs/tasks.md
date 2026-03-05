@@ -1,10 +1,22 @@
 # Tasks: User Onboarding Documentation Overhaul
 
+> **Status**: ARCHIVED — All 13/13 tasks complete
+> **Archived**: 2026-03-05
+> **Verification**: PASS WITH WARNINGS (see `verify-report.md`)
+
 > **GitHub App install URL** (confirmed from `templates/ghagga-runner-README.md`):
 > `https://github.com/apps/ghagga-review/installations/new`
 >
 > **Dashboard URL**: `https://jnzader.github.io/ghagga/app/`
 > **Docs URL**: `https://jnzader.github.io/ghagga/docs/`
+
+### Commits
+
+| Hash | Message |
+|------|---------|
+| `046944a` | docs(sdd): add user-onboarding-docs change artifacts |
+| `302d189` | docs(onboarding): add SaaS getting started guide and onboarding overhaul |
+| `3e00003` | docs(sdd): archive auto-runner-creation change |
 
 ---
 
