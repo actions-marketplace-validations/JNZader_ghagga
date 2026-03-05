@@ -1,5 +1,21 @@
 # Tasks: Automatic Runner Repository Creation
 
+## Archive Status
+
+✅ **All 14 tasks complete** — Archived 2026-03-05
+
+### Commits
+
+| Hash | Message | Tasks |
+|------|---------|-------|
+| `7c30a5b` | feat(runner): createRunnerRepo() + OAuth scope | T1.1, T1.2, T1.3, T1.4 |
+| `d6a2ce9` | feat(runner): runner management endpoints | T2.1, T2.2 |
+| `a9e120b` | feat(dashboard): Runner card UI | T3.1, T3.2, T3.3, T3.4 |
+| `2a3f3c8` | test(runner): 226 tests (534 total) | T1.5, T2.3 |
+| `35f1778` | docs(runner): docs + SDD artifacts | T4.1, T4.2 |
+
+---
+
 ## Summary
 
 | Phase | Tasks | Focus | Est. Effort |

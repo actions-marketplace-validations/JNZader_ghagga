@@ -1,5 +1,31 @@
 # Proposal: Automatic Runner Repository Creation
 
+## Archive Metadata
+
+| Field | Value |
+|-------|-------|
+| **Status** | ✅ ARCHIVED |
+| **Archived date** | 2026-03-05 |
+| **Verification** | PASS WITH WARNINGS |
+| **Tests** | 534 total (server: 319, dashboard: 30, action: 185) — 226 new |
+
+### Commits
+
+| Hash | Message |
+|------|---------|
+| `7c30a5b` | feat(runner): createRunnerRepo() + OAuth scope |
+| `d6a2ce9` | feat(runner): runner management endpoints |
+| `a9e120b` | feat(dashboard): Runner card UI |
+| `2a3f3c8` | test(runner): 226 tests (534 total) |
+| `35f1778` | docs(runner): docs + SDD artifacts |
+
+### Pending Manual Step
+
+- [ ] Remove `Administration: Read & Write` from GitHub App settings
+- [ ] Remove `Contents: Read & Write` from GitHub App settings
+
+---
+
 ## Intent
 
 Users currently must manually create the `ghagga-runner` repository from a template before static analysis (Semgrep, Trivy, CPD) can work. This is the single biggest friction point in onboarding — it requires navigating to a template repo, understanding what it does, and clicking "Use this template" outside the GHAGGA Dashboard.
