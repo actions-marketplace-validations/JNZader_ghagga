@@ -15,6 +15,9 @@ import type {
   Observation,
   ValidationResponse,
   SaaSProvider,
+  RunnerStatus,
+  RunnerCreateResult,
+  RunnerConfigureResult,
 } from './types';
 
 const API_URL =
@@ -206,3 +209,40 @@ export function useObservations(sessionId: number) {
     enabled: !!sessionId,
   });
 }
+
+// ─── Runner ───────────────────────────────────────────────
+
+export function useRunnerStatus(ownerLogin?: string) {
+  return useQuery<RunnerStatus>({
+    queryKey: ['runner', 'status', ownerLogin],
+    queryFn: () => fetchData<RunnerStatus>('/api/runner/status'),
+    enabled: !!ownerLogin,
+    staleTime: 30_000,
+    retry: 1,
+  });
+}
+
+export function useCreateRunner() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{ data: RunnerCreateResult }>('/api/runner/create', {
+        method: 'POST',
+      }).then((res) => res.data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['runner', 'status'] });
+    },
+  });
+}
+
+export function useConfigureRunnerSecret() {
+  return useMutation({
+    mutationFn: () =>
+      fetchApi<{ data: RunnerConfigureResult }>('/api/runner/configure-secret', {
+        method: 'POST',
+      }).then((res) => res.data),
+  });
+}
+
+export { ApiError };

@@ -149,3 +149,35 @@ export interface Observation {
   filePaths: string[];
   createdAt: string;
 }
+
+// ─── Runner ─────────────────────────────────────────────────────
+
+/** Response from GET /api/runner/status */
+export interface RunnerStatus {
+  exists: boolean;
+  repoFullName?: string;
+  isPrivate?: boolean;
+  warning?: string;
+}
+
+/** Response from POST /api/runner/create */
+export interface RunnerCreateResult {
+  created: boolean;
+  repoFullName: string;
+  secretConfigured: boolean;
+  isPrivate: boolean;
+  warning?: string;
+}
+
+/** Response from POST /api/runner/configure-secret */
+export interface RunnerConfigureResult {
+  configured: boolean;
+}
+
+/** Error response from runner endpoints */
+export interface RunnerError {
+  error: string;
+  message?: string;
+  repoFullName?: string;
+  retryAfter?: number;
+}

@@ -44,6 +44,9 @@ interface AuthContextType {
   /** Log out and clear credentials */
   logout: () => void;
 
+  /** Clear credentials and restart Device Flow (for scope upgrade) */
+  reAuthenticate: () => Promise<void>;
+
   /** Current phase of the Device Flow */
   loginPhase: LoginPhase;
 
@@ -218,6 +221,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setDeviceCode(null);
   }, []);
 
+  const reAuthenticate = useCallback(async () => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    setToken(null);
+    setUser(null);
+    await startLogin();
+  }, [startLogin]);
+
   const value: AuthContextType = {
     user,
     token,
@@ -227,6 +238,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loginWithToken,
     cancelLogin,
     logout,
+    reAuthenticate,
     loginPhase,
     deviceCode,
     error,
