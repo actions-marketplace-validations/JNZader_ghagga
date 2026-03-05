@@ -17,7 +17,9 @@ vi.mock('./prompts.js', () => ({
   WORKFLOW_SECURITY_SYSTEM: 'SECURITY_SYSTEM',
   WORKFLOW_PERFORMANCE_SYSTEM: 'PERFORMANCE_SYSTEM',
   WORKFLOW_SYNTHESIS_SYSTEM: 'SYNTHESIS_SYSTEM',
+  REVIEW_CALIBRATION: 'REVIEW_CALIBRATION_BLOCK',
   buildMemoryContext: vi.fn((ctx: string | null) => ctx ? `MEMORY:${ctx}` : ''),
+  buildReviewLevelInstruction: vi.fn((level: string) => `REVIEW_LEVEL:${level}`),
 }));
 
 vi.mock('./simple.js', () => ({
@@ -46,6 +48,7 @@ function makeInput(overrides: Partial<WorkflowReviewInput> = {}): WorkflowReview
     staticContext: '',
     memoryContext: null,
     stackHints: '',
+    reviewLevel: 'normal' as const,
     ...overrides,
   };
 }
@@ -151,11 +154,13 @@ describe('runWorkflowReview', () => {
 
   // ── Synthesis call ──
 
-  it('passes SYNTHESIS_SYSTEM as system prompt for the 6th call', async () => {
+  it('passes SYNTHESIS_SYSTEM with review-level and calibration in system prompt for the 6th call', async () => {
     await runWorkflowReview(makeInput());
 
     const synthesisCall = mockGenerateText.mock.calls[5]![0] as any;
-    expect(synthesisCall.system).toBe('SYNTHESIS_SYSTEM');
+    expect(synthesisCall.system).toContain('SYNTHESIS_SYSTEM');
+    expect(synthesisCall.system).toContain('REVIEW_LEVEL:normal');
+    expect(synthesisCall.system).toContain('REVIEW_CALIBRATION_BLOCK');
     expect(synthesisCall.temperature).toBe(0.3);
   });
 
@@ -399,5 +404,40 @@ describe('runWorkflowReview', () => {
 
   it('does not throw when onProgress is not provided', async () => {
     await expect(runWorkflowReview(makeInput({ onProgress: undefined }))).resolves.toBeDefined();
+  });
+
+  // ── Review level & calibration injection ──
+
+  it('includes review-level instruction in specialist system prompts', async () => {
+    await runWorkflowReview(makeInput({ reviewLevel: 'soft' }));
+
+    // All 5 specialist calls should contain the review level instruction
+    for (let i = 0; i < 5; i++) {
+      const call = mockGenerateText.mock.calls[i]![0] as any;
+      expect(call.system).toContain('REVIEW_LEVEL:soft');
+    }
+  });
+
+  it('includes REVIEW_CALIBRATION in specialist system prompts', async () => {
+    await runWorkflowReview(makeInput());
+
+    for (let i = 0; i < 5; i++) {
+      const call = mockGenerateText.mock.calls[i]![0] as any;
+      expect(call.system).toContain('REVIEW_CALIBRATION_BLOCK');
+    }
+  });
+
+  it('includes review-level instruction in synthesis system prompt', async () => {
+    await runWorkflowReview(makeInput({ reviewLevel: 'strict' }));
+
+    const synthesisCall = mockGenerateText.mock.calls[5]![0] as any;
+    expect(synthesisCall.system).toContain('REVIEW_LEVEL:strict');
+  });
+
+  it('includes REVIEW_CALIBRATION in synthesis system prompt', async () => {
+    await runWorkflowReview(makeInput());
+
+    const synthesisCall = mockGenerateText.mock.calls[5]![0] as any;
+    expect(synthesisCall.system).toContain('REVIEW_CALIBRATION_BLOCK');
   });
 });

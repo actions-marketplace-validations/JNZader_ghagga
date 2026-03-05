@@ -43,6 +43,7 @@ import { runStaticAnalysis, formatStaticAnalysisContext } from './tools/runner.j
 import { searchMemoryForContext } from './memory/search.js';
 import { persistReviewObservations } from './memory/persist.js';
 import type { ReviewInput, ReviewResult } from './types.js';
+import { DEFAULT_SETTINGS } from './types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -440,6 +441,62 @@ index 1234567..abcdefg 100644
       expect(callArgs.diff).toBeDefined();
       expect(callArgs.diff.length).toBeGreaterThan(0);
     });
+
+    it('passes reviewLevel from settings to simple agent', async () => {
+      await reviewPipeline(makeInput({
+        settings: {
+          enableSemgrep: false,
+          enableTrivy: false,
+          enableCpd: false,
+          enableMemory: false,
+          customRules: [],
+          ignorePatterns: [],
+          reviewLevel: 'soft',
+        },
+      }));
+
+      expect(runSimpleReview).toHaveBeenCalledWith(
+        expect.objectContaining({ reviewLevel: 'soft' }),
+      );
+    });
+
+    it('passes reviewLevel to workflow agent', async () => {
+      await reviewPipeline(makeInput({
+        mode: 'workflow',
+        settings: {
+          enableSemgrep: false,
+          enableTrivy: false,
+          enableCpd: false,
+          enableMemory: false,
+          customRules: [],
+          ignorePatterns: [],
+          reviewLevel: 'strict',
+        },
+      }));
+
+      expect(runWorkflowReview).toHaveBeenCalledWith(
+        expect.objectContaining({ reviewLevel: 'strict' }),
+      );
+    });
+
+    it('passes reviewLevel to consensus agent', async () => {
+      await reviewPipeline(makeInput({
+        mode: 'consensus',
+        settings: {
+          enableSemgrep: false,
+          enableTrivy: false,
+          enableCpd: false,
+          enableMemory: false,
+          customRules: [],
+          ignorePatterns: [],
+          reviewLevel: 'normal',
+        },
+      }));
+
+      expect(runConsensusReview).toHaveBeenCalledWith(
+        expect.objectContaining({ reviewLevel: 'normal' }),
+      );
+    });
   });
 
   // ── SKIPPED Result Verification ───────────────────────────
@@ -616,6 +673,28 @@ diff --git a/README.md b/README.md
       const callArgs = (runSimpleReview as MockedFunction<typeof runSimpleReview>).mock.calls[0]![0];
       expect(callArgs.diff).toContain('app.ts');
       expect(callArgs.diff).not.toContain('README.md');
+    });
+  });
+
+  // ── Backward Compatibility ─────────────────────────────────
+
+  describe('backward compatibility', () => {
+    it('works with DEFAULT_SETTINGS (reviewLevel defaults to normal)', async () => {
+      const result = await reviewPipeline(makeInput({
+        settings: {
+          ...DEFAULT_SETTINGS,
+          // Disable tools to keep the test fast and focused
+          enableSemgrep: false,
+          enableTrivy: false,
+          enableCpd: false,
+          enableMemory: false,
+        },
+      }));
+
+      expect(result.status).toBe('PASSED');
+      expect(runSimpleReview).toHaveBeenCalledWith(
+        expect.objectContaining({ reviewLevel: 'normal' }),
+      );
     });
   });
 });

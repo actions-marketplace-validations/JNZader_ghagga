@@ -100,7 +100,7 @@ describe('searchMemoryForContext', () => {
       { db: true },
       'project',
       expect.stringContaining('auth'),
-      { limit: 8 },
+      { limit: 3 },
     );
     const query = mockSearchObservations.mock.calls[0]![2] as string;
     expect(query).toContain('login');
@@ -183,7 +183,7 @@ describe('searchMemoryForContext', () => {
       { db: true },
       'owner/repo',
       expect.any(String),
-      { limit: 8 },
+      { limit: 3 },
     );
   });
 

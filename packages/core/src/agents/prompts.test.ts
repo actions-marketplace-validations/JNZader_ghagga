@@ -3,7 +3,9 @@ import {
   buildStaticAnalysisContext,
   buildMemoryContext,
   buildStackHints,
+  buildReviewLevelInstruction,
   SIMPLE_REVIEW_SYSTEM,
+  REVIEW_CALIBRATION,
   WORKFLOW_SCOPE_SYSTEM,
   CONSENSUS_FOR_SYSTEM,
 } from './prompts.js';
@@ -50,14 +52,27 @@ describe('buildMemoryContext', () => {
     expect(result.length).toBeGreaterThan('This repo uses strict null checks'.length);
   });
 
-  it('includes "Past Review Memory" section title', () => {
+  it('includes "Background Context from Past Reviews" section title', () => {
     const result = buildMemoryContext('Some memory context');
-    expect(result).toContain('Past Review Memory');
+    expect(result).toContain('Background Context from Past Reviews');
   });
 
-  it('includes guidance footer', () => {
+  it('includes anti-priming instruction for situational awareness only', () => {
     const result = buildMemoryContext('Some memory context');
-    expect(result).toContain('Use these past observations to give more informed, context-aware reviews.');
+    expect(result).toContain('situational awareness only');
+    expect(result).toContain('Do NOT use them as reasons to flag issues');
+  });
+
+  it('requires findings justified from the code diff itself', () => {
+    const result = buildMemoryContext('Some memory context');
+    expect(result).toContain('from the code diff itself');
+  });
+
+  it('does NOT contain old priming language', () => {
+    const result = buildMemoryContext('Some memory context');
+    expect(result).not.toContain('give more informed');
+    expect(result).not.toContain('context-aware reviews');
+    expect(result).not.toContain('Past Review Memory');
   });
 });
 
@@ -121,5 +136,131 @@ describe('prompt constants', () => {
 
   it('CONSENSUS_FOR_SYSTEM contains IN FAVOR', () => {
     expect(CONSENSUS_FOR_SYSTEM).toContain('IN FAVOR');
+  });
+});
+
+// ─── buildReviewLevelInstruction ────────────────────────────────
+
+describe('buildReviewLevelInstruction', () => {
+  it('soft level returns 90%+ confidence text', () => {
+    const result = buildReviewLevelInstruction('soft');
+    expect(result).toContain('90%+');
+  });
+
+  it('soft level focuses exclusively on bugs, security, and logic errors', () => {
+    const result = buildReviewLevelInstruction('soft');
+    expect(result).toContain('bugs');
+    expect(result).toContain('security vulnerabilities');
+    expect(result).toContain('logic errors');
+  });
+
+  it('soft level ignores style, naming, and maintainability', () => {
+    const result = buildReviewLevelInstruction('soft');
+    expect(result).toContain('Ignore style, naming, and maintainability');
+  });
+
+  it('normal level returns 80%+ confidence text', () => {
+    const result = buildReviewLevelInstruction('normal');
+    expect(result).toContain('80%+');
+  });
+
+  it('normal level covers bugs, security, performance, error handling', () => {
+    const result = buildReviewLevelInstruction('normal');
+    expect(result).toContain('bugs');
+    expect(result).toContain('security');
+    expect(result).toContain('performance');
+    expect(result).toContain('error handling');
+  });
+
+  it('normal level is cautious with style-only findings', () => {
+    const result = buildReviewLevelInstruction('normal');
+    expect(result).toContain('cautious with style-only findings');
+  });
+
+  it('strict level returns thorough review text', () => {
+    const result = buildReviewLevelInstruction('strict');
+    expect(result).toContain('thorough review');
+  });
+
+  it('strict level includes style, naming, and documentation', () => {
+    const result = buildReviewLevelInstruction('strict');
+    expect(result).toContain('style');
+    expect(result).toContain('naming');
+    expect(result).toContain('documentation');
+  });
+
+  it('strict level flags anything that could be improved', () => {
+    const result = buildReviewLevelInstruction('strict');
+    expect(result).toContain('Flag anything that could be improved');
+  });
+});
+
+// ─── REVIEW_CALIBRATION ─────────────────────────────────────────
+
+describe('REVIEW_CALIBRATION', () => {
+  it('contains 80%+ confidence threshold', () => {
+    expect(REVIEW_CALIBRATION).toContain('80%+ confident');
+  });
+
+  it('prohibits flagging stylistic preferences without explicit rules', () => {
+    expect(REVIEW_CALIBRATION).toContain('Do NOT flag stylistic preferences unless they violate an explicitly provided rule');
+  });
+
+  it('prohibits inventing or assuming coding standards', () => {
+    expect(REVIEW_CALIBRATION).toContain('Do NOT invent or assume coding standards that are not provided');
+  });
+
+  it('prohibits flagging hypothetical edge cases', () => {
+    expect(REVIEW_CALIBRATION).toContain('Do NOT flag hypothetical edge cases that are unlikely in practice');
+  });
+
+  it('permits STATUS: PASSED with zero findings', () => {
+    expect(REVIEW_CALIBRATION).toContain('STATUS: PASSED with zero findings');
+  });
+});
+
+// ─── Cross-provider compatibility ───────────────────────────────
+
+describe('cross-provider compatibility', () => {
+  it('REVIEW_CALIBRATION and buildReviewLevelInstruction output contain no provider-specific syntax', () => {
+    const levels = ['soft', 'normal', 'strict'] as const;
+    const texts = [REVIEW_CALIBRATION, ...levels.map((l) => buildReviewLevelInstruction(l))];
+
+    for (const text of texts) {
+      // No XML tags (Anthropic-style)
+      expect(text).not.toMatch(/<\/?[a-zA-Z_][\w.-]*>/);
+      // No JSON objects
+      expect(text).not.toMatch(/^\s*\{/m);
+      // No system role hacks (OpenAI-style)
+      expect(text).not.toMatch(/\{"role":/);
+    }
+  });
+});
+
+// ─── SIMPLE_REVIEW_SYSTEM content ───────────────────────────────
+
+describe('SIMPLE_REVIEW_SYSTEM content', () => {
+  it('does NOT contain "coding standards and rules"', () => {
+    expect(SIMPLE_REVIEW_SYSTEM).not.toContain('coding standards and rules');
+  });
+
+  it('still contains bug-checking instruction', () => {
+    expect(SIMPLE_REVIEW_SYSTEM).toContain('bugs');
+  });
+
+  it('still contains error handling instruction', () => {
+    expect(SIMPLE_REVIEW_SYSTEM).toContain('error handling');
+  });
+
+  it('still contains code quality instruction', () => {
+    expect(SIMPLE_REVIEW_SYSTEM).toContain('code quality');
+  });
+
+  it('still contains security instruction', () => {
+    expect(SIMPLE_REVIEW_SYSTEM).toContain('security');
+  });
+
+  it('still contains performance instruction', () => {
+    expect(SIMPLE_REVIEW_SYSTEM).toContain('performance');
   });
 });
