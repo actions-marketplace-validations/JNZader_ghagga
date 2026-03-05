@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="GHAGGA Logo — Mendieta cat reviewing code with a magnifying glass" width="200" height="200" />
+</p>
+
 # GHAGGA — AI-Powered Code Review
 
 > Inspired by [Gentleman Guardian Angel (GGA)](https://github.com/Gentleman-Programming/gentleman-guardian-angel) and [Engram](https://github.com/Gentleman-Programming/engram), two projects by [Gentleman Programming](https://youtube.com/@GentlemanProgramming).
