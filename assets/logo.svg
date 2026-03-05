@@ -1,190 +1,81 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
   <defs>
-    <!-- Background gradient -->
+    <!-- Background Gradient -->
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f1729;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#1a1040;stop-opacity:1" />
+      <stop offset="0%" stop-color="#1E1B4B" />
+      <stop offset="100%" stop-color="#0F172A" />
     </linearGradient>
 
-    <!-- Trident metallic gradient -->
-    <linearGradient id="tridentMetal" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#c4b5fd" />
-      <stop offset="40%" style="stop-color:#8b5cf6" />
-      <stop offset="100%" style="stop-color:#6d28d9" />
+    <!-- Glass Fill -->
+    <linearGradient id="glass" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A78BFA" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0.05" />
     </linearGradient>
 
-    <!-- Trident shaft gradient -->
-    <linearGradient id="shaft" x1="0%" y1="0%" x2="1" y2="0">
-      <stop offset="0%" style="stop-color:#7c3aed" />
-      <stop offset="50%" style="stop-color:#a78bfa" />
-      <stop offset="100%" style="stop-color:#7c3aed" />
+    <!-- Magnifying Glass Ring -->
+    <linearGradient id="ring" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#DDD6FE" />
+      <stop offset="100%" stop-color="#8B5CF6" />
     </linearGradient>
 
-    <!-- Lens glass -->
-    <radialGradient id="lensGlass" cx="40%" cy="35%" r="60%">
-      <stop offset="0%" style="stop-color:#a78bfa;stop-opacity:0.2" />
-      <stop offset="100%" style="stop-color:#4c1d95;stop-opacity:0.1" />
-    </radialGradient>
-
-    <!-- Lens ring -->
-    <linearGradient id="lensRing" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#c4b5fd" />
-      <stop offset="50%" style="stop-color:#8b5cf6" />
-      <stop offset="100%" style="stop-color:#6d28d9" />
-    </linearGradient>
-
-    <!-- Glow filter -->
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="3" result="blur"/>
-      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    <!-- Neon Glow Filter -->
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
     </filter>
-
-    <!-- Soft glow for prongs -->
-    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="5" result="blur"/>
-      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
-    </filter>
-
-    <!-- Prong tip glows -->
-    <radialGradient id="semgrepGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" style="stop-color:#34d399;stop-opacity:0.8" />
-      <stop offset="100%" style="stop-color:#34d399;stop-opacity:0" />
-    </radialGradient>
-    <radialGradient id="trivyGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:0.8" />
-      <stop offset="100%" style="stop-color:#60a5fa;stop-opacity:0" />
-    </radialGradient>
-    <radialGradient id="cpdGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" style="stop-color:#fbbf24;stop-opacity:0.8" />
-      <stop offset="100%" style="stop-color:#fbbf24;stop-opacity:0" />
-    </radialGradient>
   </defs>
 
-  <!-- Background -->
-  <circle cx="200" cy="200" r="195" fill="url(#bg)" stroke="#7c3aed" stroke-width="2.5" opacity="0.97"/>
+  <!-- Base App Icon Shape (Squircle) -->
+  <rect width="400" height="400" rx="90" fill="url(#bg)" />
 
-  <!-- Subtle grid pattern in background -->
-  <g opacity="0.04" stroke="#a78bfa" stroke-width="0.5">
-    <line x1="50" y1="50" x2="50" y2="350"/>
-    <line x1="100" y1="50" x2="100" y2="350"/>
-    <line x1="150" y1="50" x2="150" y2="350"/>
-    <line x1="200" y1="50" x2="200" y2="350"/>
-    <line x1="250" y1="50" x2="250" y2="350"/>
-    <line x1="300" y1="50" x2="300" y2="350"/>
-    <line x1="350" y1="50" x2="350" y2="350"/>
-    <line x1="50" y1="100" x2="350" y2="100"/>
-    <line x1="50" y1="150" x2="350" y2="150"/>
-    <line x1="50" y1="200" x2="350" y2="200"/>
-    <line x1="50" y1="250" x2="350" y2="250"/>
-    <line x1="50" y1="300" x2="350" y2="300"/>
-  </g>
+  <!-- Background decorative code brackets (subtle) -->
+  <text x="40" y="90" font-family="monospace" font-size="28" fill="#38BDF8" font-weight="bold" opacity="0.15">{</text>
+  <text x="340" y="80" font-family="monospace" font-size="28" fill="#FBBF24" font-weight="bold" opacity="0.15">}</text>
+  <text x="70" y="340" font-family="monospace" font-size="24" fill="#34D399" font-weight="bold" opacity="0.15">&lt;/&gt;</text>
 
-  <!-- === TRIDENT === -->
-  <g transform="translate(200, 200)">
+  <!-- ==================== TRIDENT ==================== -->
+  <!-- Positioned slightly left so the magnifying handle balances it on the right -->
+  <g transform="translate(150, 240)">
+    
+    <!-- Metallic Handle Base -->
+    <line x1="0" y1="20" x2="0" y2="110" stroke="#64748B" stroke-width="24" stroke-linecap="round" />
+    <path d="M -70,-10 Q -70,20 0,20 Q 70,20 70,-10" stroke="#64748B" stroke-width="24" stroke-linecap="round" fill="none" />
 
-    <!-- Shaft -->
-    <rect x="-6" y="10" width="12" height="150" rx="4" fill="url(#shaft)"/>
-    <!-- Shaft highlight -->
-    <rect x="-2" y="15" width="4" height="140" rx="2" fill="#c4b5fd" opacity="0.3"/>
-
-    <!-- Cross guard (where shaft meets prongs) -->
-    <ellipse cx="0" cy="10" rx="50" ry="8" fill="url(#tridentMetal)"/>
-    <ellipse cx="0" cy="10" rx="46" ry="5" fill="#7c3aed" opacity="0.5"/>
-
-    <!-- Center prong (taller) -->
-    <rect x="-5" y="-110" width="10" height="120" rx="3" fill="url(#tridentMetal)"/>
-    <!-- Center prong tip — pointed -->
-    <path d="M -5,-110 L 0,-128 L 5,-110 Z" fill="url(#tridentMetal)"/>
-    <!-- Center prong highlight -->
-    <rect x="-1" y="-105" width="3" height="110" rx="1.5" fill="#c4b5fd" opacity="0.3"/>
-
-    <!-- Left prong (shorter, angled slightly outward) -->
-    <g transform="rotate(-12, -30, 10)">
-      <rect x="-35" y="-85" width="9" height="95" rx="3" fill="url(#tridentMetal)"/>
-      <path d="M -35,-85 L -30.5,-102 L -26,-85 Z" fill="url(#tridentMetal)"/>
-      <rect x="-32" y="-80" width="3" height="85" rx="1.5" fill="#c4b5fd" opacity="0.25"/>
+    <!-- Left Prong (Trivy - Blue) -->
+    <g filter="url(#glow)">
+      <line x1="-70" y1="-10" x2="-70" y2="-90" stroke="#38BDF8" stroke-width="18" stroke-linecap="round" />
+      <polygon points="-70,-125 -86,-85 -54,-85" fill="#38BDF8" stroke-linejoin="round" />
     </g>
 
-    <!-- Right prong (shorter, angled slightly outward) -->
-    <g transform="rotate(12, 30, 10)">
-      <rect x="26" y="-85" width="9" height="95" rx="3" fill="url(#tridentMetal)"/>
-      <path d="M 26,-85 L 30.5,-102 L 35,-85 Z" fill="url(#tridentMetal)"/>
-      <rect x="29" y="-80" width="3" height="85" rx="1.5" fill="#c4b5fd" opacity="0.25"/>
+    <!-- Center Prong (Semgrep - Green) -->
+    <g filter="url(#glow)">
+      <line x1="0" y1="10" x2="0" y2="-120" stroke="#34D399" stroke-width="18" stroke-linecap="round" />
+      <polygon points="0,-155 -16,-115 16,-115" fill="#34D399" stroke-linejoin="round" />
     </g>
 
-    <!-- Prong tip glows — each tool has its color -->
-    <!-- Center: Semgrep (green) -->
-    <circle cx="0" cy="-128" r="10" fill="url(#semgrepGlow)" filter="url(#softGlow)"/>
-    <circle cx="0" cy="-128" r="3" fill="#34d399" opacity="0.9"/>
-
-    <!-- Left: Trivy (blue) -->
-    <circle cx="-42" cy="-108" r="10" fill="url(#trivyGlow)" filter="url(#softGlow)"/>
-    <circle cx="-42" cy="-108" r="3" fill="#60a5fa" opacity="0.9"/>
-
-    <!-- Right: CPD (amber) -->
-    <circle cx="42" cy="-108" r="10" fill="url(#cpdGlow)" filter="url(#softGlow)"/>
-    <circle cx="42" cy="-108" r="3" fill="#fbbf24" opacity="0.9"/>
-
-    <!-- Tool labels near prong tips -->
-    <text x="0" y="-135" font-family="monospace" font-size="8" fill="#34d399" text-anchor="middle" opacity="0.7">semgrep</text>
-    <text x="-50" y="-115" font-family="monospace" font-size="8" fill="#60a5fa" text-anchor="middle" opacity="0.7">trivy</text>
-    <text x="50" y="-115" font-family="monospace" font-size="8" fill="#fbbf24" text-anchor="middle" opacity="0.7">cpd</text>
-  </g>
-
-  <!-- === MAGNIFYING GLASS (overlapping the trident, lower right) === -->
-  <g transform="translate(290, 270)">
-    <!-- Handle -->
-    <rect x="22" y="22" width="10" height="45" rx="4" fill="#6d28d9" transform="rotate(40, 27, 44)"/>
-    <rect x="24" y="24" width="6" height="40" rx="3" fill="#7c3aed" transform="rotate(40, 27, 44)"/>
-    <!-- Handle end cap -->
-    <circle cx="55" cy="62" r="5" fill="#6d28d9" transform="rotate(40, 27, 44)"/>
-
-    <!-- Lens ring -->
-    <circle cx="0" cy="0" r="35" fill="none" stroke="url(#lensRing)" stroke-width="5"/>
-    <!-- Lens glass -->
-    <circle cx="0" cy="0" r="31" fill="url(#lensGlass)"/>
-
-    <!-- Code lines inside the lens -->
-    <g opacity="0.85">
-      <!-- Line 1: green check -->
-      <rect x="-18" y="-18" width="4" height="3" rx="1" fill="#34d399"/>
-      <rect x="-12" y="-18" width="16" height="3" rx="1" fill="#34d399" opacity="0.6"/>
-
-      <!-- Line 2: code -->
-      <rect x="-18" y="-11" width="8" height="3" rx="1" fill="#818cf8" opacity="0.6"/>
-      <rect x="-7" y="-11" width="12" height="3" rx="1" fill="#c4b5fd" opacity="0.4"/>
-
-      <!-- Line 3: warning highlight -->
-      <rect x="-18" y="-4" width="6" height="3" rx="1" fill="#fbbf24" opacity="0.7"/>
-      <rect x="-9" y="-4" width="18" height="3" rx="1" fill="#fbbf24" opacity="0.35"/>
-
-      <!-- Line 4: code -->
-      <rect x="-18" y="3" width="10" height="3" rx="1" fill="#818cf8" opacity="0.6"/>
-      <rect x="-5" y="3" width="14" height="3" rx="1" fill="#c4b5fd" opacity="0.4"/>
-
-      <!-- Line 5: green check -->
-      <rect x="-18" y="10" width="4" height="3" rx="1" fill="#34d399"/>
-      <rect x="-12" y="10" width="20" height="3" rx="1" fill="#34d399" opacity="0.6"/>
+    <!-- Right Prong (CPD - Amber) -->
+    <g filter="url(#glow)">
+      <line x1="70" y1="-10" x2="70" y2="-90" stroke="#FBBF24" stroke-width="18" stroke-linecap="round" />
+      <polygon points="70,-125 54,-85 86,-85" fill="#FBBF24" stroke-linejoin="round" />
     </g>
-
-    <!-- Lens reflection -->
-    <path d="M -20,-20 C -15,-25 -5,-27 0,-23" fill="none" stroke="white" stroke-width="2" opacity="0.15" stroke-linecap="round"/>
   </g>
 
-  <!-- === AI brain/circuit hint (top left, subtle) === -->
-  <g transform="translate(110, 270)" opacity="0.25">
-    <!-- Simple circuit node pattern suggesting AI -->
-    <circle cx="0" cy="0" r="3" fill="#a78bfa"/>
-    <circle cx="-20" cy="-15" r="2" fill="#a78bfa"/>
-    <circle cx="15" cy="-20" r="2" fill="#a78bfa"/>
-    <circle cx="-15" cy="15" r="2" fill="#a78bfa"/>
-    <line x1="0" y1="0" x2="-20" y2="-15" stroke="#a78bfa" stroke-width="1"/>
-    <line x1="0" y1="0" x2="15" y2="-20" stroke="#a78bfa" stroke-width="1"/>
-    <line x1="0" y1="0" x2="-15" y2="15" stroke="#a78bfa" stroke-width="1"/>
+  <!-- ==================== MAGNIFYING GLASS ==================== -->
+  <g transform="translate(230, 160)">
+    
+    <!-- Handle (Extending down and right) -->
+    <line x1="55" y1="55" x2="135" y2="135" stroke="#4C1D95" stroke-width="36" stroke-linecap="round" />
+    <line x1="55" y1="55" x2="135" y2="135" stroke="#8B5CF6" stroke-width="18" stroke-linecap="round" />
+
+    <!-- Lens Outer Ring -->
+    <circle cx="0" cy="0" r="80" stroke="url(#ring)" stroke-width="20" fill="none" />
+
+    <!-- Lens Inner Glass (Tinting the right side of the trident underneath) -->
+    <circle cx="0" cy="0" r="70" fill="url(#glass)" />
+
+    <!-- Glass Reflections (Makes it look shiny and transparent) -->
+    <path d="M -50,-50 A 70 70 0 0 1 25,-60" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" opacity="0.6" />
+    <path d="M -60,-25 A 70 70 0 0 1 -25,-60" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" opacity="0.3" />
   </g>
 
-  <!-- Floating code symbols -->
-  <text x="70" y="120" font-family="monospace" font-size="12" fill="#34d399" opacity="0.2">&lt;/&gt;</text>
-  <text x="85" y="310" font-family="monospace" font-size="10" fill="#818cf8" opacity="0.15">{ }</text>
-  <text x="320" y="110" font-family="monospace" font-size="10" fill="#fbbf24" opacity="0.15">( )</text>
 </svg>
