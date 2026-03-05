@@ -577,19 +577,30 @@ describe('dispatchWorkflow', () => {
 
   /**
    * Set up mock fetch to handle:
-   *  1. GET public-key → 200
-   *  2. PUT secret     → 204
-   *  3. POST dispatch  → given status
+   *  1. GET public-key → 200  (for GHAGGA_TOKEN)
+   *  2. PUT secret     → 204  (for GHAGGA_TOKEN)
+   *  3. GET public-key → 200  (for GHAGGA_CALLBACK_SECRET)
+   *  4. PUT secret     → 204  (for GHAGGA_CALLBACK_SECRET)
+   *  5. POST dispatch  → given status
    */
   function setupMockChain(dispatchStatus: number, dispatchBody?: string) {
-    // setRunnerSecret → GET public key
+    // setRunnerSecret(GHAGGA_TOKEN) → GET public key
     mockFetch.mockResolvedValueOnce(
       new Response(
         JSON.stringify({ key: testPublicKeyB64, key_id: 'key-dispatch' }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
     );
-    // setRunnerSecret → PUT secret
+    // setRunnerSecret(GHAGGA_TOKEN) → PUT secret
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    // setRunnerSecret(GHAGGA_CALLBACK_SECRET) → GET public key
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ key: testPublicKeyB64, key_id: 'key-dispatch' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    // setRunnerSecret(GHAGGA_CALLBACK_SECRET) → PUT secret
     mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
     // dispatchWorkflow → POST workflow_dispatch
     // Status 204 is a null-body status; use null body for it.
@@ -612,11 +623,11 @@ describe('dispatchWorkflow', () => {
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
     );
 
-    // 3 fetch calls: GET public key, PUT secret, POST dispatch
-    expect(mockFetch).toHaveBeenCalledTimes(3);
+    // 5 fetch calls: GET+PUT (GHAGGA_TOKEN), GET+PUT (GHAGGA_CALLBACK_SECRET), POST dispatch
+    expect(mockFetch).toHaveBeenCalledTimes(5);
 
     // Verify dispatch call
-    const dispatchCall = mockFetch.mock.calls[2];
+    const dispatchCall = mockFetch.mock.calls[4];
     expect(dispatchCall[0]).toContain('/actions/workflows/ghagga-analysis.yml/dispatches');
     expect(dispatchCall[1].method).toBe('POST');
 
@@ -631,7 +642,7 @@ describe('dispatchWorkflow', () => {
 
     await dispatchWorkflow(makeDispatchParams({ ownerLogin: 'my-org' }));
 
-    const dispatchUrl = mockFetch.mock.calls[2][0] as string;
+    const dispatchUrl = mockFetch.mock.calls[4][0] as string;
     expect(dispatchUrl).toBe(
       'https://api.github.com/repos/my-org/ghagga-runner/actions/workflows/ghagga-analysis.yml/dispatches',
     );
@@ -642,7 +653,7 @@ describe('dispatchWorkflow', () => {
 
     await dispatchWorkflow(makeDispatchParams({ token: 'ghp_dispatch-tok' }));
 
-    const headers = mockFetch.mock.calls[2][1].headers;
+    const headers = mockFetch.mock.calls[4][1].headers;
     expect(headers).toEqual({
       Authorization: 'Bearer ghp_dispatch-tok',
       Accept: 'application/vnd.github.v3+json',
@@ -668,7 +679,7 @@ describe('dispatchWorkflow', () => {
 
     const callbackId = await dispatchWorkflow(params);
 
-    const body = JSON.parse(mockFetch.mock.calls[2][1].body as string);
+    const body = JSON.parse(mockFetch.mock.calls[4][1].body as string);
     const inputs = body.inputs;
 
     expect(inputs.callbackId).toBe(callbackId);
@@ -690,7 +701,7 @@ describe('dispatchWorkflow', () => {
 
     await dispatchWorkflow(makeDispatchParams());
 
-    const body = JSON.parse(mockFetch.mock.calls[2][1].body as string);
+    const body = JSON.parse(mockFetch.mock.calls[4][1].body as string);
     expect(body.inputs.callbackSecret).toMatch(/^[0-9a-f]{64}$/);
     expect(body.inputs.callbackSecret.startsWith('sha256=')).toBe(false);
   });
@@ -700,7 +711,7 @@ describe('dispatchWorkflow', () => {
 
     await dispatchWorkflow(makeDispatchParams());
 
-    const body = JSON.parse(mockFetch.mock.calls[2][1].body as string);
+    const body = JSON.parse(mockFetch.mock.calls[4][1].body as string);
     expect(body.ref).toBe('main');
   });
 
@@ -709,25 +720,41 @@ describe('dispatchWorkflow', () => {
 
     await dispatchWorkflow(makeDispatchParams({ ownerLogin: 'my-org' }));
 
-    // The GET public-key URL should target ownerLogin/ghagga-runner
-    const getKeyUrl = mockFetch.mock.calls[0][0] as string;
-    expect(getKeyUrl).toBe(
+    // GHAGGA_TOKEN: GET public-key URL should target ownerLogin/ghagga-runner
+    const getKeyUrl0 = mockFetch.mock.calls[0][0] as string;
+    expect(getKeyUrl0).toBe(
       'https://api.github.com/repos/my-org/ghagga-runner/actions/secrets/public-key',
     );
 
-    // The PUT secret URL should also target ownerLogin/ghagga-runner
-    const putSecretUrl = mockFetch.mock.calls[1][0] as string;
-    expect(putSecretUrl).toContain('my-org/ghagga-runner/actions/secrets/');
+    // GHAGGA_TOKEN: PUT secret URL should also target ownerLogin/ghagga-runner
+    const putSecretUrl0 = mockFetch.mock.calls[1][0] as string;
+    expect(putSecretUrl0).toContain('my-org/ghagga-runner/actions/secrets/');
+
+    // GHAGGA_CALLBACK_SECRET: GET public-key URL should target ownerLogin/ghagga-runner
+    const getKeyUrl1 = mockFetch.mock.calls[2][0] as string;
+    expect(getKeyUrl1).toBe(
+      'https://api.github.com/repos/my-org/ghagga-runner/actions/secrets/public-key',
+    );
+
+    // GHAGGA_CALLBACK_SECRET: PUT secret URL should also target ownerLogin/ghagga-runner
+    const putSecretUrl1 = mockFetch.mock.calls[3][0] as string;
+    expect(putSecretUrl1).toContain('my-org/ghagga-runner/actions/secrets/');
   });
 
-  it('sets runner secret with name GHAGGA_CALLBACK_SECRET', async () => {
+  it('sets runner secrets with names GHAGGA_TOKEN and GHAGGA_CALLBACK_SECRET', async () => {
     setupMockChain(204);
 
     await dispatchWorkflow(makeDispatchParams({ ownerLogin: 'my-org' }));
 
-    // The PUT secret URL should contain the exact secret name
-    const putSecretUrl = mockFetch.mock.calls[1][0] as string;
-    expect(putSecretUrl).toBe(
+    // The first PUT secret URL should contain GHAGGA_TOKEN
+    const putTokenUrl = mockFetch.mock.calls[1][0] as string;
+    expect(putTokenUrl).toBe(
+      'https://api.github.com/repos/my-org/ghagga-runner/actions/secrets/GHAGGA_TOKEN',
+    );
+
+    // The second PUT secret URL should contain GHAGGA_CALLBACK_SECRET
+    const putCallbackUrl = mockFetch.mock.calls[3][0] as string;
+    expect(putCallbackUrl).toBe(
       'https://api.github.com/repos/my-org/ghagga-runner/actions/secrets/GHAGGA_CALLBACK_SECRET',
     );
   });
@@ -771,7 +798,7 @@ describe('dispatchWorkflow', () => {
 
     await dispatchWorkflow(makeDispatchParams({ prNumber: 999 }));
 
-    const body = JSON.parse(mockFetch.mock.calls[2][1].body as string);
+    const body = JSON.parse(mockFetch.mock.calls[4][1].body as string);
     expect(body.inputs.prNumber).toBe('999');
     expect(typeof body.inputs.prNumber).toBe('string');
   });
@@ -785,7 +812,7 @@ describe('dispatchWorkflow', () => {
       enableCpd: true,
     }));
 
-    const body = JSON.parse(mockFetch.mock.calls[2][1].body as string);
+    const body = JSON.parse(mockFetch.mock.calls[4][1].body as string);
     expect(body.inputs.enableSemgrep).toBe('false');
     expect(body.inputs.enableTrivy).toBe('true');
     expect(body.inputs.enableCpd).toBe('true');
@@ -802,9 +829,9 @@ describe('dispatchWorkflow', () => {
     // The secret should have been cleaned up — any verifyAndConsumeSecret
     // call with any callbackId that was generated should fail.
     // Since we can't know the callbackId (it was generated internally),
-    // we verify indirectly by checking fetch was called 3 times
-    // (meaning setRunnerSecret succeeded before dispatch failed).
-    expect(mockFetch).toHaveBeenCalledTimes(3);
+    // we verify indirectly by checking fetch was called 5 times
+    // (meaning both setRunnerSecret calls succeeded before dispatch failed).
+    expect(mockFetch).toHaveBeenCalledTimes(5);
   });
 
   it('on failure, the secret is removed from the store', async () => {
@@ -820,7 +847,7 @@ describe('dispatchWorkflow', () => {
     }
 
     // Extract the callbackId from the dispatch request body
-    const dispatchBody = JSON.parse(mockFetch.mock.calls[2][1].body as string);
+    const dispatchBody = JSON.parse(mockFetch.mock.calls[4][1].body as string);
     const callbackId = dispatchBody.inputs.callbackId;
 
     // The secret should have been deleted — verifyAndConsumeSecret should return false

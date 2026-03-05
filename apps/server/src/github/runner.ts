@@ -279,8 +279,9 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
   // Store secret in-memory for callback verification
   storeCallbackSecret(callbackId, callbackSecret);
 
-  // Set the callback secret on the runner repo so the workflow can sign its callback
+  // Set secrets on the runner repo before dispatching
   const runnerRepo = `${ownerLogin}/ghagga-runner`;
+  await setRunnerSecret(runnerRepo, 'GHAGGA_TOKEN', token, token);
   await setRunnerSecret(runnerRepo, 'GHAGGA_CALLBACK_SECRET', callbackSecret, token);
 
   // Dispatch the workflow — send the raw secret so it can compute HMAC over the actual payload
