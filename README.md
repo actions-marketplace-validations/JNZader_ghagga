@@ -60,6 +60,19 @@ You bring your own API key (BYOK). GHAGGA never sees or stores your keys in plai
 
 ## Quick Start
 
+### Option 0: GitHub App (SaaS) — ⭐ Recommended
+
+The easiest way to get started. Install the App, configure in the Dashboard, get reviews.
+
+1. **[Install the GHAGGA GitHub App](https://github.com/apps/ghagga-review/installations/new)** on your repositories
+2. **[Open the Dashboard](https://jnzader.github.io/ghagga/app/)** and log in with GitHub
+3. **Configure your LLM provider** — GitHub Models is free (no API key needed), or bring your own key
+4. **Open a PR** — get an AI-powered review in ~1-2 minutes
+
+> **Important**: After installing the App, reviews won't work until you configure an LLM provider in the [Dashboard](https://jnzader.github.io/ghagga/app/). See the [full SaaS guide](https://jnzader.github.io/ghagga/docs/#/saas-getting-started) for detailed steps.
+
+---
+
 ### Option 1: GitHub Action (Free for Public Repos)
 
 The fastest way to get started. No server needed — runs directly in GitHub's infrastructure.

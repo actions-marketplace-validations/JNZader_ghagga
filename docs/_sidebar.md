@@ -1,6 +1,7 @@
 - Getting Started
   - [Overview](README.md)
   - [Quick Start](quick-start.md)
+  - [SaaS Guide (GitHub App)](saas-getting-started.md)
   - [Configuration](configuration.md)
 
 - Architecture
@@ -15,6 +16,7 @@
   - [Security](security.md)
 
 - Distribution
+  - [SaaS (GitHub App)](saas-getting-started.md)
   - [GitHub Action](github-action.md)
   - [CLI](cli.md)
   - [Self-Hosted (Docker)](self-hosted.md)

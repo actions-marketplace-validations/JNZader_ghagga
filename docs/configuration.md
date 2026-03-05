@@ -1,5 +1,7 @@
 # Configuration
 
+> **Using the SaaS (GitHub App)?** Configure everything in the [Dashboard](https://jnzader.github.io/ghagga/app/) → Settings. The environment variables and config file below are for **CLI** and **self-hosted** deployments only.
+
 ## Environment Variables
 
 ### Server Mode

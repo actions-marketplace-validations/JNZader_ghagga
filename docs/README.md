@@ -4,6 +4,16 @@
 
 GHAGGA is a code review tool that posts intelligent comments on your Pull Requests. It combines LLM analysis with static analysis tools (Semgrep, Trivy, CPD) and a project memory system that learns across reviews.
 
+## New Here? Start with Your Guide
+
+| Your situation | Start here |
+|---|---|
+| **I want the easiest setup** | [SaaS Guide (GitHub App)](saas-getting-started.md) ⭐ Recommended |
+| I want CI/CD integration | [GitHub Action](github-action.md) |
+| I want local CLI reviews | [CLI](cli.md) |
+| I want to self-host | [Self-Hosted (Docker)](self-hosted.md) |
+| I just want to explore | Keep reading below, then check [Quick Start](quick-start.md) |
+
 ## How It Works
 
 1. **Receives** a PR diff (via webhook, CLI, or GitHub Action)

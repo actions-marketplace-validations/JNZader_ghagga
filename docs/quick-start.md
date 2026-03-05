@@ -1,6 +1,15 @@
 # Quick Start
 
-Choose your preferred distribution mode. All modes use the same review engine under the hood.
+## Choose Your Path
+
+| If you want... | Use | Time | Requires | Guide |
+|---|---|---|---|---|
+| **Easiest setup — install and go** | **SaaS (GitHub App)** ⭐ Recommended | ~5 min | GitHub account | [SaaS Guide](saas-getting-started.md) |
+| CI/CD integration — runs in your pipeline | GitHub Action | ~10 min | Repo admin access | [Action Guide](github-action.md) |
+| Local review from your terminal | CLI | ~5 min | Node.js 22+ | [CLI Guide](cli.md) |
+| Full control — your own server | Self-Hosted (Docker) | ~30 min | Docker, PostgreSQL | [Self-Hosted Guide](self-hosted.md) |
+
+All modes use the same review engine under the hood. [Learn more about the architecture](architecture.md).
 
 ## GitHub Action (Recommended)
 
@@ -61,9 +70,13 @@ See [Self-Hosted](self-hosted.md) for full deployment details.
 
 ## SaaS Mode — Runner Setup
 
-If you're using the hosted GHAGGA SaaS (Render deployment), static analysis runs on a delegated runner. To enable it:
+If you're using the hosted GHAGGA SaaS (Render deployment), static analysis runs on a delegated runner.
 
-1. **Open the Dashboard** and go to **Global Settings**
+> **Important**: After installing the GitHub App, you must configure an LLM provider in the [Dashboard](https://jnzader.github.io/ghagga/app/) before reviews will work. See the [SaaS Getting Started Guide](saas-getting-started.md) for the full setup flow.
+
+To enable static analysis:
+
+1. **[Open the Dashboard](https://jnzader.github.io/ghagga/app/)** and go to **Global Settings**
 2. **Click "Enable Runner"** in the Static Analysis Runner card
 3. A public repository named `ghagga-runner` will be created in your GitHub account from the official template
 
@@ -75,6 +88,8 @@ See [Runner Architecture](runner-architecture.md) for details.
 
 ## BYOK — Bring Your Own Key
 
+> **Free by default**: GHAGGA is free and open source. GitHub Models provides free LLM access (`gpt-4o-mini`) — no API key needed. The providers below are optional if you want different models.
+
 GHAGGA never sees or stores your keys in plaintext. They're encrypted with AES-256-GCM at rest. You bring your own API key from any supported provider:
 
 | Provider | Default Model |
@@ -85,3 +100,5 @@ GHAGGA never sees or stores your keys in plaintext. They're encrypted with AES-2
 | Google | `gemini-2.5-flash` |
 | Ollama | `qwen2.5-coder:7b` |
 | Qwen | `qwen-coder-plus` |
+
+Static analysis tools (Semgrep, Trivy, CPD) are always free — they run on GitHub Actions runners (unlimited free minutes for public repos).
