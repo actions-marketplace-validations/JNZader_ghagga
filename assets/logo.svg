@@ -1,81 +1,81 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
   <defs>
-    <!-- Background Gradient -->
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1E1B4B" />
-      <stop offset="100%" stop-color="#0F172A" />
+    <!-- Dark, elegant background -->
+    <radialGradient id="bg" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#2a2d3e" />
+      <stop offset="100%" stop-color="#0f111a" />
+    </radialGradient>
+    
+    <!-- Gold gradient for the Gentleman hat -->
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f5d76e" />
+      <stop offset="50%" stop-color="#d4af37" />
+      <stop offset="100%" stop-color="#997a00" />
     </linearGradient>
 
-    <!-- Glass Fill -->
+    <!-- Holographic glass for the monocle/magnifier -->
     <linearGradient id="glass" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#A78BFA" stop-opacity="0.3" />
-      <stop offset="100%" stop-color="#7C3AED" stop-opacity="0.05" />
+      <stop offset="0%" stop-color="#5EEAD4" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#3B82F6" stop-opacity="0.05"/>
     </linearGradient>
 
-    <!-- Magnifying Glass Ring -->
-    <linearGradient id="ring" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#DDD6FE" />
-      <stop offset="100%" stop-color="#8B5CF6" />
-    </linearGradient>
-
-    <!-- Neon Glow Filter -->
-    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="6" result="blur" />
+    <!-- Neon Glow -->
+    <filter id="neon" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
       <feComposite in="SourceGraphic" in2="blur" operator="over" />
     </filter>
   </defs>
 
-  <!-- Base App Icon Shape (Squircle) -->
-  <rect width="400" height="400" rx="90" fill="url(#bg)" />
+  <!-- Background Base -->
+  <rect width="400" height="400" fill="url(#bg)" rx="90" />
 
-  <!-- Background decorative code brackets (subtle) -->
-  <text x="40" y="90" font-family="monospace" font-size="28" fill="#38BDF8" font-weight="bold" opacity="0.15">{</text>
-  <text x="340" y="80" font-family="monospace" font-size="28" fill="#FBBF24" font-weight="bold" opacity="0.15">}</text>
-  <text x="70" y="340" font-family="monospace" font-size="24" fill="#34D399" font-weight="bold" opacity="0.15">&lt;/&gt;</text>
-
-  <!-- ==================== TRIDENT ==================== -->
-  <!-- Positioned slightly left so the magnifying handle balances it on the right -->
-  <g transform="translate(150, 240)">
-    
-    <!-- Metallic Handle Base -->
-    <line x1="0" y1="20" x2="0" y2="110" stroke="#64748B" stroke-width="24" stroke-linecap="round" />
-    <path d="M -70,-10 Q -70,20 0,20 Q 70,20 70,-10" stroke="#64748B" stroke-width="24" stroke-linecap="round" fill="none" />
-
-    <!-- Left Prong (Trivy - Blue) -->
-    <g filter="url(#glow)">
-      <line x1="-70" y1="-10" x2="-70" y2="-90" stroke="#38BDF8" stroke-width="18" stroke-linecap="round" />
-      <polygon points="-70,-125 -86,-85 -54,-85" fill="#38BDF8" stroke-linejoin="round" />
-    </g>
-
-    <!-- Center Prong (Semgrep - Green) -->
-    <g filter="url(#glow)">
-      <line x1="0" y1="10" x2="0" y2="-120" stroke="#34D399" stroke-width="18" stroke-linecap="round" />
-      <polygon points="0,-155 -16,-115 16,-115" fill="#34D399" stroke-linejoin="round" />
-    </g>
-
-    <!-- Right Prong (CPD - Amber) -->
-    <g filter="url(#glow)">
-      <line x1="70" y1="-10" x2="70" y2="-90" stroke="#FBBF24" stroke-width="18" stroke-linecap="round" />
-      <polygon points="70,-125 54,-85 86,-85" fill="#FBBF24" stroke-linejoin="round" />
-    </g>
+  <!-- Subtle code rain in background (Matrix style but very faint) -->
+  <g font-family="monospace" font-size="12" fill="#5EEAD4" opacity="0.05">
+    <text x="40" y="60">import</text>
+    <text x="80" y="120">const</text>
+    <text x="320" y="90">function()</text>
+    <text x="340" y="200">return</text>
+    <text x="50" y="300">=&gt;</text>
+    <text x="320" y="340">await</text>
   </g>
 
-  <!-- ==================== MAGNIFYING GLASS ==================== -->
-  <g transform="translate(230, 160)">
+  <!-- ==================== GENTLEMAN TOP HAT ==================== -->
+  <g transform="translate(0, -20)">
+    <!-- Hat Top -->
+    <path d="M 130,160 L 145,60 C 145,50 255,50 255,60 L 270,160 Z" fill="#1a1c29" stroke="url(#gold)" stroke-width="6" stroke-linejoin="round"/>
     
-    <!-- Handle (Extending down and right) -->
-    <line x1="55" y1="55" x2="135" y2="135" stroke="#4C1D95" stroke-width="36" stroke-linecap="round" />
-    <line x1="55" y1="55" x2="135" y2="135" stroke="#8B5CF6" stroke-width="18" stroke-linecap="round" />
+    <!-- Hat Ribbon (Golden band) -->
+    <path d="M 132,140 L 268,140 L 270,160 L 130,160 Z" fill="url(#gold)" />
+    
+    <!-- Hat Brim -->
+    <path d="M 80,160 C 80,150 320,150 320,160 C 320,170 80,170 80,160 Z" fill="#1a1c29" stroke="url(#gold)" stroke-width="6" />
+  </g>
 
-    <!-- Lens Outer Ring -->
-    <circle cx="0" cy="0" r="80" stroke="url(#ring)" stroke-width="20" fill="none" />
+  <!-- ==================== MUSTACHE ==================== -->
+  <!-- Classic handlebar mustache, rendered in pristine white -->
+  <path d="M 200,240 
+           C 240,240 265,255 280,285 
+           C 265,270 240,265 200,265 
+           C 160,265 135,270 120,285 
+           C 135,255 160,240 200,240 Z" 
+        fill="#ffffff" />
 
-    <!-- Lens Inner Glass (Tinting the right side of the trident underneath) -->
-    <circle cx="0" cy="0" r="70" fill="url(#glass)" />
+  <!-- ==================== TECH MONOCLE (The Magnifying Glass) ==================== -->
+  <g transform="translate(30, -10)">
+    <!-- Monocle Chain/Wire -->
+    <path d="M 255,220 Q 290,240 295,330" fill="none" stroke="#5EEAD4" stroke-width="2" stroke-dasharray="4,4" opacity="0.7" />
+    
+    <!-- Monocle Frame (Glowing) -->
+    <circle cx="220" cy="210" r="38" fill="url(#glass)" stroke="#5EEAD4" stroke-width="5" filter="url(#neon)" />
+    
+    <!-- Monocle Inner Ring (Depth) -->
+    <circle cx="220" cy="210" r="32" fill="none" stroke="#ffffff" stroke-width="1" opacity="0.5" />
 
-    <!-- Glass Reflections (Makes it look shiny and transparent) -->
-    <path d="M -50,-50 A 70 70 0 0 1 25,-60" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" opacity="0.6" />
-    <path d="M -60,-25 A 70 70 0 0 1 -25,-60" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" opacity="0.3" />
+    <!-- Code being inspected inside the monocle -->
+    <text x="220" y="222" font-family="monospace" font-size="28" fill="#5EEAD4" text-anchor="middle" font-weight="bold" filter="url(#neon)">&lt;/&gt;</text>
+    
+    <!-- Glass reflection -->
+    <path d="M 195,190 A 30 30 0 0 1 235,185" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.6" />
   </g>
 
 </svg>
