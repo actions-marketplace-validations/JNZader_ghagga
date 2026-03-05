@@ -98,7 +98,22 @@ jobs:
       - name: Report clone failure
         if: steps.clone.outcome == 'failure'
         run: |
-          RESULT='{"callbackId":"${{ github.event.inputs.callbackId }}","staticAnalysis":{"semgrep":{"status":"error","findings":[],"error":"Clone failed (token may have expired)","executionTimeMs":0},"trivy":{"status":"error","findings":[],"error":"Clone failed","executionTimeMs":0},"cpd":{"status":"error","findings":[],"error":"Clone failed","executionTimeMs":0}}}'
+          RESULT=$(jq -n \
+            --arg cid "${{ github.event.inputs.callbackId }}" \
+            --arg repo "${{ github.event.inputs.repoFullName }}" \
+            --arg pr "${{ github.event.inputs.prNumber }}" \
+            --arg sha "${{ github.event.inputs.headSha }}" \
+            '{
+              callbackId: $cid,
+              repoFullName: $repo,
+              prNumber: ($pr | tonumber),
+              headSha: $sha,
+              staticAnalysis: {
+                semgrep: {status:"error",findings:[],error:"Clone failed (token may have expired)",executionTimeMs:0},
+                trivy: {status:"error",findings:[],error:"Clone failed",executionTimeMs:0},
+                cpd: {status:"error",findings:[],error:"Clone failed",executionTimeMs:0}
+              }
+            }')
           curl -s -X POST "${{ github.event.inputs.callbackUrl }}" \
             -H "Content-Type: application/json" \
             -H "X-Ghagga-Signature: ${{ github.event.inputs.callbackSignature }}" \
@@ -285,11 +300,17 @@ jobs:
 
           PAYLOAD=$(jq -n \
             --arg cid "${{ github.event.inputs.callbackId }}" \
+            --arg repo "${{ github.event.inputs.repoFullName }}" \
+            --arg pr "${{ github.event.inputs.prNumber }}" \
+            --arg sha "${{ github.event.inputs.headSha }}" \
             --argjson semgrep "$SEMGREP_RESULT" \
             --argjson trivy "$TRIVY_RESULT" \
             --argjson cpd "$CPD_RESULT" \
             '{
               callbackId: $cid,
+              repoFullName: $repo,
+              prNumber: ($pr | tonumber),
+              headSha: $sha,
               staticAnalysis: {
                 semgrep: $semgrep,
                 trivy: $trivy,
