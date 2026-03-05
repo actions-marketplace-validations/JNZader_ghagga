@@ -9,8 +9,10 @@ export default {
   mutate: [
     'src/routes/api.ts',
     'src/routes/webhook.ts',
+    'src/routes/runner-callback.ts',
     'src/middleware/auth.ts',
     'src/lib/provider-models.ts',
+    'src/github/runner.ts',
     // Exclude test files
     '!src/**/*.test.ts',
     '!src/**/index.ts',

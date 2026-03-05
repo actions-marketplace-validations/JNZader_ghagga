@@ -6,6 +6,7 @@
  */
 
 import { EventSchemas, Inngest } from 'inngest';
+import type { StaticAnalysisResult } from 'ghagga-core';
 
 // ─── Event Types ────────────────────────────────────────────────
 
@@ -73,9 +74,29 @@ export interface ReviewRequestedData {
 
 // ─── Event Schemas ──────────────────────────────────────────────
 
+export interface RunnerCompletedData {
+  /** Unique callback ID for correlation */
+  callbackId: string;
+
+  /** Repository full name (e.g., "owner/repo") */
+  repoFullName: string;
+
+  /** Pull request number */
+  prNumber: number;
+
+  /** HEAD commit SHA */
+  headSha: string;
+
+  /** Precomputed static analysis results from the runner */
+  staticAnalysis: StaticAnalysisResult;
+}
+
 type Events = {
   'ghagga/review.requested': {
     data: ReviewRequestedData;
+  };
+  'ghagga/runner.completed': {
+    data: RunnerCompletedData;
   };
 };
 

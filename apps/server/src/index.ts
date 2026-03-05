@@ -20,6 +20,7 @@ import { reviewFunction } from './inngest/review.js';
 import { createWebhookRouter } from './routes/webhook.js';
 import { createOAuthRouter } from './routes/oauth.js';
 import { createApiRouter } from './routes/api.js';
+import { createRunnerCallbackRouter } from './routes/runner-callback.js';
 import { authMiddleware } from './middleware/auth.js';
 
 // ─── Database ───────────────────────────────────────────────────
@@ -100,6 +101,10 @@ app.on(
   '/api/inngest',
   serveInngest({ client: inngest, functions: [reviewFunction] }),
 );
+
+// Runner callback route (before auth middleware — uses per-dispatch HMAC auth)
+const runnerCallbackRouter = createRunnerCallbackRouter();
+app.route('/', runnerCallbackRouter);
 
 // Dashboard API routes (auth required — must be after Inngest mount)
 app.use('/api/*', authMiddleware(db));

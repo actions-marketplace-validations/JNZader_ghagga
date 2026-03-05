@@ -246,6 +246,7 @@ export async function getInstallationToken(
   installationId: number,
   appId: string,
   privateKey: string,
+  options?: { repositoryIds?: number[] },
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
 
@@ -272,13 +273,21 @@ export async function getInstallationToken(
   // Exchange JWT for installation access token
   const url = `https://api.github.com/app/installations/${installationId}/access_tokens`;
 
+  // Build request body — optionally scope token to specific repositories
+  const body: Record<string, unknown> = {};
+  if (options?.repositoryIds && options.repositoryIds.length > 0) {
+    body.repository_ids = options.repositoryIds;
+  }
+
   const response = await fetch(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${jwt}`,
       Accept: 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
       'X-GitHub-Api-Version': '2022-11-28',
     },
+    ...(Object.keys(body).length > 0 && { body: JSON.stringify(body) }),
   });
 
   if (!response.ok) {

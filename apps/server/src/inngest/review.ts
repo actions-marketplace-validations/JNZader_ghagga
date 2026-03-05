@@ -10,6 +10,7 @@
  */
 
 import { inngest } from './client.js';
+import type { RunnerCompletedData } from './client.js';
 import {
   fetchPRDiff,
   getPRCommitMessages,
@@ -18,11 +19,12 @@ import {
   postComment,
   addCommentReaction,
 } from '../github/client.js';
+import { discoverRunnerRepo, dispatchWorkflow } from '../github/runner.js';
 import { logger as rootLogger } from '../lib/logger.js';
 import { reviewPipeline } from 'ghagga-core';
 
 const logger = rootLogger.child({ module: 'review' });
-import type { ReviewInput, ReviewResult, ReviewStatus, ReviewMode, LLMProvider, ReviewLevel, ProviderChainEntry } from 'ghagga-core';
+import type { ReviewInput, ReviewResult, ReviewStatus, ReviewMode, LLMProvider, ReviewLevel, ProviderChainEntry, StaticAnalysisResult } from 'ghagga-core';
 import { createDatabaseFromEnv, saveReview, decrypt } from 'ghagga-db';
 import type { Database, DbProviderChainEntry } from 'ghagga-db';
 
@@ -106,6 +108,8 @@ export const reviewFunction = inngest.createFunction(
       repoFullName,
       prNumber,
       repositoryId,
+      headSha: eventHeadSha,
+      baseBranch: eventBaseBranch,
       // Comment trigger metadata
       triggerCommentId,
       // Provider chain (new)
@@ -141,7 +145,96 @@ export const reviewFunction = inngest.createFunction(
       return { token, diff, commitMessages, fileList };
     });
 
-    // Step 2: Run the core review pipeline
+    // Step 2: Dispatch static analysis to runner (if available)
+    const runnerResult = await step.run('dispatch-runner', async () => {
+      // Check if any static analysis tool is enabled
+      const anyToolEnabled = settings.enableSemgrep || settings.enableTrivy || settings.enableCpd;
+      if (!anyToolEnabled) {
+        logger.info({ repoFullName, prNumber }, 'No static analysis tools enabled — skipping runner');
+        return { dispatched: false as const, callbackId: null };
+      }
+
+      const appId = process.env.GITHUB_APP_ID;
+      const privateKey = process.env.GITHUB_PRIVATE_KEY;
+      if (!appId || !privateKey) {
+        logger.warn({ repoFullName }, 'Missing app credentials — skipping runner dispatch');
+        return { dispatched: false as const, callbackId: null };
+      }
+
+      const token = await getInstallationToken(installationId, appId, privateKey);
+
+      // Discover if the user has a ghagga-runner repo
+      const runner = await discoverRunnerRepo(owner, token);
+      if (!runner) {
+        logger.info(
+          { repoFullName, prNumber },
+          'No ghagga-runner repo found — static analysis will run locally on server',
+        );
+        return { dispatched: false as const, callbackId: null };
+      }
+
+      // Resolve headSha and baseBranch — prefer event data, fallback to fetch
+      const headSha = eventHeadSha ?? 'unknown';
+      const baseBranch = eventBaseBranch ?? 'main';
+
+      // Build callback URL
+      const serverUrl = process.env.RENDER_EXTERNAL_URL ?? process.env.SERVER_URL ?? `http://localhost:${process.env.PORT ?? '3000'}`;
+      const callbackUrl = `${serverUrl}/api/runner/callback`;
+
+      try {
+        const callbackId = await dispatchWorkflow({
+          ownerLogin: owner,
+          repoFullName,
+          prNumber,
+          headSha,
+          baseBranch,
+          callbackUrl,
+          enableSemgrep: settings.enableSemgrep,
+          enableTrivy: settings.enableTrivy,
+          enableCpd: settings.enableCpd,
+          token,
+        });
+
+        logger.info(
+          { repoFullName, prNumber, callbackId, runner: runner.fullName },
+          'Runner workflow dispatched — waiting for callback',
+        );
+
+        return { dispatched: true as const, callbackId };
+      } catch (error) {
+        logger.warn(
+          { repoFullName, prNumber, error: String(error) },
+          'Failed to dispatch runner workflow — static analysis will run locally on server',
+        );
+        return { dispatched: false as const, callbackId: null };
+      }
+    });
+
+    // Step 3: Wait for runner callback (if dispatched)
+    let precomputedStaticAnalysis: StaticAnalysisResult | undefined;
+
+    if (runnerResult.dispatched && runnerResult.callbackId) {
+      const runnerEvent = await step.waitForEvent('wait-for-runner', {
+        event: 'ghagga/runner.completed',
+        match: 'data.callbackId',
+        timeout: '10m',
+      });
+
+      if (runnerEvent) {
+        precomputedStaticAnalysis = (runnerEvent.data as RunnerCompletedData).staticAnalysis;
+        logger.info(
+          { repoFullName, prNumber, callbackId: runnerResult.callbackId },
+          'Received static analysis results from runner',
+        );
+      } else {
+        logger.warn(
+          { repoFullName, prNumber, callbackId: runnerResult.callbackId },
+          'Runner callback timed out after 10 minutes — static analysis will run locally on server',
+        );
+      }
+    }
+
+    // Step 4: Run the core review pipeline
     const result = await step.run('run-review', async () => {
       // Build the provider chain (decrypt API keys)
       const dbChain = (rawProviderChain ?? []) as DbProviderChainEntry[];
@@ -228,6 +321,8 @@ export const reviewFunction = inngest.createFunction(
         provider: legacyProvider,
         model: legacyModel,
         apiKey: legacyApiKey,
+        // Precomputed static analysis from runner (if available)
+        precomputedStaticAnalysis,
         settings: {
           enableSemgrep: settings.enableSemgrep,
           enableTrivy: settings.enableTrivy,
@@ -249,7 +344,7 @@ export const reviewFunction = inngest.createFunction(
       return await reviewPipeline(input);
     });
 
-    // Step 3: Save review to database
+    // Step 5: Save review to database
     await step.run('save-review', async () => {
       const db = createDatabaseFromEnv();
       await saveReview(db, {
@@ -265,7 +360,7 @@ export const reviewFunction = inngest.createFunction(
       });
     });
 
-    // Step 4: Post comment to GitHub PR
+    // Step 6: Post comment to GitHub PR
     await step.run('post-comment', async () => {
       const appId = process.env.GITHUB_APP_ID;
       const privateKey = process.env.GITHUB_PRIVATE_KEY;
@@ -280,7 +375,7 @@ export const reviewFunction = inngest.createFunction(
       await postComment(owner, repo, prNumber, commentBody, token);
     });
 
-    // Step 5: React with 🚀 to the trigger comment (if review was triggered by comment)
+    // Step 7: React with rocket to the trigger comment (if review was triggered by comment)
     if (triggerCommentId) {
       await step.run('react-to-trigger', async () => {
         const appId = process.env.GITHUB_APP_ID;

@@ -1,0 +1,319 @@
+# =============================================================================
+# GHAGGA Static Analysis Runner
+# =============================================================================
+# This workflow runs static analysis tools (Semgrep, Trivy, PMD/CPD) on behalf
+# of the GHAGGA AI Code Review service. It is triggered via workflow_dispatch
+# from the GHAGGA server and posts results back via a callback URL.
+#
+# SECURITY: This repo is public to leverage free GitHub Actions minutes.
+# All tool output is captured to variables only — NEVER printed to logs.
+# Logs are auto-deleted after each run. Retention is set to 1 day as safety net.
+# =============================================================================
+
+name: GHAGGA Static Analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      callbackId:
+        description: 'Unique correlation ID (UUID v4)'
+        required: true
+        type: string
+      repoFullName:
+        description: 'Target repository (e.g., "user/repo")'
+        required: true
+        type: string
+      prNumber:
+        description: 'Pull request number'
+        required: true
+        type: string
+      headSha:
+        description: 'HEAD commit SHA to checkout'
+        required: true
+        type: string
+      baseBranch:
+        description: 'Base branch name for shallow clone'
+        required: true
+        type: string
+      callbackUrl:
+        description: 'Server URL to POST results to'
+        required: true
+        type: string
+      callbackSignature:
+        description: 'HMAC signature for callback authentication'
+        required: true
+        type: string
+      enableSemgrep:
+        description: 'Run Semgrep static analysis'
+        required: false
+        type: string
+        default: 'true'
+      enableTrivy:
+        description: 'Run Trivy vulnerability scanner'
+        required: false
+        type: string
+        default: 'true'
+      enableCpd:
+        description: 'Run PMD/CPD copy-paste detector'
+        required: false
+        type: string
+        default: 'true'
+
+# Cancel in-progress runs for the same callback (safety net)
+concurrency:
+  group: ghagga-${{ github.event.inputs.callbackId }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ── Mask sensitive values ─────────────────────────────────
+      - name: Mask sensitive data
+        run: |
+          echo "::add-mask::${{ secrets.GHAGGA_TOKEN }}"
+          echo "::add-mask::${{ github.event.inputs.repoFullName }}"
+          echo "::add-mask::${{ github.event.inputs.callbackSignature }}"
+          REPO_NAME=$(echo "${{ github.event.inputs.repoFullName }}" | cut -d'/' -f2)
+          echo "::add-mask::${REPO_NAME}"
+          echo "::add-mask::$(pwd)/target-repo"
+
+      # ── Clone target repository ───────────────────────────────
+      - name: Clone target repository
+        uses: actions/checkout@v4
+        id: clone
+        continue-on-error: true
+        with:
+          repository: ${{ github.event.inputs.repoFullName }}
+          ref: ${{ github.event.inputs.headSha }}
+          token: ${{ secrets.GHAGGA_TOKEN }}
+          path: target-repo
+
+      # ── Handle clone failure ──────────────────────────────────
+      - name: Report clone failure
+        if: steps.clone.outcome == 'failure'
+        run: |
+          RESULT='{"callbackId":"${{ github.event.inputs.callbackId }}","staticAnalysis":{"semgrep":{"status":"error","findings":[],"error":"Clone failed (token may have expired)","executionTimeMs":0},"trivy":{"status":"error","findings":[],"error":"Clone failed","executionTimeMs":0},"cpd":{"status":"error","findings":[],"error":"Clone failed","executionTimeMs":0}}}'
+          curl -s -X POST "${{ github.event.inputs.callbackUrl }}" \
+            -H "Content-Type: application/json" \
+            -H "X-Ghagga-Signature: ${{ github.event.inputs.callbackSignature }}" \
+            -d "$RESULT" 2>/dev/null || true
+          exit 0
+
+      # ── Cache: Semgrep pip packages ───────────────────────────
+      - name: Cache Semgrep
+        if: github.event.inputs.enableSemgrep == 'true' && steps.clone.outcome == 'success'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: semgrep-1.90.0-${{ runner.os }}
+
+      # ── Cache: Trivy DB ──────────────────────────────────────
+      - name: Cache Trivy DB
+        if: github.event.inputs.enableTrivy == 'true' && steps.clone.outcome == 'success'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ hashFiles('target-repo/**/package-lock.json', 'target-repo/**/go.sum', 'target-repo/**/requirements.txt') }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      # ── Cache: PMD binary ────────────────────────────────────
+      - name: Cache PMD
+        if: github.event.inputs.enableCpd == 'true' && steps.clone.outcome == 'success'
+        uses: actions/cache@v4
+        with:
+          path: /opt/pmd
+          key: pmd-7.8.0-${{ runner.os }}
+
+      # ── Install Semgrep ──────────────────────────────────────
+      - name: Install Semgrep
+        if: github.event.inputs.enableSemgrep == 'true' && steps.clone.outcome == 'success'
+        run: |
+          if ! command -v semgrep &>/dev/null; then
+            pip install --quiet semgrep==1.90.0 2>/dev/null
+          fi
+
+      # ── Install Trivy ───────────────────────────────────────
+      - name: Install Trivy
+        if: github.event.inputs.enableTrivy == 'true' && steps.clone.outcome == 'success'
+        run: |
+          if ! command -v trivy &>/dev/null; then
+            curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.58.1 2>/dev/null
+          fi
+
+      # ── Install PMD/CPD ─────────────────────────────────────
+      - name: Install PMD
+        if: github.event.inputs.enableCpd == 'true' && steps.clone.outcome == 'success'
+        run: |
+          if [ ! -f /opt/pmd/bin/pmd ]; then
+            curl -sL "https://github.com/pmd/pmd/releases/download/pmd_releases%2F7.8.0/pmd-dist-7.8.0-bin.zip" \
+              -o /tmp/pmd.zip 2>/dev/null
+            unzip -q /tmp/pmd.zip -d /opt 2>/dev/null
+            mv /opt/pmd-bin-7.8.0 /opt/pmd 2>/dev/null || true
+            rm -f /tmp/pmd.zip
+          fi
+
+      # ── Run Semgrep ──────────────────────────────────────────
+      - name: Run Semgrep
+        if: github.event.inputs.enableSemgrep == 'true' && steps.clone.outcome == 'success'
+        id: semgrep
+        run: |
+          START_MS=$(($(date +%s%N)/1000000))
+          set +e
+          semgrep --json --config auto --quiet target-repo > /tmp/semgrep-raw.json 2>/dev/null
+          SEMGREP_EXIT=$?
+          END_MS=$(($(date +%s%N)/1000000))
+          ELAPSED=$((END_MS - START_MS))
+
+          if [ $SEMGREP_EXIT -ne 0 ] && [ ! -s /tmp/semgrep-raw.json ]; then
+            echo '{"status":"error","findings":[],"error":"semgrep: execution failed","executionTimeMs":'"$ELAPSED"'}' > /tmp/semgrep-result.json
+          else
+            jq --arg elapsed "$ELAPSED" '{
+              status: "success",
+              findings: [.results[] | {
+                severity: (if .extra.severity == "ERROR" then "high"
+                          elif .extra.severity == "WARNING" then "medium"
+                          elif .extra.severity == "INFO" then "info"
+                          else "low" end),
+                category: "security",
+                file: (.path | sub("^target-repo/"; "")),
+                line: .start.line,
+                message: .extra.message,
+                source: "semgrep"
+              }],
+              executionTimeMs: ($elapsed | tonumber)
+            }' /tmp/semgrep-raw.json > /tmp/semgrep-result.json 2>/dev/null || \
+            echo '{"status":"error","findings":[],"error":"semgrep: parse failed","executionTimeMs":'"$ELAPSED"'}' > /tmp/semgrep-result.json
+          fi
+
+      # ── Run Trivy ────────────────────────────────────────────
+      - name: Run Trivy
+        if: github.event.inputs.enableTrivy == 'true' && steps.clone.outcome == 'success'
+        id: trivy
+        run: |
+          START_MS=$(($(date +%s%N)/1000000))
+          set +e
+          trivy fs --format json --scanners vuln --quiet target-repo > /tmp/trivy-raw.json 2>/dev/null
+          TRIVY_EXIT=$?
+          END_MS=$(($(date +%s%N)/1000000))
+          ELAPSED=$((END_MS - START_MS))
+
+          if [ $TRIVY_EXIT -ne 0 ] && [ ! -s /tmp/trivy-raw.json ]; then
+            echo '{"status":"error","findings":[],"error":"trivy: execution failed","executionTimeMs":'"$ELAPSED"'}' > /tmp/trivy-result.json
+          else
+            jq --arg elapsed "$ELAPSED" '{
+              status: "success",
+              findings: [(.Results // [])[] | (.Vulnerabilities // [])[] | {
+                severity: (if .Severity == "CRITICAL" then "critical"
+                          elif .Severity == "HIGH" then "high"
+                          elif .Severity == "MEDIUM" then "medium"
+                          elif .Severity == "LOW" then "low"
+                          else "info" end),
+                category: "dependency-vulnerability",
+                file: (input_filename // "unknown"),
+                message: (.VulnerabilityID + ": " + .PkgName + "@" + .InstalledVersion + " - " + (.Title // .Description // "Known vulnerability") + (if .FixedVersion then " (fix: upgrade to " + .FixedVersion + ")" else " (no fix available)" end)),
+                source: "trivy"
+              }],
+              executionTimeMs: ($elapsed | tonumber)
+            }' /tmp/trivy-raw.json > /tmp/trivy-result.json 2>/dev/null || \
+            echo '{"status":"error","findings":[],"error":"trivy: parse failed","executionTimeMs":'"$ELAPSED"'}' > /tmp/trivy-result.json
+          fi
+
+      # ── Run CPD ──────────────────────────────────────────────
+      - name: Run CPD
+        if: github.event.inputs.enableCpd == 'true' && steps.clone.outcome == 'success'
+        id: cpd
+        run: |
+          START_MS=$(($(date +%s%N)/1000000))
+          set +e
+          /opt/pmd/bin/pmd cpd --format xml --minimum-tokens 100 \
+            --dir target-repo --skip-lexical-errors > /tmp/cpd-raw.xml 2>/dev/null
+          CPD_EXIT=$?
+          END_MS=$(($(date +%s%N)/1000000))
+          ELAPSED=$((END_MS - START_MS))
+
+          # CPD exits 4 when duplications found (not an error)
+          if [ $CPD_EXIT -ne 0 ] && [ $CPD_EXIT -ne 4 ] && [ ! -s /tmp/cpd-raw.xml ]; then
+            echo '{"status":"error","findings":[],"error":"cpd: execution failed","executionTimeMs":'"$ELAPSED"'}' > /tmp/cpd-result.json
+          else
+            python3 -c "
+          import xml.etree.ElementTree as ET, json, sys
+          findings = []
+          try:
+              tree = ET.parse('/tmp/cpd-raw.xml')
+              for dup in tree.findall('.//duplication'):
+                  lines = dup.get('lines', '0')
+                  tokens = dup.get('tokens', '0')
+                  files = []
+                  for f in dup.findall('file'):
+                      path = f.get('path', '').replace('target-repo/', '')
+                      line = f.get('line', '0')
+                      files.append({'path': path, 'line': int(line)})
+                  if len(files) >= 2:
+                      locations = ', '.join(f\"{f['path']}:{f['line']}\" for f in files)
+                      findings.append({
+                          'severity': 'medium',
+                          'category': 'duplication',
+                          'file': files[0]['path'],
+                          'line': files[0]['line'],
+                          'message': f'Duplicated code block ({lines} lines, {tokens} tokens) found in: {locations}',
+                          'source': 'cpd'
+                      })
+          except Exception:
+              pass
+          json.dump({'status': 'success', 'findings': findings, 'executionTimeMs': int(sys.argv[1])}, sys.stdout)
+          " "$ELAPSED" > /tmp/cpd-result.json 2>/dev/null || \
+            echo '{"status":"error","findings":[],"error":"cpd: parse failed","executionTimeMs":'"$ELAPSED"'}' > /tmp/cpd-result.json
+          fi
+
+      # ── Construct and send callback payload ──────────────────
+      - name: Post results to callback
+        if: steps.clone.outcome == 'success'
+        run: |
+          # Build skipped result template
+          SKIPPED='{"status":"skipped","findings":[],"executionTimeMs":0}'
+
+          SEMGREP_RESULT=$(cat /tmp/semgrep-result.json 2>/dev/null || echo "$SKIPPED")
+          TRIVY_RESULT=$(cat /tmp/trivy-result.json 2>/dev/null || echo "$SKIPPED")
+          CPD_RESULT=$(cat /tmp/cpd-result.json 2>/dev/null || echo "$SKIPPED")
+
+          PAYLOAD=$(jq -n \
+            --arg cid "${{ github.event.inputs.callbackId }}" \
+            --argjson semgrep "$SEMGREP_RESULT" \
+            --argjson trivy "$TRIVY_RESULT" \
+            --argjson cpd "$CPD_RESULT" \
+            '{
+              callbackId: $cid,
+              staticAnalysis: {
+                semgrep: $semgrep,
+                trivy: $trivy,
+                cpd: $cpd
+              }
+            }')
+
+          curl -s -X POST "${{ github.event.inputs.callbackUrl }}" \
+            -H "Content-Type: application/json" \
+            -H "X-Ghagga-Signature: ${{ github.event.inputs.callbackSignature }}" \
+            -d "$PAYLOAD" 2>/dev/null || echo "::warning::Callback POST failed"
+
+      # ── Delete workflow logs ──────────────────────────────────
+      - name: Delete workflow logs
+        if: always()
+        run: |
+          sleep 5
+          curl -s -X DELETE \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/logs" \
+            -H "Authorization: Bearer ${{ secrets.GHAGGA_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            2>/dev/null || echo "::warning::Log deletion failed (will auto-purge in 1 day)"
+
+      # ── Cleanup cloned repo ───────────────────────────────────
+      - name: Cleanup
+        if: always()
+        run: rm -rf target-repo /tmp/*-raw.* /tmp/*-result.*

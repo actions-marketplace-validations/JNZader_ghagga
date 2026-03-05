@@ -318,6 +318,17 @@ Phase 3 implements the security layers that protect private source code from lea
   - [x] If the retention API call fails, repo creation still succeeds (non-fatal)
   - [x] Existing repos (already created) are not affected (only new repos)
 
+### Manual: Create `JNZader/ghagga-runner-template` GitHub Repository
+
+> **This is a manual step — not automatable in code.**
+
+- [ ] Create a new **public** repository `JNZader/ghagga-runner-template` on GitHub
+- [ ] In repo Settings → check **"Template repository"**
+- [ ] Copy `templates/ghagga-analysis.yml` → `.github/workflows/ghagga-analysis.yml` in the template repo
+- [ ] Copy `templates/ghagga-runner-README.md` → `README.md` in the template repo
+- [ ] Verify the template can be used to create new repos via "Use this template" button
+- [ ] Add the `GHAGGA_TOKEN` secret documentation in the template repo's README (already included)
+
 ---
 
 ## Phase 4: Testing & Verification
