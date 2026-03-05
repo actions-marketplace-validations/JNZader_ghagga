@@ -12,115 +12,147 @@
       <stop offset="0%" style="stop-color:#c4b5fd" />
       <stop offset="100%" style="stop-color:#7c3aed" />
     </linearGradient>
-    <linearGradient id="codeGlow" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#34d399" />
-      <stop offset="100%" style="stop-color:#059669" />
-    </linearGradient>
   </defs>
 
   <!-- Background circle -->
   <circle cx="200" cy="200" r="195" fill="url(#bg)" stroke="#7c3aed" stroke-width="2" opacity="0.95"/>
 
-  <!-- Cat body (mendieta - sitting pose) -->
-  <g transform="translate(200, 220)">
-    <!-- Tail curling from right -->
-    <path d="M 40,60 C 80,50 100,20 95,-10 C 90,-30 70,-25 75,-10 C 80,5 60,30 40,40"
-          fill="none" stroke="#6d6875" stroke-width="8" stroke-linecap="round"/>
+  <!-- Dog body — Mendieta style: sitting upright on a chair like a human -->
+  <g transform="translate(155, 115)">
 
-    <!-- Body -->
-    <ellipse cx="0" cy="45" rx="50" ry="40" fill="#4a4458"/>
+    <!-- Chair (rustic, like gaucho furniture) -->
+    <!-- Seat -->
+    <rect x="-40" y="140" width="80" height="8" rx="2" fill="#8b6914" opacity="0.8"/>
+    <!-- Chair back -->
+    <rect x="-38" y="80" width="6" height="68" fill="#7a5c12" opacity="0.7"/>
+    <rect x="32" y="80" width="6" height="68" fill="#7a5c12" opacity="0.7"/>
+    <rect x="-38" y="80" width="76" height="6" rx="2" fill="#8b6914" opacity="0.8"/>
+    <!-- Chair back slats -->
+    <rect x="-22" y="86" width="5" height="56" rx="1" fill="#7a5c12" opacity="0.5"/>
+    <rect x="-2" y="86" width="5" height="56" rx="1" fill="#7a5c12" opacity="0.5"/>
+    <rect x="18" y="86" width="5" height="56" rx="1" fill="#7a5c12" opacity="0.5"/>
+    <!-- Front legs -->
+    <rect x="-36" y="148" width="6" height="50" fill="#7a5c12" opacity="0.7" transform="rotate(2, -33, 148)"/>
+    <rect x="30" y="148" width="6" height="50" fill="#7a5c12" opacity="0.7" transform="rotate(-2, 33, 148)"/>
+    <!-- Back legs (shorter, perspective) -->
+    <rect x="-38" y="148" width="5" height="45" fill="#6b4f10" opacity="0.5" transform="rotate(5, -35, 148)"/>
+    <rect x="33" y="148" width="5" height="45" fill="#6b4f10" opacity="0.5" transform="rotate(-5, 36, 148)"/>
 
-    <!-- Front paws -->
-    <ellipse cx="-20" cy="80" rx="14" ry="8" fill="#5b5270"/>
-    <ellipse cx="20" cy="80" rx="14" ry="8" fill="#5b5270"/>
+    <!-- Dog torso (skinny, sitting upright on chair) -->
+    <ellipse cx="0" cy="115" rx="30" ry="32" fill="#d4c5a0"/>
+    <!-- Belly highlight -->
+    <ellipse cx="0" cy="120" rx="20" ry="22" fill="#e0d4b5" opacity="0.5"/>
 
-    <!-- Head -->
-    <ellipse cx="0" cy="-10" rx="45" ry="40" fill="#4a4458"/>
+    <!-- Neck (long, thin — mendieta style) -->
+    <rect x="-10" y="68" width="20" height="20" rx="8" fill="#d4c5a0"/>
 
-    <!-- Left ear -->
-    <path d="M -35,-35 L -45,-70 L -15,-45 Z" fill="#4a4458"/>
-    <path d="M -33,-38 L -43,-65 L -18,-45 Z" fill="#6d4c7d"/>
+    <!-- Head (long snout, droopy) -->
+    <ellipse cx="0" cy="52" rx="28" ry="24" fill="#d4c5a0"/>
 
-    <!-- Right ear -->
-    <path d="M 35,-35 L 45,-70 L 15,-45 Z" fill="#4a4458"/>
-    <path d="M 33,-38 L 43,-65 L 18,-45 Z" fill="#6d4c7d"/>
+    <!-- Long snout/hocico -->
+    <ellipse cx="0" cy="62" rx="16" ry="12" fill="#c8b890"/>
+    <ellipse cx="0" cy="68" rx="12" ry="7" fill="#c8b890"/>
 
-    <!-- Eyes -->
-    <ellipse cx="-16" cy="-15" rx="10" ry="11" fill="#1a1b2e"/>
-    <ellipse cx="16" cy="-15" rx="10" ry="11" fill="#1a1b2e"/>
-    <!-- Pupils - looking at the magnifying glass -->
-    <ellipse cx="-13" cy="-15" rx="5" ry="6" fill="#a78bfa"/>
-    <ellipse cx="19" cy="-15" rx="5" ry="6" fill="#a78bfa"/>
+    <!-- Nose (black, at the tip) -->
+    <ellipse cx="0" cy="63" rx="6" ry="4" fill="#2d2d2d"/>
+    <!-- Nose shine -->
+    <ellipse cx="-2" cy="62" rx="2" ry="1.5" fill="#555" opacity="0.5"/>
+
+    <!-- Eyes (looking toward the magnifying glass — to the right) -->
+    <ellipse cx="-10" cy="44" rx="6" ry="7" fill="white"/>
+    <ellipse cx="10" cy="44" rx="6" ry="7" fill="white"/>
+    <!-- Pupils — looking right at the magnifying glass -->
+    <circle cx="-7" cy="44" r="3.5" fill="#1a1b2e"/>
+    <circle cx="13" cy="44" r="3.5" fill="#1a1b2e"/>
     <!-- Eye shine -->
-    <circle cx="-11" cy="-18" r="2" fill="white" opacity="0.8"/>
-    <circle cx="21" cy="-18" r="2" fill="white" opacity="0.8"/>
+    <circle cx="-6" cy="42" r="1.2" fill="white" opacity="0.9"/>
+    <circle cx="14" cy="42" r="1.2" fill="white" opacity="0.9"/>
+    <!-- Slight droopy eyelids (thoughtful look) -->
+    <path d="M -16,40 Q -10,38 -4,40" fill="none" stroke="#b8a880" stroke-width="1.5"/>
+    <path d="M 4,40 Q 10,38 16,40" fill="none" stroke="#b8a880" stroke-width="1.5"/>
 
-    <!-- Nose -->
-    <path d="M -3,-2 L 0,2 L 3,-2 Z" fill="#c4a0d0"/>
+    <!-- Floppy ears (long, droopy — key Mendieta feature) -->
+    <!-- Left ear -->
+    <path d="M -22,38 C -38,35 -48,55 -42,75 C -38,85 -30,80 -26,65 C -24,55 -22,48 -22,42"
+          fill="#c0ad85" stroke="#b8a070" stroke-width="0.5"/>
+    <!-- Right ear -->
+    <path d="M 22,38 C 38,35 48,55 42,75 C 38,85 30,80 26,65 C 24,55 22,48 22,42"
+          fill="#c0ad85" stroke="#b8a070" stroke-width="0.5"/>
 
-    <!-- Mouth -->
-    <path d="M 0,2 C -5,7 -8,5 -10,3" fill="none" stroke="#6d4c7d" stroke-width="1.5" stroke-linecap="round"/>
-    <path d="M 0,2 C 5,7 8,5 10,3" fill="none" stroke="#6d4c7d" stroke-width="1.5" stroke-linecap="round"/>
+    <!-- Mouth / slight smile -->
+    <path d="M -8,70 Q 0,76 8,70" fill="none" stroke="#8b7355" stroke-width="1.2" stroke-linecap="round"/>
 
-    <!-- Whiskers -->
-    <line x1="-20" y1="-3" x2="-50" y2="-10" stroke="#8b7fa8" stroke-width="1" opacity="0.6"/>
-    <line x1="-20" y1="0" x2="-50" y2="2" stroke="#8b7fa8" stroke-width="1" opacity="0.6"/>
-    <line x1="20" y1="-3" x2="50" y2="-10" stroke="#8b7fa8" stroke-width="1" opacity="0.6"/>
-    <line x1="20" y1="0" x2="50" y2="2" stroke="#8b7fa8" stroke-width="1" opacity="0.6"/>
+    <!-- Whisker dots on snout -->
+    <circle cx="-8" cy="65" r="1" fill="#8b7355" opacity="0.5"/>
+    <circle cx="-5" cy="67" r="1" fill="#8b7355" opacity="0.5"/>
+    <circle cx="8" cy="65" r="1" fill="#8b7355" opacity="0.5"/>
+    <circle cx="5" cy="67" r="1" fill="#8b7355" opacity="0.5"/>
 
-    <!-- Paw holding magnifying glass -->
-    <ellipse cx="40" cy="40" rx="12" ry="10" fill="#5b5270" transform="rotate(-20, 40, 40)"/>
+    <!-- Front legs/arms — one holding the magnifying glass up -->
+    <!-- Left arm (resting on lap) -->
+    <path d="M -25,110 C -30,120 -28,135 -20,140" stroke="#c8b890" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <!-- Left paw -->
+    <ellipse cx="-18" cy="141" rx="8" ry="5" fill="#d4c5a0"/>
+
+    <!-- Right arm (extended, holding magnifying glass) -->
+    <path d="M 25,105 C 40,100 55,85 68,70" stroke="#c8b890" stroke-width="8" fill="none" stroke-linecap="round"/>
+    <!-- Right paw gripping handle -->
+    <ellipse cx="70" cy="68" rx="8" ry="6" fill="#d4c5a0" transform="rotate(-30, 70, 68)"/>
+
+    <!-- Tail (thin, curly — visible behind chair) -->
+    <path d="M -5,145 C -20,155 -45,150 -50,135 C -55,120 -40,115 -38,130"
+          fill="none" stroke="#c8b890" stroke-width="4" stroke-linecap="round"/>
   </g>
 
-  <!-- Magnifying glass -->
-  <g transform="translate(275, 175)">
+  <!-- Magnifying glass (held by the dog's right paw) -->
+  <g transform="translate(275, 160)">
     <!-- Handle -->
-    <rect x="20" y="30" width="12" height="55" rx="4" fill="#8b5cf6" transform="rotate(40, 26, 57)"/>
-    <rect x="22" y="32" width="8" height="50" rx="3" fill="#7c3aed" transform="rotate(40, 26, 57)"/>
+    <rect x="15" y="28" width="10" height="50" rx="4" fill="#8b5cf6" transform="rotate(35, 20, 53)"/>
+    <rect x="17" y="30" width="6" height="45" rx="3" fill="#7c3aed" transform="rotate(35, 20, 53)"/>
 
     <!-- Lens ring -->
-    <circle cx="0" cy="0" r="42" fill="none" stroke="url(#lensRing)" stroke-width="6"/>
-    <circle cx="0" cy="0" r="38" fill="url(#lens)"/>
+    <circle cx="0" cy="0" r="40" fill="none" stroke="url(#lensRing)" stroke-width="5"/>
+    <circle cx="0" cy="0" r="36" fill="url(#lens)"/>
 
     <!-- Code lines visible through lens -->
     <g opacity="0.9">
-      <!-- Line 1: green (passed) -->
-      <rect x="-22" y="-20" width="6" height="3" rx="1" fill="#34d399"/>
-      <rect x="-13" y="-20" width="18" height="3" rx="1" fill="#34d399" opacity="0.7"/>
+      <!-- Line 1: green checkmark (passed) -->
+      <text x="-20" y="-18" font-family="monospace" font-size="7" fill="#34d399" opacity="0.9">✓</text>
+      <rect x="-11" y="-22" width="18" height="3" rx="1" fill="#34d399" opacity="0.6"/>
 
-      <!-- Line 2: code -->
-      <rect x="-22" y="-13" width="10" height="3" rx="1" fill="#818cf8" opacity="0.6"/>
-      <rect x="-9" y="-13" width="14" height="3" rx="1" fill="#c4b5fd" opacity="0.5"/>
+      <!-- Line 2: purple code -->
+      <rect x="-20" y="-14" width="10" height="3" rx="1" fill="#818cf8" opacity="0.6"/>
+      <rect x="-7" y="-14" width="14" height="3" rx="1" fill="#c4b5fd" opacity="0.5"/>
 
-      <!-- Line 3: warning -->
-      <rect x="-22" y="-6" width="8" height="3" rx="1" fill="#fbbf24" opacity="0.7"/>
-      <rect x="-11" y="-6" width="20" height="3" rx="1" fill="#fbbf24" opacity="0.4"/>
+      <!-- Line 3: yellow warning -->
+      <text x="-20" y="-4" font-family="monospace" font-size="7" fill="#fbbf24" opacity="0.8">⚠</text>
+      <rect x="-10" y="-8" width="20" height="3" rx="1" fill="#fbbf24" opacity="0.4"/>
 
       <!-- Line 4: code -->
-      <rect x="-22" y="1" width="12" height="3" rx="1" fill="#818cf8" opacity="0.6"/>
-      <rect x="-7" y="1" width="16" height="3" rx="1" fill="#c4b5fd" opacity="0.5"/>
+      <rect x="-20" y="-1" width="12" height="3" rx="1" fill="#818cf8" opacity="0.6"/>
+      <rect x="-5" y="-1" width="16" height="3" rx="1" fill="#c4b5fd" opacity="0.5"/>
 
       <!-- Line 5: green (passed) -->
-      <rect x="-22" y="8" width="4" height="3" rx="1" fill="#34d399"/>
-      <rect x="-15" y="8" width="22" height="3" rx="1" fill="#34d399" opacity="0.7"/>
+      <text x="-20" y="10" font-family="monospace" font-size="7" fill="#34d399" opacity="0.9">✓</text>
+      <rect x="-11" y="6" width="22" height="3" rx="1" fill="#34d399" opacity="0.6"/>
 
       <!-- Line 6: code -->
-      <rect x="-22" y="15" width="14" height="3" rx="1" fill="#818cf8" opacity="0.6"/>
-      <rect x="-5" y="15" width="10" height="3" rx="1" fill="#c4b5fd" opacity="0.5"/>
+      <rect x="-20" y="13" width="14" height="3" rx="1" fill="#818cf8" opacity="0.6"/>
+      <rect x="-3" y="13" width="10" height="3" rx="1" fill="#c4b5fd" opacity="0.5"/>
     </g>
 
     <!-- Lens reflection -->
-    <path d="M -25,-25 C -20,-30 -10,-32 -5,-28" fill="none" stroke="white" stroke-width="2.5" opacity="0.25" stroke-linecap="round"/>
+    <path d="M -23,-23 C -18,-28 -8,-30 -3,-26" fill="none" stroke="white" stroke-width="2" opacity="0.2" stroke-linecap="round"/>
   </g>
 
-  <!-- Small floating code symbols around the cat -->
-  <text x="70" y="120" font-family="monospace" font-size="16" fill="#34d399" opacity="0.4">{}</text>
-  <text x="320" y="320" font-family="monospace" font-size="14" fill="#a78bfa" opacity="0.3">&lt;/&gt;</text>
-  <text x="85" y="320" font-family="monospace" font-size="12" fill="#fbbf24" opacity="0.3">if()</text>
-  <text x="100" y="160" font-family="monospace" font-size="10" fill="#818cf8" opacity="0.25">fn</text>
+  <!-- Floating code symbols -->
+  <text x="60" y="110" font-family="monospace" font-size="14" fill="#34d399" opacity="0.35">{}</text>
+  <text x="330" y="330" font-family="monospace" font-size="12" fill="#a78bfa" opacity="0.25">&lt;/&gt;</text>
+  <text x="75" y="330" font-family="monospace" font-size="11" fill="#fbbf24" opacity="0.25">fn()</text>
+  <text x="55" y="200" font-family="monospace" font-size="10" fill="#818cf8" opacity="0.2">// ok</text>
 
-  <!-- Sparkles near the magnifying glass -->
-  <circle cx="310" cy="130" r="2" fill="#c4b5fd" opacity="0.6"/>
-  <circle cx="330" cy="155" r="1.5" fill="#a78bfa" opacity="0.5"/>
-  <circle cx="335" cy="195" r="1" fill="#ddd6fe" opacity="0.4"/>
+  <!-- Sparkles near magnifying glass -->
+  <circle cx="320" cy="120" r="2" fill="#c4b5fd" opacity="0.6"/>
+  <circle cx="340" cy="150" r="1.5" fill="#a78bfa" opacity="0.5"/>
+  <circle cx="338" cy="190" r="1" fill="#ddd6fe" opacity="0.4"/>
 </svg>

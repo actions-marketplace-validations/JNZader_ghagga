@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="GHAGGA Logo — Mendieta cat reviewing code with a magnifying glass" width="200" height="200" />
+  <img src="assets/logo.svg" alt="GHAGGA Logo — Mendieta dog reviewing code with a magnifying glass" width="200" height="200" />
 </p>
 
 # GHAGGA — AI-Powered Code Review
