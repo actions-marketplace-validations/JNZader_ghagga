@@ -75,30 +75,35 @@ The easiest way to get started. Install the App, configure in the Dashboard, get
 
 ### Option 1: GitHub Action (Free for Public Repos)
 
-The fastest way to get started. No server needed — runs directly in GitHub's infrastructure.
+No server needed — runs directly in GitHub's infrastructure. 100% free for public repos with GitHub Models.
 
 ```yaml
-# .github/workflows/review.yml
+# .github/workflows/ghagga.yml
 name: Code Review
+
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
 
 jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - uses: JNZader/ghagga@v2
+      - uses: actions/checkout@v4
+      - uses: JNZader/ghagga-action@v1
 ```
 
 #### Action Inputs
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `api-key` | No | — | LLM provider API key. Not required for GitHub Models (free default). |
 | `provider` | No | `github` | LLM provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen` |
 | `model` | No | Auto | Model identifier (auto-selects best per provider) |
 | `mode` | No | `simple` | Review mode: `simple`, `workflow`, `consensus` |
+| `api-key` | No | — | LLM provider API key. Not required for `github` provider (free default). |
 | `github-token` | No | `${{ github.token }}` | GitHub token for PR access. Automatic. |
 | `enable-semgrep` | No | `true` | Enable Semgrep security analysis |
 | `enable-trivy` | No | `true` | Enable Trivy vulnerability scanning |
@@ -112,6 +117,10 @@ jobs:
 | `findings-count` | Number of findings detected |
 
 > Static analysis tools (Semgrep, Trivy, CPD) run **directly on the GitHub Actions runner** — no server or Docker image required. First run installs tools (~3-5 min), subsequent runs use `@actions/cache` (~1-2 min).
+
+> ⚠️ **FAILED status**: When the review finds critical issues, the Action calls `core.setFailed()` which fails the CI check. Add `continue-on-error: true` to the step for advisory-only (non-blocking) reviews. See the [full GitHub Action Guide](docs/github-action.md) for details.
+
+📋 **[Full GitHub Action Guide](docs/github-action.md)** — Complete setup guide with provider examples, troubleshooting, and configuration reference.
 
 ### Option 2: CLI
 
@@ -129,15 +138,16 @@ ghagga review
 
 # Review with options
 ghagga review --mode workflow --provider openai --api-key sk-xxx
-ghagga review --provider qwen --api-key sk-xxx --format json
+ghagga review --provider ollama --model qwen2.5-coder:7b
 ```
 
 #### CLI Options
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
+| `[path]` | — | `.` | Path to repository or subdirectory |
 | `--mode <mode>` | `-m` | `simple` | Review mode: `simple`, `workflow`, `consensus` |
-| `--provider <provider>` | `-p` | `github` | LLM provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen` (or `GHAGGA_PROVIDER` env var) |
+| `--provider <provider>` | `-p` | `github` | LLM provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen` |
 | `--model <model>` | — | Auto | Model identifier (or `GHAGGA_MODEL` env var) |
 | `--api-key <key>` | — | — | API key (or `GHAGGA_API_KEY` env var) |
 | `--format <format>` | `-f` | `markdown` | Output format: `markdown`, `json` |
@@ -172,7 +182,11 @@ Place a `.ghagga.json` in your repo root for project-level defaults:
 }
 ```
 
-Priority: CLI flags > config file > defaults.
+Use `--config` to point to a specific config file: `ghagga review --config .ghagga.json`
+
+Priority: CLI flags > config file > env vars > defaults.
+
+📋 **[Full CLI Guide](docs/cli.md)** — Complete setup guide with all commands, provider examples, and troubleshooting.
 
 ### Option 3: Self-Hosted (Docker)
 
