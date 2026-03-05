@@ -33,7 +33,7 @@ export function createOAuthRouter() {
         },
         body: JSON.stringify({
           client_id: GITHUB_CLIENT_ID,
-          scope: '',
+          scope: 'public_repo',
         }),
       });
 
