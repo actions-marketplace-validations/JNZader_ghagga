@@ -1,158 +1,190 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
   <defs>
+    <!-- Background gradient -->
     <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1a1b2e;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#16213e;stop-opacity:1" />
+      <stop offset="0%" style="stop-color:#0f1729;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a1040;stop-opacity:1" />
     </linearGradient>
-    <linearGradient id="lens" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#a78bfa;stop-opacity:0.3" />
-      <stop offset="100%" style="stop-color:#7c3aed;stop-opacity:0.15" />
-    </linearGradient>
-    <linearGradient id="lensRing" x1="0%" y1="0%" x2="100%" y2="100%">
+
+    <!-- Trident metallic gradient -->
+    <linearGradient id="tridentMetal" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" style="stop-color:#c4b5fd" />
+      <stop offset="40%" style="stop-color:#8b5cf6" />
+      <stop offset="100%" style="stop-color:#6d28d9" />
+    </linearGradient>
+
+    <!-- Trident shaft gradient -->
+    <linearGradient id="shaft" x1="0%" y1="0%" x2="1" y2="0">
+      <stop offset="0%" style="stop-color:#7c3aed" />
+      <stop offset="50%" style="stop-color:#a78bfa" />
       <stop offset="100%" style="stop-color:#7c3aed" />
     </linearGradient>
-  </defs>
 
-  <!-- Background circle -->
-  <circle cx="200" cy="200" r="195" fill="url(#bg)" stroke="#7c3aed" stroke-width="2" opacity="0.95"/>
-
-  <!-- Dog body — Mendieta style: sitting upright on a chair like a human -->
-  <g transform="translate(155, 115)">
-
-    <!-- Chair (rustic, like gaucho furniture) -->
-    <!-- Seat -->
-    <rect x="-40" y="140" width="80" height="8" rx="2" fill="#8b6914" opacity="0.8"/>
-    <!-- Chair back -->
-    <rect x="-38" y="80" width="6" height="68" fill="#7a5c12" opacity="0.7"/>
-    <rect x="32" y="80" width="6" height="68" fill="#7a5c12" opacity="0.7"/>
-    <rect x="-38" y="80" width="76" height="6" rx="2" fill="#8b6914" opacity="0.8"/>
-    <!-- Chair back slats -->
-    <rect x="-22" y="86" width="5" height="56" rx="1" fill="#7a5c12" opacity="0.5"/>
-    <rect x="-2" y="86" width="5" height="56" rx="1" fill="#7a5c12" opacity="0.5"/>
-    <rect x="18" y="86" width="5" height="56" rx="1" fill="#7a5c12" opacity="0.5"/>
-    <!-- Front legs -->
-    <rect x="-36" y="148" width="6" height="50" fill="#7a5c12" opacity="0.7" transform="rotate(2, -33, 148)"/>
-    <rect x="30" y="148" width="6" height="50" fill="#7a5c12" opacity="0.7" transform="rotate(-2, 33, 148)"/>
-    <!-- Back legs (shorter, perspective) -->
-    <rect x="-38" y="148" width="5" height="45" fill="#6b4f10" opacity="0.5" transform="rotate(5, -35, 148)"/>
-    <rect x="33" y="148" width="5" height="45" fill="#6b4f10" opacity="0.5" transform="rotate(-5, 36, 148)"/>
-
-    <!-- Dog torso (skinny, sitting upright on chair) -->
-    <ellipse cx="0" cy="115" rx="30" ry="32" fill="#d4c5a0"/>
-    <!-- Belly highlight -->
-    <ellipse cx="0" cy="120" rx="20" ry="22" fill="#e0d4b5" opacity="0.5"/>
-
-    <!-- Neck (long, thin — mendieta style) -->
-    <rect x="-10" y="68" width="20" height="20" rx="8" fill="#d4c5a0"/>
-
-    <!-- Head (long snout, droopy) -->
-    <ellipse cx="0" cy="52" rx="28" ry="24" fill="#d4c5a0"/>
-
-    <!-- Long snout/hocico -->
-    <ellipse cx="0" cy="62" rx="16" ry="12" fill="#c8b890"/>
-    <ellipse cx="0" cy="68" rx="12" ry="7" fill="#c8b890"/>
-
-    <!-- Nose (black, at the tip) -->
-    <ellipse cx="0" cy="63" rx="6" ry="4" fill="#2d2d2d"/>
-    <!-- Nose shine -->
-    <ellipse cx="-2" cy="62" rx="2" ry="1.5" fill="#555" opacity="0.5"/>
-
-    <!-- Eyes (looking toward the magnifying glass — to the right) -->
-    <ellipse cx="-10" cy="44" rx="6" ry="7" fill="white"/>
-    <ellipse cx="10" cy="44" rx="6" ry="7" fill="white"/>
-    <!-- Pupils — looking right at the magnifying glass -->
-    <circle cx="-7" cy="44" r="3.5" fill="#1a1b2e"/>
-    <circle cx="13" cy="44" r="3.5" fill="#1a1b2e"/>
-    <!-- Eye shine -->
-    <circle cx="-6" cy="42" r="1.2" fill="white" opacity="0.9"/>
-    <circle cx="14" cy="42" r="1.2" fill="white" opacity="0.9"/>
-    <!-- Slight droopy eyelids (thoughtful look) -->
-    <path d="M -16,40 Q -10,38 -4,40" fill="none" stroke="#b8a880" stroke-width="1.5"/>
-    <path d="M 4,40 Q 10,38 16,40" fill="none" stroke="#b8a880" stroke-width="1.5"/>
-
-    <!-- Floppy ears (long, droopy — key Mendieta feature) -->
-    <!-- Left ear -->
-    <path d="M -22,38 C -38,35 -48,55 -42,75 C -38,85 -30,80 -26,65 C -24,55 -22,48 -22,42"
-          fill="#c0ad85" stroke="#b8a070" stroke-width="0.5"/>
-    <!-- Right ear -->
-    <path d="M 22,38 C 38,35 48,55 42,75 C 38,85 30,80 26,65 C 24,55 22,48 22,42"
-          fill="#c0ad85" stroke="#b8a070" stroke-width="0.5"/>
-
-    <!-- Mouth / slight smile -->
-    <path d="M -8,70 Q 0,76 8,70" fill="none" stroke="#8b7355" stroke-width="1.2" stroke-linecap="round"/>
-
-    <!-- Whisker dots on snout -->
-    <circle cx="-8" cy="65" r="1" fill="#8b7355" opacity="0.5"/>
-    <circle cx="-5" cy="67" r="1" fill="#8b7355" opacity="0.5"/>
-    <circle cx="8" cy="65" r="1" fill="#8b7355" opacity="0.5"/>
-    <circle cx="5" cy="67" r="1" fill="#8b7355" opacity="0.5"/>
-
-    <!-- Front legs/arms — one holding the magnifying glass up -->
-    <!-- Left arm (resting on lap) -->
-    <path d="M -25,110 C -30,120 -28,135 -20,140" stroke="#c8b890" stroke-width="8" fill="none" stroke-linecap="round"/>
-    <!-- Left paw -->
-    <ellipse cx="-18" cy="141" rx="8" ry="5" fill="#d4c5a0"/>
-
-    <!-- Right arm (extended, holding magnifying glass) -->
-    <path d="M 25,105 C 40,100 55,85 68,70" stroke="#c8b890" stroke-width="8" fill="none" stroke-linecap="round"/>
-    <!-- Right paw gripping handle -->
-    <ellipse cx="70" cy="68" rx="8" ry="6" fill="#d4c5a0" transform="rotate(-30, 70, 68)"/>
-
-    <!-- Tail (thin, curly — visible behind chair) -->
-    <path d="M -5,145 C -20,155 -45,150 -50,135 C -55,120 -40,115 -38,130"
-          fill="none" stroke="#c8b890" stroke-width="4" stroke-linecap="round"/>
-  </g>
-
-  <!-- Magnifying glass (held by the dog's right paw) -->
-  <g transform="translate(275, 160)">
-    <!-- Handle -->
-    <rect x="15" y="28" width="10" height="50" rx="4" fill="#8b5cf6" transform="rotate(35, 20, 53)"/>
-    <rect x="17" y="30" width="6" height="45" rx="3" fill="#7c3aed" transform="rotate(35, 20, 53)"/>
+    <!-- Lens glass -->
+    <radialGradient id="lensGlass" cx="40%" cy="35%" r="60%">
+      <stop offset="0%" style="stop-color:#a78bfa;stop-opacity:0.2" />
+      <stop offset="100%" style="stop-color:#4c1d95;stop-opacity:0.1" />
+    </radialGradient>
 
     <!-- Lens ring -->
-    <circle cx="0" cy="0" r="40" fill="none" stroke="url(#lensRing)" stroke-width="5"/>
-    <circle cx="0" cy="0" r="36" fill="url(#lens)"/>
+    <linearGradient id="lensRing" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#c4b5fd" />
+      <stop offset="50%" style="stop-color:#8b5cf6" />
+      <stop offset="100%" style="stop-color:#6d28d9" />
+    </linearGradient>
 
-    <!-- Code lines visible through lens -->
-    <g opacity="0.9">
-      <!-- Line 1: green checkmark (passed) -->
-      <text x="-20" y="-18" font-family="monospace" font-size="7" fill="#34d399" opacity="0.9">✓</text>
-      <rect x="-11" y="-22" width="18" height="3" rx="1" fill="#34d399" opacity="0.6"/>
+    <!-- Glow filter -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
 
-      <!-- Line 2: purple code -->
-      <rect x="-20" y="-14" width="10" height="3" rx="1" fill="#818cf8" opacity="0.6"/>
-      <rect x="-7" y="-14" width="14" height="3" rx="1" fill="#c4b5fd" opacity="0.5"/>
+    <!-- Soft glow for prongs -->
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
 
-      <!-- Line 3: yellow warning -->
-      <text x="-20" y="-4" font-family="monospace" font-size="7" fill="#fbbf24" opacity="0.8">⚠</text>
-      <rect x="-10" y="-8" width="20" height="3" rx="1" fill="#fbbf24" opacity="0.4"/>
+    <!-- Prong tip glows -->
+    <radialGradient id="semgrepGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#34d399;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#34d399;stop-opacity:0" />
+    </radialGradient>
+    <radialGradient id="trivyGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#60a5fa;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#60a5fa;stop-opacity:0" />
+    </radialGradient>
+    <radialGradient id="cpdGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#fbbf24;stop-opacity:0.8" />
+      <stop offset="100%" style="stop-color:#fbbf24;stop-opacity:0" />
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <circle cx="200" cy="200" r="195" fill="url(#bg)" stroke="#7c3aed" stroke-width="2.5" opacity="0.97"/>
+
+  <!-- Subtle grid pattern in background -->
+  <g opacity="0.04" stroke="#a78bfa" stroke-width="0.5">
+    <line x1="50" y1="50" x2="50" y2="350"/>
+    <line x1="100" y1="50" x2="100" y2="350"/>
+    <line x1="150" y1="50" x2="150" y2="350"/>
+    <line x1="200" y1="50" x2="200" y2="350"/>
+    <line x1="250" y1="50" x2="250" y2="350"/>
+    <line x1="300" y1="50" x2="300" y2="350"/>
+    <line x1="350" y1="50" x2="350" y2="350"/>
+    <line x1="50" y1="100" x2="350" y2="100"/>
+    <line x1="50" y1="150" x2="350" y2="150"/>
+    <line x1="50" y1="200" x2="350" y2="200"/>
+    <line x1="50" y1="250" x2="350" y2="250"/>
+    <line x1="50" y1="300" x2="350" y2="300"/>
+  </g>
+
+  <!-- === TRIDENT === -->
+  <g transform="translate(200, 200)">
+
+    <!-- Shaft -->
+    <rect x="-6" y="10" width="12" height="150" rx="4" fill="url(#shaft)"/>
+    <!-- Shaft highlight -->
+    <rect x="-2" y="15" width="4" height="140" rx="2" fill="#c4b5fd" opacity="0.3"/>
+
+    <!-- Cross guard (where shaft meets prongs) -->
+    <ellipse cx="0" cy="10" rx="50" ry="8" fill="url(#tridentMetal)"/>
+    <ellipse cx="0" cy="10" rx="46" ry="5" fill="#7c3aed" opacity="0.5"/>
+
+    <!-- Center prong (taller) -->
+    <rect x="-5" y="-110" width="10" height="120" rx="3" fill="url(#tridentMetal)"/>
+    <!-- Center prong tip — pointed -->
+    <path d="M -5,-110 L 0,-128 L 5,-110 Z" fill="url(#tridentMetal)"/>
+    <!-- Center prong highlight -->
+    <rect x="-1" y="-105" width="3" height="110" rx="1.5" fill="#c4b5fd" opacity="0.3"/>
+
+    <!-- Left prong (shorter, angled slightly outward) -->
+    <g transform="rotate(-12, -30, 10)">
+      <rect x="-35" y="-85" width="9" height="95" rx="3" fill="url(#tridentMetal)"/>
+      <path d="M -35,-85 L -30.5,-102 L -26,-85 Z" fill="url(#tridentMetal)"/>
+      <rect x="-32" y="-80" width="3" height="85" rx="1.5" fill="#c4b5fd" opacity="0.25"/>
+    </g>
+
+    <!-- Right prong (shorter, angled slightly outward) -->
+    <g transform="rotate(12, 30, 10)">
+      <rect x="26" y="-85" width="9" height="95" rx="3" fill="url(#tridentMetal)"/>
+      <path d="M 26,-85 L 30.5,-102 L 35,-85 Z" fill="url(#tridentMetal)"/>
+      <rect x="29" y="-80" width="3" height="85" rx="1.5" fill="#c4b5fd" opacity="0.25"/>
+    </g>
+
+    <!-- Prong tip glows — each tool has its color -->
+    <!-- Center: Semgrep (green) -->
+    <circle cx="0" cy="-128" r="10" fill="url(#semgrepGlow)" filter="url(#softGlow)"/>
+    <circle cx="0" cy="-128" r="3" fill="#34d399" opacity="0.9"/>
+
+    <!-- Left: Trivy (blue) -->
+    <circle cx="-42" cy="-108" r="10" fill="url(#trivyGlow)" filter="url(#softGlow)"/>
+    <circle cx="-42" cy="-108" r="3" fill="#60a5fa" opacity="0.9"/>
+
+    <!-- Right: CPD (amber) -->
+    <circle cx="42" cy="-108" r="10" fill="url(#cpdGlow)" filter="url(#softGlow)"/>
+    <circle cx="42" cy="-108" r="3" fill="#fbbf24" opacity="0.9"/>
+
+    <!-- Tool labels near prong tips -->
+    <text x="0" y="-135" font-family="monospace" font-size="8" fill="#34d399" text-anchor="middle" opacity="0.7">semgrep</text>
+    <text x="-50" y="-115" font-family="monospace" font-size="8" fill="#60a5fa" text-anchor="middle" opacity="0.7">trivy</text>
+    <text x="50" y="-115" font-family="monospace" font-size="8" fill="#fbbf24" text-anchor="middle" opacity="0.7">cpd</text>
+  </g>
+
+  <!-- === MAGNIFYING GLASS (overlapping the trident, lower right) === -->
+  <g transform="translate(290, 270)">
+    <!-- Handle -->
+    <rect x="22" y="22" width="10" height="45" rx="4" fill="#6d28d9" transform="rotate(40, 27, 44)"/>
+    <rect x="24" y="24" width="6" height="40" rx="3" fill="#7c3aed" transform="rotate(40, 27, 44)"/>
+    <!-- Handle end cap -->
+    <circle cx="55" cy="62" r="5" fill="#6d28d9" transform="rotate(40, 27, 44)"/>
+
+    <!-- Lens ring -->
+    <circle cx="0" cy="0" r="35" fill="none" stroke="url(#lensRing)" stroke-width="5"/>
+    <!-- Lens glass -->
+    <circle cx="0" cy="0" r="31" fill="url(#lensGlass)"/>
+
+    <!-- Code lines inside the lens -->
+    <g opacity="0.85">
+      <!-- Line 1: green check -->
+      <rect x="-18" y="-18" width="4" height="3" rx="1" fill="#34d399"/>
+      <rect x="-12" y="-18" width="16" height="3" rx="1" fill="#34d399" opacity="0.6"/>
+
+      <!-- Line 2: code -->
+      <rect x="-18" y="-11" width="8" height="3" rx="1" fill="#818cf8" opacity="0.6"/>
+      <rect x="-7" y="-11" width="12" height="3" rx="1" fill="#c4b5fd" opacity="0.4"/>
+
+      <!-- Line 3: warning highlight -->
+      <rect x="-18" y="-4" width="6" height="3" rx="1" fill="#fbbf24" opacity="0.7"/>
+      <rect x="-9" y="-4" width="18" height="3" rx="1" fill="#fbbf24" opacity="0.35"/>
 
       <!-- Line 4: code -->
-      <rect x="-20" y="-1" width="12" height="3" rx="1" fill="#818cf8" opacity="0.6"/>
-      <rect x="-5" y="-1" width="16" height="3" rx="1" fill="#c4b5fd" opacity="0.5"/>
+      <rect x="-18" y="3" width="10" height="3" rx="1" fill="#818cf8" opacity="0.6"/>
+      <rect x="-5" y="3" width="14" height="3" rx="1" fill="#c4b5fd" opacity="0.4"/>
 
-      <!-- Line 5: green (passed) -->
-      <text x="-20" y="10" font-family="monospace" font-size="7" fill="#34d399" opacity="0.9">✓</text>
-      <rect x="-11" y="6" width="22" height="3" rx="1" fill="#34d399" opacity="0.6"/>
-
-      <!-- Line 6: code -->
-      <rect x="-20" y="13" width="14" height="3" rx="1" fill="#818cf8" opacity="0.6"/>
-      <rect x="-3" y="13" width="10" height="3" rx="1" fill="#c4b5fd" opacity="0.5"/>
+      <!-- Line 5: green check -->
+      <rect x="-18" y="10" width="4" height="3" rx="1" fill="#34d399"/>
+      <rect x="-12" y="10" width="20" height="3" rx="1" fill="#34d399" opacity="0.6"/>
     </g>
 
     <!-- Lens reflection -->
-    <path d="M -23,-23 C -18,-28 -8,-30 -3,-26" fill="none" stroke="white" stroke-width="2" opacity="0.2" stroke-linecap="round"/>
+    <path d="M -20,-20 C -15,-25 -5,-27 0,-23" fill="none" stroke="white" stroke-width="2" opacity="0.15" stroke-linecap="round"/>
+  </g>
+
+  <!-- === AI brain/circuit hint (top left, subtle) === -->
+  <g transform="translate(110, 270)" opacity="0.25">
+    <!-- Simple circuit node pattern suggesting AI -->
+    <circle cx="0" cy="0" r="3" fill="#a78bfa"/>
+    <circle cx="-20" cy="-15" r="2" fill="#a78bfa"/>
+    <circle cx="15" cy="-20" r="2" fill="#a78bfa"/>
+    <circle cx="-15" cy="15" r="2" fill="#a78bfa"/>
+    <line x1="0" y1="0" x2="-20" y2="-15" stroke="#a78bfa" stroke-width="1"/>
+    <line x1="0" y1="0" x2="15" y2="-20" stroke="#a78bfa" stroke-width="1"/>
+    <line x1="0" y1="0" x2="-15" y2="15" stroke="#a78bfa" stroke-width="1"/>
   </g>
 
   <!-- Floating code symbols -->
-  <text x="60" y="110" font-family="monospace" font-size="14" fill="#34d399" opacity="0.35">{}</text>
-  <text x="330" y="330" font-family="monospace" font-size="12" fill="#a78bfa" opacity="0.25">&lt;/&gt;</text>
-  <text x="75" y="330" font-family="monospace" font-size="11" fill="#fbbf24" opacity="0.25">fn()</text>
-  <text x="55" y="200" font-family="monospace" font-size="10" fill="#818cf8" opacity="0.2">// ok</text>
-
-  <!-- Sparkles near magnifying glass -->
-  <circle cx="320" cy="120" r="2" fill="#c4b5fd" opacity="0.6"/>
-  <circle cx="340" cy="150" r="1.5" fill="#a78bfa" opacity="0.5"/>
-  <circle cx="338" cy="190" r="1" fill="#ddd6fe" opacity="0.4"/>
+  <text x="70" y="120" font-family="monospace" font-size="12" fill="#34d399" opacity="0.2">&lt;/&gt;</text>
+  <text x="85" y="310" font-family="monospace" font-size="10" fill="#818cf8" opacity="0.15">{ }</text>
+  <text x="320" y="110" font-family="monospace" font-size="10" fill="#fbbf24" opacity="0.15">( )</text>
 </svg>
