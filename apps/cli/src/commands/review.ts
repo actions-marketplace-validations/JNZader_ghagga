@@ -286,26 +286,52 @@ function formatMarkdownResult(result: ReviewResult): string {
   lines.push(result.summary);
   lines.push('');
 
-  // Findings
+  // Findings grouped by source
   if (result.findings.length > 0) {
     lines.push(`## Findings (${result.findings.length})`);
     lines.push('');
 
+    // Group findings by source
+    const grouped = new Map<string, typeof result.findings>();
     for (const finding of result.findings) {
-      const emoji = SEVERITY_EMOJI[finding.severity] ?? '';
-      const location = finding.line
-        ? `${finding.file}:${finding.line}`
-        : finding.file;
+      const src = finding.source ?? 'ai';
+      if (!grouped.has(src)) grouped.set(src, []);
+      grouped.get(src)!.push(finding);
+    }
 
-      lines.push(`${emoji} [${finding.severity.toUpperCase()}] ${finding.category}`);
-      lines.push(`   ${location}`);
-      lines.push(`   ${finding.message}`);
+    // Render order: static tools first, then AI
+    const SOURCE_LABELS: Record<string, string> = {
+      semgrep: '\ud83d\udd0d Semgrep',
+      trivy: '\ud83d\udee1\ufe0f Trivy',
+      cpd: '\ud83d\udccb CPD',
+      ai: '\ud83e\udd16 AI Review',
+    };
+    const renderOrder = ['semgrep', 'trivy', 'cpd', 'ai'];
 
-      if (finding.suggestion) {
-        lines.push(`   \ud83d\udca1 ${finding.suggestion}`);
-      }
+    for (const src of renderOrder) {
+      const findings = grouped.get(src);
+      if (!findings || findings.length === 0) continue;
 
+      const label = SOURCE_LABELS[src] ?? src;
+      lines.push(`### ${label} (${findings.length})`);
       lines.push('');
+
+      for (const finding of findings) {
+        const emoji = SEVERITY_EMOJI[finding.severity] ?? '';
+        const location = finding.line
+          ? `${finding.file}:${finding.line}`
+          : finding.file;
+
+        lines.push(`${emoji} [${finding.severity.toUpperCase()}] ${finding.category}`);
+        lines.push(`   ${location}`);
+        lines.push(`   ${finding.message}`);
+
+        if (finding.suggestion) {
+          lines.push(`   \ud83d\udca1 ${finding.suggestion}`);
+        }
+
+        lines.push('');
+      }
     }
   } else {
     lines.push('No findings. Nice work! \ud83c\udf89');

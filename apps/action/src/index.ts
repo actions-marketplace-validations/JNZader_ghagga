@@ -229,22 +229,46 @@ function formatReviewComment(result: ReviewResult): string {
   // Summary
   comment += `### Summary\n${result.summary}\n\n`;
 
-  // Findings table
+  // Findings grouped by source
   if (result.findings.length > 0) {
-    comment += `### Findings (${result.findings.length})\n`;
-    comment += `| Severity | Category | File | Message |\n`;
-    comment += `|----------|----------|------|----------|\n`;
+    comment += `### Findings (${result.findings.length})\n\n`;
 
+    // Group findings by source
+    const grouped = new Map<string, typeof result.findings>();
     for (const finding of result.findings) {
-      const emoji = SEVERITY_EMOJI[finding.severity] ?? '';
-      const location = finding.line
-        ? `${finding.file}:${finding.line}`
-        : finding.file;
-      // Escape pipe characters in the message for table formatting
-      const message = finding.message.replace(/\|/g, '\\|').replace(/\n/g, ' ');
-      comment += `| ${emoji} ${finding.severity} | ${finding.category} | ${location} | ${message} |\n`;
+      const src = finding.source ?? 'ai';
+      if (!grouped.has(src)) grouped.set(src, []);
+      grouped.get(src)!.push(finding);
     }
-    comment += '\n';
+
+    // Render order: static tools first, then AI
+    const SOURCE_LABELS: Record<string, string> = {
+      semgrep: '\ud83d\udd0d Semgrep',
+      trivy: '\ud83d\udee1\ufe0f Trivy',
+      cpd: '\ud83d\udccb CPD',
+      ai: '\ud83e\udd16 AI Review',
+    };
+    const renderOrder = ['semgrep', 'trivy', 'cpd', 'ai'];
+
+    for (const src of renderOrder) {
+      const findings = grouped.get(src);
+      if (!findings || findings.length === 0) continue;
+
+      const label = SOURCE_LABELS[src] ?? src;
+      comment += `**${label} (${findings.length})**\n`;
+      comment += `| Severity | Category | File | Message |\n`;
+      comment += `|----------|----------|------|----------|\n`;
+
+      for (const finding of findings) {
+        const emoji = SEVERITY_EMOJI[finding.severity] ?? '';
+        const location = finding.line
+          ? `${finding.file}:${finding.line}`
+          : finding.file;
+        const message = finding.message.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+        comment += `| ${emoji} ${finding.severity} | ${finding.category} | ${location} | ${message} |\n`;
+      }
+      comment += '\n';
+    }
   }
 
   // Static analysis summary
