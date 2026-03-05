@@ -43,7 +43,7 @@ jobs:
 
 ### Node.js (Default)
 
-Uses `node20` runtime. Lightweight and fast to start. Static analysis tools are skipped unless installed in a prior step.
+Uses `node20` runtime. Tools (Semgrep, Trivy, CPD) are **auto-installed and cached** on the GitHub Actions runner. First run takes ~3-5 minutes for tool installation; subsequent runs use `@actions/cache` (~1-2 minutes).
 
 ```yaml
 - uses: JNZader/ghagga@v2
@@ -113,5 +113,5 @@ on:
 
 - The action posts a comment on the PR with the review findings
 - It uses `GITHUB_TOKEN` (automatically provided) to post comments
-- Static analysis tools are only available in the Docker variant
+- Static analysis tools auto-install on the runner (node20 variant) or come pre-installed (Docker variant)
 - Memory is not available in Action mode (no PostgreSQL connection)

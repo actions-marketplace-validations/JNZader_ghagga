@@ -13,6 +13,7 @@
 - [Architecture](#architecture)
 - [Review Modes](#review-modes)
 - [Static Analysis Trident](#static-analysis-trident)
+- [Runner Architecture](#runner-architecture)
 - [Memory System](#memory-system)
 - [Dashboard](#dashboard)
 - [Security](#security)
@@ -189,6 +190,11 @@ graph TB
     CLI["CLI"]
   end
 
+  subgraph Runner["Delegated Runner"]
+    RunnerRepo["ghagga-runner<br/>GitHub Actions"]
+    RunnerTools["Semgrep · Trivy · CPD<br/>7GB RAM"]
+  end
+
   subgraph Core["@ghagga/core"]
     SA["Static Analysis<br/>Semgrep · Trivy · CPD"]
     Agents["AI Agents<br/>Simple · Workflow · Consensus"]
@@ -200,6 +206,10 @@ graph TB
     Drizzle["Drizzle ORM<br/>+ Migrations"]
     Crypto["AES-256-GCM<br/>Encryption"]
   end
+
+  Server -- "workflow_dispatch" --> RunnerRepo
+  RunnerRepo --> RunnerTools
+  RunnerTools -- "callback" --> Server
 
   Server --> Core
   Action --> Core
@@ -213,11 +223,11 @@ The review engine (`@ghagga/core`) knows **nothing** about HTTP, webhooks, or CL
 
 Each distribution mode (`apps/*`) is a thin adapter:
 
-| Adapter | Input | Output | Memory |
-|---------|-------|--------|--------|
-| **Server** | GitHub webhook | PR comment via GitHub API | Yes (PostgreSQL) |
-| **Action** | PR event in GitHub Actions | PR comment via Octokit | No |
-| **CLI** | Local `git diff` | Terminal output (markdown/json) | No |
+| Adapter | Input | Output | Memory | Static Analysis |
+|---------|-------|--------|--------|----------------|
+| **Server** | GitHub webhook | PR comment via GitHub API | Yes (PostgreSQL) | Delegated to runner |
+| **Action** | PR event in GitHub Actions | PR comment via Octokit | No | Direct on runner |
+| **CLI** | Local `git diff` | Terminal output (markdown/json) | No | If installed locally |
 
 ### Review Pipeline
 
@@ -328,6 +338,41 @@ GHAGGA ships with 20 security rules in `packages/core/src/tools/semgrep-rules.ym
   "customRules": [".semgrep/my-rules.yml"]
 }
 ```
+
+---
+
+## Runner Architecture
+
+> SaaS mode only. GitHub Action and CLI run tools directly.
+
+The Render free tier (512MB RAM) can't run Semgrep (Python ~400MB) + PMD/CPD (JVM ~300MB) simultaneously. GHAGGA solves this by delegating static analysis to **user-owned GitHub Actions runners** on public repos (unlimited free minutes, 7GB RAM).
+
+### How It Works
+
+1. **Setup**: User creates a public repo from the [`ghagga-runner-template`](https://github.com/JNZader/ghagga-runner-template)
+2. **Discovery**: Server checks if `{owner}/ghagga-runner` exists (convention-based, GET → 200/404)
+3. **Secret**: Server sets a per-dispatch HMAC secret on the runner repo via GitHub API
+4. **Dispatch**: Server triggers `workflow_dispatch` with 10 inputs (repo, PR, SHA, callback URL, tools config)
+5. **Execution**: Runner installs/caches Semgrep, Trivy, CPD and runs analysis (~18 seconds)
+6. **Callback**: Runner POSTs results to `POST /runner/callback` with HMAC-SHA256 signature
+7. **Merge**: Server merges static findings with AI review and posts the combined comment
+
+### Security Model
+
+Private repo code analyzed via public runner is protected by **4 security layers**:
+
+| Layer | Protection |
+|-------|-----------|
+| **Output suppression** | All tool output redirected to `/dev/null` — nothing in workflow logs |
+| **Log masking** | `::add-mask::` applied to all sensitive values |
+| **Log deletion** | Workflow run logs deleted via GitHub API after completion |
+| **Retention policy** | Runner repo configured with 1-day log retention |
+
+Each dispatch generates a unique `callbackSecret` stored in an in-memory Map with 11-minute TTL. HMAC-SHA256 verification ensures only the legitimate runner can deliver results.
+
+### Graceful Fallback
+
+If no runner repo is discovered, the server falls back to **LLM-only review** (no static analysis). The review still works — it just skips Layer 0.
 
 ---
 
@@ -478,10 +523,14 @@ ghagga/
 │   ├── server/                # @ghagga/server — Hono API
 │   │   └── src/
 │   │       ├── index.ts           # Hono app (CORS, health, webhook, Inngest, API)
-│   │       ├── github/client.ts   # GitHub API client (diff, comment, verify, JWT)
 │   │       ├── middleware/auth.ts  # GitHub PAT authentication middleware
-│   │       ├── inngest/           # Durable review function (4 steps)
-│   │       └── routes/            # Webhook handlers + 8 REST API endpoints
+│   │       ├── inngest/           # Durable review function (7 steps + runner dispatch)
+│   │       ├── github/
+│   │       │   ├── client.ts      # GitHub API client (diff, comment, verify, JWT)
+│   │       │   └── runner.ts      # Runner discovery, secret setup, dispatch
+│   │       ├── routes/
+│   │       │   ├── runner-callback.ts # POST /runner/callback (HMAC verification)
+│   │       │   └── ...               # Webhook + 8 REST API endpoints
 │   │
 │   ├── dashboard/             # @ghagga/dashboard — React SPA
 │   │   └── src/
@@ -499,6 +548,18 @@ ghagga/
 │       ├── action.yml             # Action definition (node20 runtime)
 │       ├── Dockerfile             # Docker variant with static analysis tools
 │       └── src/index.ts           # Fetch diff → pipeline → comment
+│
+├── templates/                 # Runner dispatch templates
+│   ├── ghagga-analysis.yml       # GitHub Actions workflow for static analysis
+│   └── ghagga-runner-README.md   # Template repo README
+│
+├── landing/                   # Marketing landing page
+│   └── index.html                # Static HTML (GitHub Pages)
+│
+├── docs/                      # Documentation site (Docsify)
+│   ├── index.html                # Docsify configuration
+│   ├── _sidebar.md               # Navigation structure
+│   └── *.md                      # Documentation pages
 │
 ├── openspec/                  # Spec-Driven Development artifacts
 │   └── changes/ghagga-v2-rewrite/
@@ -594,20 +655,21 @@ pnpm --filter @ghagga/dashboard dev
 ```bash
 pnpm exec turbo typecheck    # Typecheck all packages
 pnpm exec turbo build         # Build all packages
-pnpm exec turbo test          # Run all 684 tests
+pnpm exec turbo test          # Run all 986 tests
 ```
 
 ### Test Suite
 
-684 tests across 30 test files in 5 packages. All passing in ~3 seconds.
+986 tests across 7 packages. All passing.
 
 | Package | Tests | What's Covered |
 |---------|------:|----------------|
-| `ghagga-core` | 400 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), static analysis tools (semgrep, trivy, cpd), parsers, security audit |
+| `ghagga-core` | 416 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), static analysis tools (semgrep, trivy, cpd), parsers, security audit |
 | `ghagga-db` | 64 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto (roundtrip, tamper, edge cases) |
-| `@ghagga/server` | 143 | API routes (74), webhook handlers (18), auth middleware (12), provider validation (28), Inngest review (2), GitHub client (9) |
-| `ghagga` (CLI) | 53 | Config resolution (22), review command (31) — input validation, output formatting, exit codes |
-| `@ghagga/action` | 24 | Input parsing, output setting, comment formatting, error handling |
+| `@ghagga/server` | 266 | API routes, webhook handlers, auth middleware, provider validation, Inngest review function, GitHub client, runner dispatch, callback verification |
+| `ghagga` (CLI) | 53 | Config resolution, review command — input validation, output formatting, exit codes |
+| `@ghagga/action` | 185 | Input parsing, output setting, comment formatting, error handling, tool installation, cache management |
+| `@ghagga/dashboard` | 2 | Component rendering |
 
 ---
 
@@ -672,8 +734,8 @@ GHAGGA v2 is a **complete rewrite** from scratch. The v1 codebase (~11,000 lines
 | Runtime | Deno + Node.js + Python | Node.js only |
 | Database | Supabase (hosted PostgreSQL) | Any PostgreSQL (self-hosted or cloud) |
 | Deploy steps | 10+ manual steps | 3 env vars + `docker compose up` |
-| Test suite | 0 tests | 684 tests |
-| Distribution modes | 1 (webhook only) | 3 (SaaS, Action, CLI) |
+| Test suite | 0 tests | 986 tests |
+| Distribution modes | 1 (webhook only) | 4 (SaaS, Action, CLI, Runner delegate) |
 | Static analysis | Semgrep only (via microservice) | Semgrep + Trivy + CPD (direct binary execution) |
 | Memory | Partial (stored but never consumed) | Full pipeline (search → inject → review → extract → persist) |
 | Dead code | ~40% of codebase | 0% |

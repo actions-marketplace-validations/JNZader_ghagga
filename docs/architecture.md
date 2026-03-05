@@ -12,6 +12,11 @@ graph TB
     CLI["CLI"]
   end
 
+  subgraph Runner["Delegated Runner"]
+    RunnerRepo["ghagga-runner<br/>GitHub Actions"]
+    RunnerTools["Semgrep · Trivy · CPD<br/>7GB RAM"]
+  end
+
   subgraph Core["@ghagga/core"]
     direction TB
     SA["Static Analysis<br/>Semgrep · Trivy · CPD"]
@@ -25,6 +30,10 @@ graph TB
     Crypto["AES-256-GCM<br/>Encryption"]
   end
 
+  Server -- "workflow_dispatch" --> RunnerRepo
+  RunnerRepo --> RunnerTools
+  RunnerTools -- "callback" --> Server
+
   Server --> Core
   Action --> Core
   CLI --> Core
@@ -35,11 +44,11 @@ graph TB
 
 Each adapter does the minimum work necessary to bridge between its I/O world and the core engine:
 
-| Adapter | Input | Output | Memory |
-|---------|-------|--------|--------|
-| **Server** | GitHub webhook | PR comment via GitHub API | Yes (PostgreSQL) |
-| **Action** | PR event in GitHub Actions | PR comment via Octokit | No |
-| **CLI** | Local `git diff` | Terminal output (markdown/json) | No |
+| Adapter | Input | Output | Memory | Static Analysis |
+|---------|-------|--------|--------|----------------|
+| **Server** | GitHub webhook | PR comment via GitHub API | Yes (PostgreSQL) | Delegated to runner |
+| **Action** | PR event in GitHub Actions | PR comment via Octokit | No | Direct on runner |
+| **CLI** | Local `git diff` | Terminal output (markdown/json) | No | If installed locally |
 
 ## Monorepo Structure
 
@@ -61,13 +70,37 @@ ghagga/
 │           ├── crypto.ts       # AES-256-GCM encrypt/decrypt
 │           └── queries.ts      # Typed database queries
 ├── apps/
-│   ├── server/         # Hono API (webhook + REST + Inngest)
+│   ├── server/         # Hono API (webhook + REST + Inngest + runner)
 │   ├── dashboard/      # React SPA (GitHub Pages)
 │   ├── cli/            # CLI tool (Commander.js)
 │   └── action/         # GitHub Action (node20 + Docker)
+│
+├── templates/                 # Runner dispatch templates
+│   ├── ghagga-analysis.yml       # GitHub Actions workflow for analysis
+│   └── ghagga-runner-README.md   # Template repo README
 ├── Dockerfile          # Multi-stage with Semgrep, Trivy, CPD
 └── docker-compose.yml  # PostgreSQL + server for local dev
 ```
+
+## Runner Architecture (SaaS Mode)
+
+In SaaS mode, static analysis is delegated to a user-owned GitHub Actions runner. The Render free tier (512MB RAM) can't run Semgrep + PMD/CPD simultaneously, so tools run on the user's public `ghagga-runner` repo (7GB RAM, unlimited free minutes).
+
+```mermaid
+sequenceDiagram
+    participant S as GHAGGA Server
+    participant R as ghagga-runner
+    participant GH as GitHub API
+
+    S->>GH: Check {owner}/ghagga-runner exists
+    S->>GH: Set GHAGGA_TOKEN secret
+    S->>GH: workflow_dispatch (10 inputs)
+    R->>R: Install + run Semgrep, Trivy, CPD
+    R->>S: POST /runner/callback (HMAC-signed)
+    S->>S: Verify HMAC, merge findings
+```
+
+If no runner repo is discovered, the server falls back to LLM-only review (no static analysis). See [Runner Architecture](runner-architecture.md) for full details.
 
 ## Design Decisions
 

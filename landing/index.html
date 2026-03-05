@@ -302,7 +302,7 @@
     /* ─── Features ──────────────────────────────────────────────── */
     .features {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(2, 1fr);
       gap: 1px;
       max-width: 1000px;
       width: 100%;
@@ -320,8 +320,10 @@
       overflow: hidden;
     }
 
-    .feature:first-child { border-radius: 16px 0 0 16px; }
-    .feature:last-child { border-radius: 0 16px 16px 0; }
+    .feature:first-child { border-radius: 16px 0 0 0; }
+    .feature:nth-child(2) { border-radius: 0 16px 0 0; }
+    .feature:nth-child(3) { border-radius: 0 0 0 16px; }
+    .feature:last-child { border-radius: 0 0 16px 0; }
 
     .feature::before {
       content: '';
@@ -643,6 +645,13 @@
       <h3>Project Memory</h3>
       <p>Learns patterns, decisions, and past bugs across reviews. PostgreSQL full-text search with privacy stripping.</p>
     </div>
+    <div class="feature">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+      </div>
+      <h3>Delegated Runner</h3>
+      <p>Static analysis runs on your own GitHub Actions runner — 7GB RAM, unlimited free minutes for public repos. No server OOM.</p>
+    </div>
   </div>
 
   <!-- Pipeline -->
@@ -652,7 +661,7 @@
     <div class="pipeline">
       <div class="pipe-step">
         <span class="pipe-step-num">Layer 0</span>
-        <span class="pipe-step-name">Static Analysis</span>
+        <span class="pipe-step-name">Runner Dispatch</span>
         <span class="pipe-step-desc">Semgrep &middot; Trivy &middot; CPD</span>
       </div>
       <div class="pipe-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></div>
@@ -679,11 +688,11 @@
   <!-- Stats -->
   <div class="stats">
     <div class="stat">
-      <div class="stat-value">684</div>
+      <div class="stat-value">986</div>
       <div class="stat-label">Tests passing</div>
     </div>
     <div class="stat">
-      <div class="stat-value">3</div>
+      <div class="stat-value">4</div>
       <div class="stat-label">Distribution modes</div>
     </div>
     <div class="stat">

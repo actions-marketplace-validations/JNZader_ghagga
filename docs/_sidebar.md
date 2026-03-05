@@ -6,6 +6,7 @@
 - Architecture
   - [Core + Adapters](architecture.md)
   - [Review Pipeline](review-pipeline.md)
+  - [Runner Architecture](runner-architecture.md)
   - [Review Modes](review-modes.md)
 
 - Features

@@ -89,6 +89,8 @@ Observations are extracted from the review and stored to PostgreSQL (fire-and-fo
 
 ## Trigger Modes
 
+> **Static analysis in SaaS mode**: When a runner repo exists, static analysis runs on the delegated runner. Without a runner, the review proceeds with AI only. See [Runner Architecture](runner-architecture.md).
+
 Reviews can be triggered in two ways in SaaS mode:
 
 | Trigger | Event | When |
@@ -107,12 +109,12 @@ In server mode, the pipeline runs inside an Inngest durable function with step-b
 ```typescript
 // Each step is checkpointed — retries resume from the last successful step
 Step 1: Fetch PR diff from GitHub API
-Step 2: Static Analysis (Layer 0)
-Step 3: Memory Search (Layer 1)
-Step 4: AI Review (Layer 2)
-Step 5: Save Memory (Layer 3)
-Step 6: Post PR Comment
-Step 7: React to trigger comment (if on-demand)
+Step 2: Discover runner repo ({owner}/ghagga-runner)
+Step 3: Dispatch to runner + wait for callback (or skip if no runner)
+Step 4: Memory Search (Layer 1)
+Step 5: AI Review (Layer 2)
+Step 6: Save Memory (Layer 3)
+Step 7: Post PR Comment + React to trigger
 ```
 
 If an LLM call fails and retries, static analysis doesn't re-run. If memory search fails, the pipeline continues without it.
@@ -126,4 +128,5 @@ If an LLM call fails and retries, static analysis doesn't re-run. If memory sear
 | CPD | Not installed | Skipped, review continues |
 | Memory (PostgreSQL) | No database connection | Skipped, no memory context |
 | LLM Provider | API error | Fallback chain attempts next provider |
+| Runner repo | Not configured | LLM-only review (no static analysis) |
 | Inngest | Not configured | Sync execution (no checkpointing) |

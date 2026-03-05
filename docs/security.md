@@ -11,6 +11,7 @@
 | **No secret logging** | Console outputs and error messages never contain sensitive data |
 | **BYOK model** | Users provide their own LLM API keys. GHAGGA never pays for or sees your LLM usage in plaintext. |
 | **Installation scoping** | API routes are scoped by GitHub installation ID — users can only access their own repos |
+| **Runner HMAC** | Per-dispatch HMAC-SHA256 verification for runner callbacks. Unique secret per dispatch with 11-minute TTL. |
 | **OAuth Device Flow** | GitHub OAuth Device Flow for dashboard and CLI authentication. No client secret stored — uses public client ID with device code verification. |
 
 ## AES-256-GCM Encryption
@@ -56,6 +57,41 @@ The test suite includes 14 dedicated security audit tests that verify:
 - `timingSafeEqual` usage for webhook signature comparison
 - Privacy stripping covers all 16 secret patterns
 
+## Runner Security Model
+
+When the GHAGGA server delegates static analysis to a user-owned GitHub Actions runner, private repository code is exposed on a public runner. Four security layers protect against code leakage:
+
+### Layer 1: Output Suppression
+
+All static analysis tool output is redirected to `/dev/null` in the runner workflow. No code snippets, file paths, or analysis results appear in the GitHub Actions workflow logs.
+
+### Layer 2: Log Masking
+
+Sensitive values are masked using GitHub Actions' `::add-mask::` command. Even if a value accidentally appears in a log line, it's replaced with `***`.
+
+### Layer 3: Log Deletion
+
+After the analysis completes and results are delivered via callback, the runner workflow deletes its own run logs using the GitHub API. This removes any residual data from GitHub's log storage.
+
+### Layer 4: Retention Policy
+
+The runner repository is configured with a 1-day log retention policy. Even if log deletion fails, logs are automatically purged within 24 hours.
+
+### Per-Dispatch HMAC Verification
+
+Each `workflow_dispatch` generates a unique callback secret:
+
+1. Server generates a random secret and stores it in an in-memory Map (11-minute TTL)
+2. Secret is set as a GitHub repository secret (`GHAGGA_TOKEN`) on the runner repo
+3. Runner signs the callback body with `HMAC-SHA256(secret, body)`
+4. Server verifies the `X-Runner-Signature` header against the stored secret
+5. Secret is deleted from the Map after successful verification
+
+This prevents:
+- **Replay attacks**: Each secret is single-use and expires in 11 minutes
+- **Spoofed callbacks**: Only the runner with access to `GHAGGA_TOKEN` can generate valid signatures
+- **Stale secrets**: In-memory Map entries auto-expire, preventing memory leaks
+
 ## Security Best Practices
 
 1. **Never commit API keys** — Use environment variables or GitHub secrets
@@ -64,3 +100,5 @@ The test suite includes 14 dedicated security audit tests that verify:
 4. **Use HTTPS** — All webhook endpoints should be served over HTTPS
 5. **Limit GitHub App permissions** — Only request `pull_requests: write` and `contents: read`
 6. **Use Device Flow for auth** — Dashboard and CLI use GitHub OAuth Device Flow (no client secret needed). Never store GitHub tokens in config files — use `ghagga login` which stores tokens securely.
+7. **Configure runner repo as public** — The `ghagga-runner` repo must be public for free GitHub Actions minutes. Never put sensitive code in this repo — it only contains the analysis workflow.
+8. **Review runner workflow changes** — The `ghagga-analysis.yml` workflow is the trust boundary. Only accept changes from the template repository.

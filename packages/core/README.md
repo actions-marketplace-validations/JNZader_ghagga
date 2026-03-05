@@ -18,7 +18,7 @@ import { reviewPipeline, DEFAULT_SETTINGS } from '@ghagga/core';
 const result = await reviewPipeline({
   diff: '...unified diff string...',
   mode: 'simple',          // 'simple' | 'workflow' | 'consensus'
-  provider: 'github',      // 'github' | 'openai' | 'anthropic' | 'google'
+  provider: 'github',      // 'github' | 'openai' | 'anthropic' | 'google' | 'ollama' | 'qwen'
   model: 'gpt-4o-mini',
   apiKey: process.env.GITHUB_TOKEN!,
   settings: DEFAULT_SETTINGS,
@@ -43,6 +43,8 @@ console.log(result.findings);
 - **openai** — OpenAI API (GPT-4o, GPT-4o-mini, etc.)
 - **anthropic** — Anthropic API (Claude Sonnet, Haiku, etc.)
 - **google** — Google AI (Gemini Pro, Flash, etc.)
+- **ollama** — Local models via [Ollama](https://ollama.ai/) (Qwen2.5-Coder, CodeLlama, etc.)
+- **qwen** — Alibaba Cloud DashScope API (Qwen-Coder-Plus, etc.)
 
 > **Tip:** For the CLI experience, use [`@ghagga/cli`](https://www.npmjs.com/package/@ghagga/cli) instead.
 

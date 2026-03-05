@@ -110,6 +110,71 @@ Other events return `200` with a `message` field.
 
 ---
 
+## Runner Callback
+
+```
+POST /runner/callback
+```
+
+Receives static analysis results from a delegated GitHub Actions runner. No bearer auth — validated via HMAC-SHA256 signature.
+
+**Required Headers**:
+
+| Header | Description |
+|--------|-------------|
+| `X-Runner-Signature` | HMAC-SHA256 signature of the raw body using the per-dispatch callback secret |
+| `Content-Type` | `application/json` |
+
+**Body**:
+
+```json
+{
+  "callbackId": "uuid-of-the-dispatch",
+  "findings": [
+    {
+      "source": "semgrep",
+      "severity": "high",
+      "file": "src/index.ts",
+      "line": 42,
+      "message": "Possible SQL injection"
+    }
+  ],
+  "toolVersions": {
+    "semgrep": "1.56.0",
+    "trivy": "0.69.3",
+    "cpd": "7.9.0"
+  },
+  "durationMs": 17900
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `callbackId` | `string` | UUID matching the dispatch (links callback to waiting Inngest step) |
+| `findings` | `array` | Static analysis findings with source, severity, file, line, message |
+| `toolVersions` | `object` | Versions of tools that ran |
+| `durationMs` | `number` | Total analysis duration in milliseconds |
+
+**Response** `200` (success):
+
+```json
+{ "message": "Findings received" }
+```
+
+**Response** `401` (invalid signature):
+
+```json
+{ "error": "Invalid signature" }
+```
+
+**Response** `404` (unknown callback ID — expired or already delivered):
+
+```json
+{ "error": "Unknown callback" }
+```
+
+---
+
 ## OAuth Proxy (Device Flow)
 
 These endpoints proxy GitHub's OAuth Device Flow for the static SPA dashboard (which cannot call `github.com` directly due to CORS). **No authentication required** — these are used before the user has a token.
@@ -612,6 +677,7 @@ Internal endpoint used by the [Inngest](https://www.inngest.com/) platform for d
 |--------|------|------|-------------|
 | `GET` | `/health` | No | Health check |
 | `POST` | `/webhook` | HMAC | GitHub webhook receiver |
+| `POST` | `/runner/callback` | HMAC | Runner static analysis results |
 | `POST` | `/auth/device/code` | No | OAuth Device Flow — request codes |
 | `POST` | `/auth/device/token` | No | OAuth Device Flow — poll for token |
 | `GET` | `/api/repositories` | Bearer | List user's repositories |

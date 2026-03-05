@@ -59,6 +59,18 @@ This starts PostgreSQL 16 on port 5432 and the GHAGGA Server (Hono) on port 3000
 
 See [Self-Hosted](self-hosted.md) for full deployment details.
 
+## SaaS Mode — Runner Setup
+
+If you're using the hosted GHAGGA SaaS (Render deployment), static analysis runs on a delegated runner. To enable it:
+
+1. **Create a runner repo** from the template: [`JNZader/ghagga-runner-template`](https://github.com/JNZader/ghagga-runner-template)
+2. **Name it `ghagga-runner`** — the server discovers it by convention
+3. **Keep it public** — required for free GitHub Actions minutes
+
+That's it. The server will auto-discover your runner and dispatch static analysis to it. If you skip this step, reviews still work — they just skip static analysis.
+
+See [Runner Architecture](runner-architecture.md) for details.
+
 ## BYOK — Bring Your Own Key
 
 GHAGGA never sees or stores your keys in plaintext. They're encrypted with AES-256-GCM at rest. You bring your own API key from any supported provider:

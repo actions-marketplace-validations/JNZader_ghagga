@@ -21,23 +21,25 @@ flowchart TB
   CPD["CPD<br/>duplicates"] --> Merge
 ```
 
+> **Where do tools run?** In SaaS mode, tools run on a [delegated runner](runner-architecture.md). In Action mode, tools auto-install on the GitHub Actions runner. In CLI mode, tools run locally if installed. In Docker, tools are pre-installed.
+
 Each tool's output (JSON for Semgrep/Trivy, XML for CPD) is parsed into a common `ReviewFinding` format with severity, file, line, and message.
 
 ## Graceful Degradation
 
 Tools are optional. If a binary isn't installed or fails to run, it's silently skipped. The review continues with whatever tools are available. Check your deployment's tool status at `/health/tools`.
 
-| Distribution | Semgrep | Trivy | CPD |
-|-------------|---------|-------|-----|
-| Docker (server, 1GB+ RAM) | Pre-installed | Pre-installed | Pre-installed |
-| Docker (server, 512MB RAM) | Skipped** | Pre-installed | Skipped** |
-| Docker (action) | Pre-installed | Pre-installed | Pre-installed |
-| GitHub Action (node20) | Skipped* | Skipped* | Skipped* |
-| CLI | If installed locally | If installed locally | If installed locally |
+| Distribution | Semgrep | Trivy | CPD | How |
+|-------------|---------|-------|-----|-----|
+| **SaaS (with runner)** | Yes | Yes | Yes | Delegated to `ghagga-runner` via workflow_dispatch |
+| **SaaS (no runner)** | No | No | No | Falls back to LLM-only review |
+| **GitHub Action (node20)** | Yes | Yes | Yes | Auto-installed + cached on runner |
+| **Docker (action/server)** | Yes | Yes | Yes | Pre-installed in Docker image |
+| **CLI** | If installed | If installed | If installed | Uses locally installed binaries |
 
-> \* The node20 action variant doesn't include static analysis tools by default. Use the Docker action variant for full static analysis, or install tools in a prior step.
+> SaaS mode delegates static analysis to the user's [`ghagga-runner`](runner-architecture.md) repository. If no runner is configured, the review continues with AI only (no static analysis findings). See [Runner Architecture](runner-architecture.md) for details.
 
-> \*\* Semgrep (Python) and PMD/CPD (Java) require more than 512MB RAM. On hosting plans with limited memory (e.g., Render free tier), these tools are installed but fail at runtime due to OOM. Trivy (Go binary) works fine on 512MB. Upgrade to a plan with 1GB+ RAM for all three tools.
+> The GitHub Action auto-installs tools directly on the `ubuntu-latest` runner and caches binaries with `@actions/cache`. First run takes ~3-5 minutes (installation); subsequent runs use cache (~1-2 minutes).
 
 ## Semgrep
 

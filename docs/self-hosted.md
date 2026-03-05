@@ -320,6 +320,20 @@ Once deployed, configure your LLM providers:
 
 ---
 
+## Step 6.5: Configure Runner (Optional)
+
+For self-hosted deployments running on machines with 1GB+ RAM, static analysis tools run directly inside the Docker container — no runner needed.
+
+For deployments on limited-memory platforms (like Render free tier), delegate static analysis to a runner:
+
+1. Each user creates a public repo from [`JNZader/ghagga-runner-template`](https://github.com/JNZader/ghagga-runner-template) named `ghagga-runner`
+2. The server auto-discovers runner repos by convention (`GET /repos/{owner}/ghagga-runner`)
+3. The server needs the callback endpoint accessible: `https://your-domain.com/runner/callback`
+
+The runner setup is per-user — each GitHub user/org that installs GHAGGA can have their own runner repo.
+
+---
+
 ## Troubleshooting
 
 ### Webhook not received
@@ -361,7 +375,7 @@ docker compose exec server pmd --version
 
 If any tool is missing or fails, the review continues without it (graceful degradation).
 
-> **Memory requirements**: Semgrep (Python) and PMD/CPD (Java) need >512MB RAM. On hosting plans with limited memory (e.g., Render free tier at 512MB), only Trivy (Go binary) will work. Upgrade to a 1GB+ RAM plan for full static analysis.
+> **Memory requirements**: Semgrep (Python) and PMD/CPD (Java) need >512MB RAM. On hosting plans with limited memory (e.g., Render free tier at 512MB), static analysis is delegated to a [runner](runner-architecture.md) instead. If running Docker locally with 1GB+ RAM, all tools work directly in the container.
 
 ---
 
@@ -371,14 +385,12 @@ If any tool is missing or fails, the review continues without it (graceful degra
 flowchart TB
   subgraph GitHub
     PR["Pull Request Event"]
+    Runner["ghagga-runner<br/>GitHub Actions"]
   end
 
   subgraph Docker["Docker Compose"]
     Server["GHAGGA Server<br/>Hono · port 3000"]
     PG["PostgreSQL 16<br/>port 5432"]
-    Semgrep["Semgrep"]
-    Trivy["Trivy"]
-    CPD["PMD/CPD"]
   end
 
   subgraph External
@@ -387,12 +399,11 @@ flowchart TB
   end
 
   PR -->|webhook| Server
+  Server -->|workflow_dispatch| Runner
+  Runner -->|callback| Server
   Server --> PG
   Server --> Inngest
   Inngest --> Server
-  Server --> Semgrep
-  Server --> Trivy
-  Server --> CPD
   Server --> LLM
   Server -->|PR comment| GitHub
 ```

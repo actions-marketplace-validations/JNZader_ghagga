@@ -19,9 +19,10 @@ GHAGGA is a code review tool that posts intelligent comments on your Pull Reques
 |---------|-------------|
 | **3 Review Modes** | Simple (single LLM), Workflow (5 specialist agents), Consensus (multi-model voting) |
 | **Static Analysis Trident** | Semgrep (security), Trivy (vulnerabilities), CPD (code duplication) — zero tokens |
+| **Delegated Runner** | Static analysis runs on user-owned GitHub Actions runners (7GB RAM, free for public repos) |
 | **Project Memory** | Learns patterns, decisions, and bug fixes across reviews (PostgreSQL + tsvector FTS) |
 | **Multi-Provider** | 6 providers: GitHub Models (free), Anthropic, OpenAI, Google, Ollama (local), Qwen (Alibaba) — bring your own key |
-| **3 Distribution Modes** | SaaS, GitHub Action, CLI |
+| **4 Distribution Modes** | SaaS, GitHub Action, CLI, Runner delegate |
 | **Comment Trigger** | Type `ghagga review` on any PR to re-trigger a review on demand |
 | **Dashboard** | React SPA on GitHub Pages — review history, stats, settings, memory browser |
 | **BYOK Security** | AES-256-GCM encryption, HMAC-SHA256 webhook verification, privacy stripping |
@@ -36,12 +37,18 @@ graph TB
     CLI["CLI"]
   end
 
+  subgraph Runner["Delegated Runner"]
+    RunnerRepo["ghagga-runner"]
+  end
+
   subgraph Core["@ghagga/core"]
     SA["Static Analysis<br/>Semgrep · Trivy · CPD"]
     Agents["AI Agents<br/>Simple · Workflow · Consensus"]
     Memory["Memory<br/>Search · Persist · Privacy"]
   end
 
+  Server -- "dispatch" --> RunnerRepo
+  RunnerRepo -- "callback" --> Server
   Server --> Core
   Action --> Core
   CLI --> Core
@@ -55,6 +62,7 @@ The review engine (`@ghagga/core`) is distribution-agnostic. Each app is a thin 
 - **[Architecture](architecture.md)** — Core + Adapters pattern explained
 - **[Review Modes](review-modes.md)** — Simple, Workflow, and Consensus
 - **[Static Analysis](static-analysis.md)** — Semgrep, Trivy, CPD
+- **[Runner Architecture](runner-architecture.md)** — Delegated static analysis on GitHub Actions
 - **[Memory System](memory-system.md)** — How GHAGGA learns across reviews
 - **[Configuration](configuration.md)** — Environment variables and config files
 - **[GitHub Action](github-action.md)** — The fastest way to get started
