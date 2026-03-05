@@ -28,7 +28,10 @@ import {
   discoverRunnerRepo,
   setRunnerSecret,
   dispatchWorkflow,
+  RunnerCreationError,
+  createRunnerRepo,
   type DispatchParams,
+  type RunnerErrorCode,
 } from './runner.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -337,7 +340,7 @@ describe('discoverRunnerRepo', () => {
 
   it('returns DiscoveredRunner when repo exists (200)', async () => {
     mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ id: 123, full_name: 'acme/ghagga-runner' }), {
+      new Response(JSON.stringify({ id: 123, full_name: 'acme/ghagga-runner', private: false }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
@@ -345,14 +348,14 @@ describe('discoverRunnerRepo', () => {
 
     const result = await discoverRunnerRepo('acme', 'ghp_token');
 
-    expect(result).toEqual({ repoId: 123, fullName: 'acme/ghagga-runner' });
+    expect(result).toEqual({ repoId: 123, fullName: 'acme/ghagga-runner', isPrivate: false });
     expect(mockFetch).toHaveBeenCalledOnce();
     expect(mockFetch.mock.calls[0][0]).toBe('https://api.github.com/repos/acme/ghagga-runner');
   });
 
   it('sends correct Authorization, Accept, and X-GitHub-Api-Version headers', async () => {
     mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ id: 1, full_name: 'acme/ghagga-runner' }), {
+      new Response(JSON.stringify({ id: 1, full_name: 'acme/ghagga-runner', private: false }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
@@ -371,7 +374,7 @@ describe('discoverRunnerRepo', () => {
 
   it('constructs the correct URL from ownerLogin', async () => {
     mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ id: 99, full_name: 'my-org/ghagga-runner' }), {
+      new Response(JSON.stringify({ id: 99, full_name: 'my-org/ghagga-runner', private: false }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
@@ -402,7 +405,7 @@ describe('discoverRunnerRepo', () => {
 
   it('maps response id to repoId and full_name to fullName', async () => {
     mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ id: 999, full_name: 'org/ghagga-runner' }), {
+      new Response(JSON.stringify({ id: 999, full_name: 'org/ghagga-runner', private: true }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
@@ -413,6 +416,21 @@ describe('discoverRunnerRepo', () => {
     expect(result).not.toBeNull();
     expect(result!.repoId).toBe(999);
     expect(result!.fullName).toBe('org/ghagga-runner');
+    expect(result!.isPrivate).toBe(true);
+  });
+
+  it('returns isPrivate: false for public repos', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: 456, full_name: 'alice/ghagga-runner', private: false }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+
+    const result = await discoverRunnerRepo('alice', 'ghp_token');
+
+    expect(result).not.toBeNull();
+    expect(result!.isPrivate).toBe(false);
   });
 });
 
@@ -853,5 +871,407 @@ describe('dispatchWorkflow', () => {
     // The secret should have been deleted — verifyAndConsumeSecret should return false
     const sig = computeSignature('test', 'any-secret');
     expect(verifyAndConsumeSecret(callbackId, 'test', sig)).toBe(false);
+  });
+});
+
+// ─── Group 5: RunnerCreationError ───────────────────────────────
+
+describe('RunnerCreationError', () => {
+  it('is an instance of Error', () => {
+    const err = new RunnerCreationError('github_error', 'Something went wrong');
+    expect(err).toBeInstanceOf(Error);
+  });
+
+  it('sets the name to "RunnerCreationError"', () => {
+    const err = new RunnerCreationError('github_error', 'Something went wrong');
+    expect(err.name).toBe('RunnerCreationError');
+  });
+
+  it('stores the error code', () => {
+    const err = new RunnerCreationError('insufficient_scope', 'Need more scope');
+    expect(err.code).toBe('insufficient_scope');
+  });
+
+  it('stores the message', () => {
+    const err = new RunnerCreationError('github_error', 'API broke');
+    expect(err.message).toBe('API broke');
+  });
+
+  it('stores optional retryAfter', () => {
+    const err = new RunnerCreationError('rate_limited', 'Too many requests', 120);
+    expect(err.retryAfter).toBe(120);
+  });
+
+  it('stores optional repoFullName', () => {
+    const err = new RunnerCreationError('already_exists', 'Exists', undefined, 'alice/ghagga-runner');
+    expect(err.repoFullName).toBe('alice/ghagga-runner');
+  });
+
+  it('has undefined retryAfter and repoFullName when not provided', () => {
+    const err = new RunnerCreationError('template_unavailable', 'Not found');
+    expect(err.retryAfter).toBeUndefined();
+    expect(err.repoFullName).toBeUndefined();
+  });
+
+  it('can be instantiated with all error codes', () => {
+    const codes: RunnerErrorCode[] = [
+      'insufficient_scope',
+      'already_exists',
+      'template_unavailable',
+      'rate_limited',
+      'org_permission_denied',
+      'creation_timeout',
+      'secret_failed',
+      'github_error',
+    ];
+
+    for (const code of codes) {
+      const err = new RunnerCreationError(code, `Error: ${code}`);
+      expect(err.code).toBe(code);
+      expect(err.name).toBe('RunnerCreationError');
+    }
+  });
+});
+
+// ─── Group 6: createRunnerRepo ──────────────────────────────────
+
+describe('createRunnerRepo', () => {
+  const mockFetch = vi.fn();
+
+  // Same valid test public key as Group 3
+  const testPublicKeyB64 = 'C2o8Fz0SSCMy56fVlx+MPxPvZC7eQVOMlf82K32KJYA=';
+
+  const defaultOptions = {
+    ownerLogin: 'testuser',
+    token: 'ghp_test-token',
+    callbackSecretValue: 'callback-secret-123',
+  };
+
+  // Mirror the module constants (not exported)
+  const POLL_INTERVAL_MS = 2000;
+  const MAX_POLL_ATTEMPTS = 15;
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', mockFetch);
+    mockFetch.mockReset();
+    mockRunnerLogger.info.mockClear();
+    mockRunnerLogger.error.mockClear();
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  /**
+   * Helper: set up mock fetch for a successful createRunnerRepo flow.
+   * 1. discoverRunnerRepo → 404 (not found)
+   * 2. template generate → 201
+   * 3. poll discoverRunnerRepo → 200 (ready on first poll)
+   * 4. setRunnerSecret GET public-key → 200
+   * 5. setRunnerSecret PUT secret → 204
+   */
+  function setupSuccessChain(overrides?: { isPrivate?: boolean }) {
+    const isPrivate = overrides?.isPrivate ?? false;
+
+    // 1. discoverRunnerRepo → 404
+    mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+
+    // 2. template generate → 201
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ full_name: 'testuser/ghagga-runner', private: isPrivate }),
+        { status: 201, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    // 3. poll discoverRunnerRepo → 200 (found on first poll)
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ id: 123, full_name: 'testuser/ghagga-runner', private: isPrivate }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    // 4. setRunnerSecret → GET public-key
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ key: testPublicKeyB64, key_id: 'key-create' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    // 5. setRunnerSecret → PUT secret
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
+  }
+
+  it('creates a runner repo successfully (happy path)', async () => {
+    setupSuccessChain();
+
+    const promise = createRunnerRepo(defaultOptions);
+
+    // Advance past the poll interval (2s)
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+
+    const result = await promise;
+
+    expect(result).toEqual({
+      created: true,
+      repoFullName: 'testuser/ghagga-runner',
+      isPrivate: false,
+      secretConfigured: true,
+    });
+  });
+
+  it('calls the template generate API with correct parameters', async () => {
+    setupSuccessChain();
+
+    const promise = createRunnerRepo(defaultOptions);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    await promise;
+
+    // Call 1 is discoverRunnerRepo (404), call 2 is template generate
+    const generateCall = mockFetch.mock.calls[1];
+    expect(generateCall[0]).toBe(
+      'https://api.github.com/repos/JNZader/ghagga-runner-template/generate',
+    );
+    expect(generateCall[1].method).toBe('POST');
+
+    const body = JSON.parse(generateCall[1].body as string);
+    expect(body).toEqual({
+      owner: 'testuser',
+      name: 'ghagga-runner',
+      description: 'GHAGGA static analysis runner — auto-created by the GHAGGA Dashboard',
+      include_all_branches: false,
+      private: false,
+    });
+  });
+
+  it('throws already_exists when repo exists on pre-check', async () => {
+    // discoverRunnerRepo → 200 (repo exists)
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ id: 123, full_name: 'testuser/ghagga-runner', private: false }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+
+    try {
+      await createRunnerRepo(defaultOptions);
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(RunnerCreationError);
+      const rce = err as RunnerCreationError;
+      expect(rce.code).toBe('already_exists');
+      expect(rce.repoFullName).toBe('testuser/ghagga-runner');
+    }
+  });
+
+  it('throws already_exists on 422 from template generate', async () => {
+    // discoverRunnerRepo → 404
+    mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+    // template generate → 422
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: 'name already exists' }), { status: 422 }),
+    );
+
+    try {
+      await createRunnerRepo(defaultOptions);
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(RunnerCreationError);
+      expect((err as RunnerCreationError).code).toBe('already_exists');
+    }
+  });
+
+  it('throws insufficient_scope on 403 (not rate limited)', async () => {
+    // discoverRunnerRepo → 404
+    mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+    // template generate → 403
+    mockFetch.mockResolvedValueOnce(
+      new Response('Forbidden', {
+        status: 403,
+        headers: { 'X-RateLimit-Remaining': '100' },
+      }),
+    );
+
+    try {
+      await createRunnerRepo(defaultOptions);
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(RunnerCreationError);
+      expect((err as RunnerCreationError).code).toBe('insufficient_scope');
+    }
+  });
+
+  it('throws rate_limited on 403 with X-RateLimit-Remaining: 0', async () => {
+    const resetTime = Math.floor(Date.now() / 1000) + 120;
+
+    // discoverRunnerRepo → 404
+    mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+    // template generate → 403 rate limited
+    mockFetch.mockResolvedValueOnce(
+      new Response('Rate limit exceeded', {
+        status: 403,
+        headers: {
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset': String(resetTime),
+        },
+      }),
+    );
+
+    try {
+      await createRunnerRepo(defaultOptions);
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(RunnerCreationError);
+      const rce = err as RunnerCreationError;
+      expect(rce.code).toBe('rate_limited');
+      expect(rce.retryAfter).toBeGreaterThan(0);
+    }
+  });
+
+  it('throws org_permission_denied on 403 with organization/permission in body', async () => {
+    // discoverRunnerRepo → 404
+    mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+    // template generate → 403 org permission denied
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ message: 'Resource not accessible by organization' }),
+        {
+          status: 403,
+          headers: { 'X-RateLimit-Remaining': '100' },
+        },
+      ),
+    );
+
+    try {
+      await createRunnerRepo(defaultOptions);
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(RunnerCreationError);
+      expect((err as RunnerCreationError).code).toBe('org_permission_denied');
+    }
+  });
+
+  it('throws template_unavailable on 404 from template generate', async () => {
+    // discoverRunnerRepo → 404
+    mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+    // template generate → 404
+    mockFetch.mockResolvedValueOnce(
+      new Response('Not Found', { status: 404 }),
+    );
+
+    try {
+      await createRunnerRepo(defaultOptions);
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(RunnerCreationError);
+      expect((err as RunnerCreationError).code).toBe('template_unavailable');
+    }
+  });
+
+  it('throws creation_timeout when polling exceeds max attempts', async () => {
+    // discoverRunnerRepo → 404 (pre-check)
+    mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+    // template generate → 201
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ full_name: 'testuser/ghagga-runner', private: false }),
+        { status: 201, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    // All poll attempts → 404 (never ready)
+    for (let i = 0; i < MAX_POLL_ATTEMPTS; i++) {
+      mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+    }
+
+    // Immediately attach error handler to prevent unhandled rejection
+    let caughtError: unknown;
+    const promise = createRunnerRepo(defaultOptions).catch((err) => {
+      caughtError = err;
+    });
+
+    // Advance through all poll intervals — each setTimeout needs its own tick
+    for (let i = 0; i < MAX_POLL_ATTEMPTS; i++) {
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    }
+
+    await promise;
+
+    expect(caughtError).toBeInstanceOf(RunnerCreationError);
+    const rce = caughtError as RunnerCreationError;
+    expect(rce.code).toBe('creation_timeout');
+    expect(rce.repoFullName).toBe('testuser/ghagga-runner');
+  });
+
+  it('returns secretConfigured: false when setRunnerSecret fails', async () => {
+    // discoverRunnerRepo → 404
+    mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+    // template generate → 201
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ full_name: 'testuser/ghagga-runner', private: false }),
+        { status: 201, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    // poll discoverRunnerRepo → 200
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ id: 123, full_name: 'testuser/ghagga-runner', private: false }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ),
+    );
+    // setRunnerSecret GET public-key → 500 (fails)
+    mockFetch.mockResolvedValueOnce(
+      new Response('Server Error', { status: 500, statusText: 'Internal Server Error' }),
+    );
+
+    const promise = createRunnerRepo(defaultOptions);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    const result = await promise;
+
+    expect(result.created).toBe(true);
+    expect(result.secretConfigured).toBe(false);
+    expect(result.repoFullName).toBe('testuser/ghagga-runner');
+  });
+
+  it('returns isPrivate: true when org forces private repos', async () => {
+    setupSuccessChain({ isPrivate: true });
+
+    const promise = createRunnerRepo(defaultOptions);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    const result = await promise;
+
+    expect(result.isPrivate).toBe(true);
+  });
+
+  it('throws github_error on unexpected status codes', async () => {
+    // discoverRunnerRepo → 404
+    mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
+    // template generate → 500
+    mockFetch.mockResolvedValueOnce(
+      new Response('Internal Server Error', { status: 500 }),
+    );
+
+    try {
+      await createRunnerRepo(defaultOptions);
+      expect.unreachable('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(RunnerCreationError);
+      expect((err as RunnerCreationError).code).toBe('github_error');
+    }
+  });
+
+  it('logs info on successful creation', async () => {
+    setupSuccessChain();
+
+    const promise = createRunnerRepo(defaultOptions);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    await promise;
+
+    // The creation logger is a separate child logger
+    expect(mockRootChildFn).toHaveBeenCalledWith({ module: 'runner-creation' });
   });
 });

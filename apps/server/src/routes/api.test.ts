@@ -5,9 +5,10 @@
  * injected auth user context, and comprehensive edge cases.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import { createApiRouter } from './api.js';
+import { RunnerCreationError } from '../github/runner.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -62,6 +63,28 @@ vi.mock('../lib/logger.js', () => ({
       warn: vi.fn(),
       debug: vi.fn(),
     }),
+  },
+}));
+
+// Mock runner functions
+const mockDiscoverRunnerRepo = vi.fn();
+const mockCreateRunnerRepo = vi.fn();
+const mockSetRunnerSecret = vi.fn();
+
+vi.mock('../github/runner.js', () => ({
+  discoverRunnerRepo: (...args: unknown[]) => mockDiscoverRunnerRepo(...args),
+  createRunnerRepo: (...args: unknown[]) => mockCreateRunnerRepo(...args),
+  setRunnerSecret: (...args: unknown[]) => mockSetRunnerSecret(...args),
+  RunnerCreationError: class RunnerCreationError extends Error {
+    constructor(
+      public code: string,
+      message: string,
+      public retryAfter?: number,
+      public repoFullName?: string,
+    ) {
+      super(message);
+      this.name = 'RunnerCreationError';
+    }
   },
 }));
 
@@ -1411,5 +1434,396 @@ describe('maskApiKey (via GET /api/settings)', () => {
 
     const json = await res.json();
     expect(json.data.providerChain[0].maskedApiKey).toBe('***');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// GET /api/runner/status
+// ═══════════════════════════════════════════════════════════════════
+
+describe('GET /api/runner/status', () => {
+  it('returns exists: true when runner repo is found', async () => {
+    mockDiscoverRunnerRepo.mockResolvedValueOnce({
+      repoId: 999,
+      fullName: 'testuser/ghagga-runner',
+      isPrivate: false,
+    });
+
+    const app = createApp();
+    const res = await app.request('/api/runner/status', {
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({
+      exists: true,
+      repoFullName: 'testuser/ghagga-runner',
+    });
+    expect(mockDiscoverRunnerRepo).toHaveBeenCalledWith('testuser', 'test-token');
+  });
+
+  it('returns exists: false when runner repo is not found', async () => {
+    mockDiscoverRunnerRepo.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request('/api/runner/status', {
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ exists: false });
+  });
+
+  it('returns isPrivate and warning for private repo', async () => {
+    mockDiscoverRunnerRepo.mockResolvedValueOnce({
+      repoId: 999,
+      fullName: 'testuser/ghagga-runner',
+      isPrivate: true,
+    });
+
+    const app = createApp();
+    const res = await app.request('/api/runner/status', {
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data.exists).toBe(true);
+    expect(json.data.isPrivate).toBe(true);
+    expect(json.data.warning).toContain('private');
+  });
+
+  it('returns 502 when GitHub API fails', async () => {
+    mockDiscoverRunnerRepo.mockRejectedValueOnce(new Error('GitHub API timeout'));
+
+    const app = createApp();
+    const res = await app.request('/api/runner/status', {
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(502);
+    const json = await res.json();
+    expect(json.error).toBe('github_unavailable');
+  });
+
+  it('extracts token from Authorization header', async () => {
+    mockDiscoverRunnerRepo.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    await app.request('/api/runner/status', {
+      headers: { Authorization: 'Bearer my-oauth-token-123' },
+    });
+
+    expect(mockDiscoverRunnerRepo).toHaveBeenCalledWith('testuser', 'my-oauth-token-123');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// POST /api/runner/create
+// ═══════════════════════════════════════════════════════════════════
+
+describe('POST /api/runner/create', () => {
+  const originalEnv = process.env.GHAGGA_WEBHOOK_SECRET;
+
+  beforeEach(() => {
+    process.env.GHAGGA_WEBHOOK_SECRET = 'test-webhook-secret';
+  });
+
+  afterEach(() => {
+    if (originalEnv !== undefined) {
+      process.env.GHAGGA_WEBHOOK_SECRET = originalEnv;
+    } else {
+      delete process.env.GHAGGA_WEBHOOK_SECRET;
+    }
+  });
+
+  it('returns 201 with created: true on success', async () => {
+    mockCreateRunnerRepo.mockResolvedValueOnce({
+      created: true,
+      repoFullName: 'testuser/ghagga-runner',
+      isPrivate: false,
+      secretConfigured: true,
+    });
+
+    const app = createApp();
+    const res = await app.request('/api/runner/create', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    expect(json.data).toEqual({
+      created: true,
+      repoFullName: 'testuser/ghagga-runner',
+      secretConfigured: true,
+      isPrivate: false,
+    });
+    expect(mockCreateRunnerRepo).toHaveBeenCalledWith({
+      ownerLogin: 'testuser',
+      token: 'test-token',
+      callbackSecretValue: 'test-webhook-secret',
+    });
+  });
+
+  it('returns 201 with warning for private repo', async () => {
+    mockCreateRunnerRepo.mockResolvedValueOnce({
+      created: true,
+      repoFullName: 'testuser/ghagga-runner',
+      isPrivate: true,
+      secretConfigured: true,
+    });
+
+    const app = createApp();
+    const res = await app.request('/api/runner/create', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    expect(json.data.isPrivate).toBe(true);
+    expect(json.data.warning).toContain('private');
+  });
+
+  it('returns 409 for already_exists error', async () => {
+    mockCreateRunnerRepo.mockRejectedValueOnce(
+      new RunnerCreationError('already_exists', 'Repo already exists', undefined, 'testuser/ghagga-runner'),
+    );
+
+    const app = createApp();
+    const res = await app.request('/api/runner/create', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toBe('already_exists');
+    expect(json.repoFullName).toBe('testuser/ghagga-runner');
+  });
+
+  it('returns 403 for insufficient_scope error', async () => {
+    mockCreateRunnerRepo.mockRejectedValueOnce(
+      new RunnerCreationError('insufficient_scope', 'Token lacks public_repo scope'),
+    );
+
+    const app = createApp();
+    const res = await app.request('/api/runner/create', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe('insufficient_scope');
+  });
+
+  it('returns 429 for rate_limited error with retryAfter', async () => {
+    mockCreateRunnerRepo.mockRejectedValueOnce(
+      new RunnerCreationError('rate_limited', 'Rate limited', 120),
+    );
+
+    const app = createApp();
+    const res = await app.request('/api/runner/create', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(429);
+    const json = await res.json();
+    expect(json.error).toBe('rate_limited');
+    expect(json.retryAfter).toBe(120);
+  });
+
+  it('returns 502 for template_unavailable error', async () => {
+    mockCreateRunnerRepo.mockRejectedValueOnce(
+      new RunnerCreationError('template_unavailable', 'Template not found'),
+    );
+
+    const app = createApp();
+    const res = await app.request('/api/runner/create', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(502);
+    const json = await res.json();
+    expect(json.error).toBe('template_unavailable');
+  });
+
+  it('returns 403 for org_permission_denied error', async () => {
+    mockCreateRunnerRepo.mockRejectedValueOnce(
+      new RunnerCreationError('org_permission_denied', 'Org does not allow repo creation'),
+    );
+
+    const app = createApp();
+    const res = await app.request('/api/runner/create', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe('org_permission_denied');
+  });
+
+  it('returns 502 for creation_timeout error', async () => {
+    mockCreateRunnerRepo.mockRejectedValueOnce(
+      new RunnerCreationError('creation_timeout', 'Timed out waiting for repo'),
+    );
+
+    const app = createApp();
+    const res = await app.request('/api/runner/create', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(502);
+    const json = await res.json();
+    expect(json.error).toBe('github_error');
+    expect(json.message).toContain('timed out');
+  });
+
+  it('returns 201 with secretConfigured: false for secret_failed error', async () => {
+    mockCreateRunnerRepo.mockRejectedValueOnce(
+      new RunnerCreationError('secret_failed', 'Failed to set secret', undefined, 'testuser/ghagga-runner'),
+    );
+
+    const app = createApp();
+    const res = await app.request('/api/runner/create', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    expect(json.data.created).toBe(true);
+    expect(json.data.secretConfigured).toBe(false);
+    expect(json.data.repoFullName).toBe('testuser/ghagga-runner');
+  });
+
+  it('returns 502 for generic errors', async () => {
+    mockCreateRunnerRepo.mockRejectedValueOnce(new Error('Unexpected failure'));
+
+    const app = createApp();
+    const res = await app.request('/api/runner/create', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(502);
+    const json = await res.json();
+    expect(json.error).toBe('github_error');
+  });
+
+  it('returns 502 for github_error code', async () => {
+    mockCreateRunnerRepo.mockRejectedValueOnce(
+      new RunnerCreationError('github_error', 'Something went wrong on GitHub'),
+    );
+
+    const app = createApp();
+    const res = await app.request('/api/runner/create', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(502);
+    const json = await res.json();
+    expect(json.error).toBe('github_error');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// POST /api/runner/configure-secret
+// ═══════════════════════════════════════════════════════════════════
+
+describe('POST /api/runner/configure-secret', () => {
+  const originalEnv = process.env.GHAGGA_WEBHOOK_SECRET;
+
+  beforeEach(() => {
+    process.env.GHAGGA_WEBHOOK_SECRET = 'test-webhook-secret';
+  });
+
+  afterEach(() => {
+    if (originalEnv !== undefined) {
+      process.env.GHAGGA_WEBHOOK_SECRET = originalEnv;
+    } else {
+      delete process.env.GHAGGA_WEBHOOK_SECRET;
+    }
+  });
+
+  it('returns 200 with configured: true on success', async () => {
+    mockDiscoverRunnerRepo.mockResolvedValueOnce({
+      repoId: 999,
+      fullName: 'testuser/ghagga-runner',
+      isPrivate: false,
+    });
+    mockSetRunnerSecret.mockResolvedValueOnce(undefined);
+
+    const app = createApp();
+    const res = await app.request('/api/runner/configure-secret', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ configured: true });
+    expect(mockSetRunnerSecret).toHaveBeenCalledWith(
+      'testuser/ghagga-runner',
+      'GHAGGA_CALLBACK_SECRET',
+      'test-webhook-secret',
+      'test-token',
+    );
+  });
+
+  it('returns 404 when runner repo not found', async () => {
+    mockDiscoverRunnerRepo.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request('/api/runner/configure-secret', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toBe('runner_not_found');
+  });
+
+  it('returns 502 when secret set fails', async () => {
+    mockDiscoverRunnerRepo.mockResolvedValueOnce({
+      repoId: 999,
+      fullName: 'testuser/ghagga-runner',
+      isPrivate: false,
+    });
+    mockSetRunnerSecret.mockRejectedValueOnce(new Error('GitHub API error'));
+
+    const app = createApp();
+    const res = await app.request('/api/runner/configure-secret', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(502);
+    const json = await res.json();
+    expect(json.error).toBe('github_error');
+  });
+
+  it('returns 502 when discoverRunnerRepo throws', async () => {
+    mockDiscoverRunnerRepo.mockRejectedValueOnce(new Error('Network error'));
+
+    const app = createApp();
+    const res = await app.request('/api/runner/configure-secret', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(502);
+    const json = await res.json();
+    expect(json.error).toBe('github_error');
   });
 });
