@@ -31,3 +31,7 @@ services:
         value: "3000"
       - key: NODE_ENV
         value: "production"
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: STATE_SECRET
+        sync: false

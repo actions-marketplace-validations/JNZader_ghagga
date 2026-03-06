@@ -1,22 +1,82 @@
 /**
- * OAuth proxy routes for the dashboard.
+ * OAuth routes for the dashboard.
  *
- * The dashboard (a static SPA on GitHub Pages) cannot call
- * github.com directly due to CORS restrictions. These endpoints
- * proxy the GitHub Device Flow requests through the GHAGGA server,
- * which has CORS enabled for all origins.
+ * Two flows are supported:
+ *
+ * 1. **Device Flow** (for CLI and fallback): The dashboard cannot call
+ *    github.com directly due to CORS restrictions. These endpoints proxy
+ *    the GitHub Device Flow requests through the GHAGGA server.
+ *
+ * 2. **Web Flow** (primary for Dashboard): Standard OAuth Web Flow where
+ *    the server acts as callback endpoint. `/auth/login` redirects to
+ *    GitHub, `/auth/callback` exchanges the code for a token and redirects
+ *    back to the Dashboard with the token in the URL fragment.
  *
  * No auth middleware — these are public endpoints used BEFORE
  * the user is authenticated.
- *
- * Only the Client ID is needed (no Client Secret) because
- * Device Flow is designed for public clients.
  */
 
 import { Hono } from 'hono';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 
 /** GHAGGA OAuth App Client ID (public) */
 const GITHUB_CLIENT_ID = 'Ov23liyYpSgDqOLUFa5k';
+
+/** Dashboard URL for redirects after OAuth callback */
+const DASHBOARD_URL = 'https://jnzader.github.io/ghagga/app';
+
+/** State expiration time: 5 minutes in milliseconds */
+const STATE_TTL_MS = 5 * 60 * 1000;
+
+// ── State HMAC helpers (exported for testing) ───────────────────
+
+/**
+ * Generate a stateless HMAC-signed state parameter for CSRF protection.
+ * Format: `{timestamp_base36}.{hmac_sha256_hex}`
+ */
+export function generateState(secret: string): string {
+  const timestamp = Date.now().toString(36);
+  const hmac = createHmac('sha256', secret).update(timestamp).digest('hex');
+  return `${timestamp}.${hmac}`;
+}
+
+/**
+ * Validate a state parameter: check format, HMAC signature, and expiration.
+ * Uses timingSafeEqual to prevent timing attacks.
+ */
+export function validateState(
+  state: string,
+  secret: string,
+): { valid: boolean; error?: string } {
+  const parts = state.split('.');
+  if (parts.length !== 2) {
+    return { valid: false, error: 'invalid_state' };
+  }
+
+  const [ts, sig] = parts;
+
+  // Recompute expected HMAC
+  const expectedSig = createHmac('sha256', secret).update(ts).digest('hex');
+
+  // Timing-safe comparison (throws if buffer lengths differ)
+  try {
+    const sigBuffer = Buffer.from(sig, 'hex');
+    const expectedBuffer = Buffer.from(expectedSig, 'hex');
+    if (!timingSafeEqual(sigBuffer, expectedBuffer)) {
+      return { valid: false, error: 'invalid_state' };
+    }
+  } catch {
+    return { valid: false, error: 'invalid_state' };
+  }
+
+  // Check expiration
+  const elapsed = Date.now() - parseInt(ts, 36);
+  if (elapsed > STATE_TTL_MS) {
+    return { valid: false, error: 'state_expired' };
+  }
+
+  return { valid: true };
+}
 
 export function createOAuthRouter() {
   const router = new Hono();
@@ -95,6 +155,108 @@ export function createOAuthRouter() {
       const message = error instanceof Error ? error.message : String(error);
       return c.json({ error: 'proxy_error', message }, 502);
     }
+  });
+
+  // ── GET /auth/login ──────────────────────────────────────────
+  // Web Flow: redirect user to GitHub authorize URL with HMAC state
+  router.get('/auth/login', (c) => {
+    const STATE_SECRET = process.env.STATE_SECRET;
+    if (!STATE_SECRET) {
+      return c.json(
+        {
+          error: 'server_configuration_error',
+          message: 'STATE_SECRET is not configured',
+        },
+        500,
+      );
+    }
+
+    const state = generateState(STATE_SECRET);
+    const url = new URL('https://github.com/login/oauth/authorize');
+    url.searchParams.set('client_id', GITHUB_CLIENT_ID);
+    url.searchParams.set('redirect_uri', 'https://ghagga.onrender.com/auth/callback');
+    url.searchParams.set('scope', 'public_repo');
+    url.searchParams.set('state', state);
+
+    return c.redirect(url.toString(), 302);
+  });
+
+  // ── GET /auth/callback ─────────────────────────────────────────
+  // Web Flow: validate state, exchange code for token, redirect to Dashboard
+  router.get('/auth/callback', async (c) => {
+    const state = c.req.query('state');
+    const code = c.req.query('code');
+
+    // Missing state
+    if (!state) {
+      return c.redirect(`${DASHBOARD_URL}/#/auth/callback?error=missing_state`, 302);
+    }
+
+    // Missing code — check if GitHub sent access_denied
+    if (!code) {
+      const ghError = c.req.query('error');
+      if (ghError === 'access_denied') {
+        return c.redirect(`${DASHBOARD_URL}/#/auth/callback?error=access_denied`, 302);
+      }
+      return c.redirect(`${DASHBOARD_URL}/#/auth/callback?error=missing_code`, 302);
+    }
+
+    // Validate state HMAC + expiration
+    const STATE_SECRET = process.env.STATE_SECRET;
+    if (!STATE_SECRET) {
+      console.error('STATE_SECRET is not configured');
+      return c.redirect(`${DASHBOARD_URL}/#/auth/callback?error=server_error`, 302);
+    }
+    const stateResult = validateState(state, STATE_SECRET);
+    if (!stateResult.valid) {
+      return c.redirect(
+        `${DASHBOARD_URL}/#/auth/callback?error=${stateResult.error}`,
+        302,
+      );
+    }
+
+    // Check CLIENT_SECRET
+    const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
+    if (!GITHUB_CLIENT_SECRET) {
+      console.error('GITHUB_CLIENT_SECRET is not configured');
+      return c.redirect(`${DASHBOARD_URL}/#/auth/callback?error=server_error`, 302);
+    }
+
+    // Exchange code for access token
+    let data: { access_token?: string; error?: string };
+    try {
+      const response = await fetch('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: GITHUB_CLIENT_ID,
+          client_secret: GITHUB_CLIENT_SECRET,
+          code,
+        }),
+      });
+
+      if (!response.ok) {
+        return c.redirect(`${DASHBOARD_URL}/#/auth/callback?error=exchange_failed`, 302);
+      }
+
+      data = await response.json();
+    } catch {
+      return c.redirect(`${DASHBOARD_URL}/#/auth/callback?error=github_unavailable`, 302);
+    }
+
+    // GitHub returns 200 with error field for invalid codes
+    if (data.error || !data.access_token) {
+      return c.redirect(`${DASHBOARD_URL}/#/auth/callback?error=exchange_failed`, 302);
+    }
+
+    // Success — redirect to Dashboard with token in fragment
+    return c.redirect(
+      `${DASHBOARD_URL}/#/auth/callback?token=${data.access_token}`,
+      302,
+    );
   });
 
   return router;
