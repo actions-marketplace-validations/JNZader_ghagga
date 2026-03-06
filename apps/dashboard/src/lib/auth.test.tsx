@@ -1,8 +1,8 @@
 /**
- * Tests for the AuthProvider and reAuthenticate flow.
+ * Tests for the AuthProvider — Web Flow edition.
  *
- * Focuses on reAuthenticate() which clears credentials then
- * restarts the Device Flow login.
+ * Tests loginFromCallback, reAuthenticate (redirect), logout,
+ * and basic useAuth behavior.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -13,19 +13,12 @@ import { AuthProvider, useAuth } from './auth';
 
 // ─── Mock oauth module ──────────────────────────────────────────
 
-const mockRequestDeviceCode = vi.fn();
-const mockPollForAccessToken = vi.fn();
 const mockFetchGitHubUser = vi.fn();
 
 vi.mock('./oauth', () => ({
-  requestDeviceCode: (...args: unknown[]) => mockRequestDeviceCode(...args),
-  pollForAccessToken: (...args: unknown[]) => mockPollForAccessToken(...args),
   fetchGitHubUser: (...args: unknown[]) => mockFetchGitHubUser(...args),
+  API_URL: 'https://ghagga.onrender.com',
 }));
-
-// ─── Mock window.open ───────────────────────────────────────────
-
-const mockWindowOpen = vi.fn();
 
 // ─── localStorage mock ──────────────────────────────────────────
 
@@ -40,17 +33,51 @@ const mockLocalStorage = {
   }),
 };
 
+// ─── sessionStorage mock ────────────────────────────────────────
+
+const sessionStore: Record<string, string> = {};
+const mockSessionStorage = {
+  getItem: vi.fn((key: string) => sessionStore[key] ?? null),
+  setItem: vi.fn((key: string, value: string) => {
+    sessionStore[key] = value;
+  }),
+  removeItem: vi.fn((key: string) => {
+    delete sessionStore[key];
+  }),
+};
+
+// ─── window.location mock ───────────────────────────────────────
+
+let locationHref = '';
+
 // ─── Setup ──────────────────────────────────────────────────────
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // Clear store
+  // Clear stores
   for (const key of Object.keys(store)) delete store[key];
+  for (const key of Object.keys(sessionStore)) delete sessionStore[key];
 
   vi.stubGlobal('localStorage', mockLocalStorage);
-  vi.stubGlobal('open', mockWindowOpen);
-  // Also stub window.open
-  Object.defineProperty(window, 'open', { value: mockWindowOpen, writable: true });
+  vi.stubGlobal('sessionStorage', mockSessionStorage);
+
+  // Mock window.location.href as a writable property
+  locationHref = '';
+  Object.defineProperty(window, 'location', {
+    value: {
+      href: '',
+      get pathname() { return '/'; },
+      get search() { return ''; },
+      get hash() { return ''; },
+    },
+    writable: true,
+    configurable: true,
+  });
+  Object.defineProperty(window.location, 'href', {
+    get: () => locationHref,
+    set: (val: string) => { locationHref = val; },
+    configurable: true,
+  });
 });
 
 afterEach(() => {
@@ -70,105 +97,11 @@ function createAuthWrapper() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// reAuthenticate
-// ═══════════════════════════════════════════════════════════════════
-
-describe('reAuthenticate', () => {
-  it('clears stored credentials before starting login', async () => {
-    // Pre-populate credentials
-    store['ghagga_token'] = 'old-token';
-    store['ghagga_user'] = JSON.stringify({ githubLogin: 'testuser', githubUserId: 1, avatarUrl: '' });
-
-    // Device flow will be "in progress" (we reject to avoid infinite polling)
-    mockRequestDeviceCode.mockResolvedValueOnce({
-      device_code: 'dc-123',
-      user_code: 'ABCD-1234',
-      verification_uri: 'https://github.com/login/device',
-      expires_in: 900,
-      interval: 5,
-    });
-    mockPollForAccessToken.mockRejectedValueOnce(new Error('Login cancelled'));
-
-    const { result } = renderHook(() => useAuth(), {
-      wrapper: createAuthWrapper(),
-    });
-
-    await act(async () => {
-      try {
-        await result.current.reAuthenticate();
-      } catch {
-        // expected: Login cancelled
-      }
-    });
-
-    // localStorage.removeItem should have been called for both keys
-    expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('ghagga_token');
-    expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('ghagga_user');
-  });
-
-  it('calls startLogin (requestDeviceCode) after clearing credentials', async () => {
-    mockRequestDeviceCode.mockResolvedValueOnce({
-      device_code: 'dc-456',
-      user_code: 'EFGH-5678',
-      verification_uri: 'https://github.com/login/device',
-      expires_in: 900,
-      interval: 5,
-    });
-    mockPollForAccessToken.mockRejectedValueOnce(new Error('Login cancelled'));
-
-    const { result } = renderHook(() => useAuth(), {
-      wrapper: createAuthWrapper(),
-    });
-
-    await act(async () => {
-      try {
-        await result.current.reAuthenticate();
-      } catch {
-        // expected
-      }
-    });
-
-    expect(mockRequestDeviceCode).toHaveBeenCalledOnce();
-  });
-
-  it('completes the full reAuthenticate flow successfully', async () => {
-    mockRequestDeviceCode.mockResolvedValueOnce({
-      device_code: 'dc-789',
-      user_code: 'IJKL-9012',
-      verification_uri: 'https://github.com/login/device',
-      expires_in: 900,
-      interval: 5,
-    });
-    mockPollForAccessToken.mockResolvedValueOnce('new-token-abc');
-    mockFetchGitHubUser.mockResolvedValueOnce({
-      login: 'newuser',
-      id: 42,
-      avatar_url: 'https://avatars.example.com/42',
-    });
-
-    const { result } = renderHook(() => useAuth(), {
-      wrapper: createAuthWrapper(),
-    });
-
-    await act(async () => {
-      await result.current.reAuthenticate();
-    });
-
-    // New credentials should be stored
-    expect(mockLocalStorage.setItem).toHaveBeenCalledWith('ghagga_token', 'new-token-abc');
-    expect(result.current.user?.githubLogin).toBe('newuser');
-    expect(result.current.isAuthenticated).toBe(true);
-    expect(result.current.loginPhase).toBe('success');
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════
 // useAuth — basic
 // ═══════════════════════════════════════════════════════════════════
 
 describe('useAuth', () => {
   it('throws when used outside AuthProvider', () => {
-    // Use a wrapper without AuthProvider
     expect(() => {
       renderHook(() => useAuth());
     }).toThrow('useAuth must be used within an AuthProvider');
@@ -181,6 +114,152 @@ describe('useAuth', () => {
 
     expect(result.current.isAuthenticated).toBe(false);
     expect(result.current.user).toBeNull();
-    expect(result.current.loginPhase).toBe('idle');
+    expect(result.current.token).toBeNull();
+  });
+
+  it('restores user and token from localStorage on mount', () => {
+    store['ghagga_token'] = 'existing-token';
+    store['ghagga_user'] = JSON.stringify({
+      githubLogin: 'testuser',
+      githubUserId: 1,
+      avatarUrl: 'https://avatars.example.com/1',
+    });
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: createAuthWrapper(),
+    });
+
+    expect(result.current.isAuthenticated).toBe(true);
+    expect(result.current.user?.githubLogin).toBe('testuser');
+    expect(result.current.token).toBe('existing-token');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// loginFromCallback
+// ═══════════════════════════════════════════════════════════════════
+
+describe('loginFromCallback', () => {
+  it('saves credentials and returns true on valid token', async () => {
+    mockFetchGitHubUser.mockResolvedValueOnce({
+      login: 'newuser',
+      id: 42,
+      avatar_url: 'https://avatars.example.com/42',
+    });
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: createAuthWrapper(),
+    });
+
+    let success: boolean | undefined;
+    await act(async () => {
+      success = await result.current.loginFromCallback('gho_valid_token');
+    });
+
+    expect(success).toBe(true);
+    expect(mockFetchGitHubUser).toHaveBeenCalledWith('gho_valid_token');
+    expect(mockLocalStorage.setItem).toHaveBeenCalledWith('ghagga_token', 'gho_valid_token');
+    expect(mockLocalStorage.setItem).toHaveBeenCalledWith(
+      'ghagga_user',
+      expect.stringContaining('"githubLogin":"newuser"'),
+    );
+    expect(result.current.isAuthenticated).toBe(true);
+    expect(result.current.user?.githubLogin).toBe('newuser');
+  });
+
+  it('returns false and does NOT save on invalid token', async () => {
+    mockFetchGitHubUser.mockRejectedValueOnce(new Error('Invalid or expired token'));
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: createAuthWrapper(),
+    });
+
+    let success: boolean | undefined;
+    await act(async () => {
+      success = await result.current.loginFromCallback('bad_token');
+    });
+
+    expect(success).toBe(false);
+    expect(mockLocalStorage.setItem).not.toHaveBeenCalledWith('ghagga_token', expect.anything());
+    expect(result.current.isAuthenticated).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// reAuthenticate
+// ═══════════════════════════════════════════════════════════════════
+
+describe('reAuthenticate', () => {
+  it('clears stored credentials', () => {
+    // Pre-populate credentials
+    store['ghagga_token'] = 'old-token';
+    store['ghagga_user'] = JSON.stringify({ githubLogin: 'testuser', githubUserId: 1, avatarUrl: '' });
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: createAuthWrapper(),
+    });
+
+    act(() => {
+      result.current.reAuthenticate();
+    });
+
+    expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('ghagga_token');
+    expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('ghagga_user');
+  });
+
+  it('redirects to server /auth/login', () => {
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: createAuthWrapper(),
+    });
+
+    act(() => {
+      result.current.reAuthenticate();
+    });
+
+    expect(locationHref).toBe('https://ghagga.onrender.com/auth/login');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// logout
+// ═══════════════════════════════════════════════════════════════════
+
+describe('logout', () => {
+  it('clears localStorage and sessionStorage', () => {
+    store['ghagga_token'] = 'some-token';
+    store['ghagga_user'] = JSON.stringify({ githubLogin: 'user', githubUserId: 1, avatarUrl: '' });
+    sessionStore['ghagga_redirect_after_login'] = '/settings';
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: createAuthWrapper(),
+    });
+
+    act(() => {
+      result.current.logout();
+    });
+
+    expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('ghagga_token');
+    expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('ghagga_user');
+    expect(mockSessionStorage.removeItem).toHaveBeenCalledWith('ghagga_redirect_after_login');
+  });
+
+  it('sets user to null and isAuthenticated to false', () => {
+    store['ghagga_token'] = 'some-token';
+    store['ghagga_user'] = JSON.stringify({ githubLogin: 'user', githubUserId: 1, avatarUrl: '' });
+
+    const { result } = renderHook(() => useAuth(), {
+      wrapper: createAuthWrapper(),
+    });
+
+    // Should start authenticated
+    expect(result.current.isAuthenticated).toBe(true);
+
+    act(() => {
+      result.current.logout();
+    });
+
+    expect(result.current.isAuthenticated).toBe(false);
+    expect(result.current.user).toBeNull();
+    expect(result.current.token).toBeNull();
   });
 });

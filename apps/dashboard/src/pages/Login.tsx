@@ -1,16 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '@/lib/auth';
-import { isServerAvailable } from '@/lib/oauth';
+import { useAuth, REDIRECT_KEY } from '@/lib/auth';
+import { isServerAvailable, API_URL } from '@/lib/oauth';
 
 export function Login() {
   const {
     isAuthenticated,
-    startLogin,
     loginWithToken,
-    cancelLogin,
-    loginPhase,
-    deviceCode,
     error,
   } = useAuth();
   const navigate = useNavigate();
@@ -18,9 +14,12 @@ export function Login() {
 
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/';
 
+  // If navigated from AuthCallback with showPat flag, start with PAT form
+  const showPatFromState = (location.state as { showPat?: boolean })?.showPat === true;
+
   // Server availability (determines which login method to show)
   const [serverOnline, setServerOnline] = useState<boolean | null>(null);
-  const [showPatFallback, setShowPatFallback] = useState(false);
+  const [showPatFallback, setShowPatFallback] = useState(showPatFromState);
   const [patInput, setPatInput] = useState('');
   const [patValidating, setPatValidating] = useState(false);
 
@@ -36,11 +35,11 @@ export function Login() {
     }
   }, [isAuthenticated, from, navigate]);
 
-  // Copy user code to clipboard
-  const copyCode = async () => {
-    if (deviceCode?.user_code) {
-      await navigator.clipboard.writeText(deviceCode.user_code);
-    }
+  // Web Flow: redirect to server's /auth/login
+  const handleWebFlowLogin = () => {
+    // Store the intended destination before leaving
+    sessionStorage.setItem(REDIRECT_KEY, from);
+    window.location.href = `${API_URL}/auth/login`;
   };
 
   // PAT login handler
@@ -75,15 +74,15 @@ export function Login() {
 
         {/* Login Card */}
         <div className="rounded-lg border border-surface-border bg-surface-card p-6">
-          {/* ─── Idle / Initial State ─────────────────────────── */}
-          {(loginPhase === 'idle' || loginPhase === 'error') && !showPatFallback && (
+          {/* ─── Main Login (Web Flow or PAT when server offline) ─ */}
+          {!showPatFallback && (
             <>
               <h2 className="mb-4 text-lg font-semibold text-text-primary">
                 Sign in with GitHub
               </h2>
               <p className="mb-6 text-sm text-text-secondary">
                 {serverOnline
-                  ? 'Authenticate with your GitHub account using Device Flow — no passwords needed.'
+                  ? 'Authenticate with your GitHub account — no passwords needed.'
                   : 'Enter your GitHub Personal Access Token to get started.'}
               </p>
 
@@ -93,11 +92,11 @@ export function Login() {
                 </div>
               )}
 
-              {/* Device Flow button (when server is available) */}
+              {/* Web Flow button (when server is available) */}
               {serverOnline && (
                 <button
                   type="button"
-                  onClick={startLogin}
+                  onClick={handleWebFlowLogin}
                   className="btn-primary flex w-full items-center justify-center gap-2"
                 >
                   <GitHubIcon />
@@ -145,14 +144,14 @@ export function Login() {
                   onClick={() => isServerAvailable().then(setServerOnline)}
                   className="mt-3 block w-full text-center text-xs text-text-muted hover:text-primary-400 transition"
                 >
-                  Retry server connection for Device Flow login
+                  Retry server connection
                 </button>
               )}
             </>
           )}
 
           {/* ─── PAT Fallback Form ────────────────────────────── */}
-          {(loginPhase === 'idle' || loginPhase === 'error') && showPatFallback && (
+          {showPatFallback && (
             <>
               <h2 className="mb-4 text-lg font-semibold text-text-primary">
                 Enter Personal Access Token
@@ -188,100 +187,9 @@ export function Login() {
                 onClick={() => setShowPatFallback(false)}
                 className="mt-3 block w-full text-center text-xs text-text-muted hover:text-primary-400 transition"
               >
-                Back to Device Flow login
+                Back to GitHub login
               </button>
             </>
-          )}
-
-          {/* ─── Requesting Code (loading) ────────────────────── */}
-          {loginPhase === 'requesting_code' && (
-            <div className="flex flex-col items-center gap-4 py-8">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
-              <p className="text-sm text-text-secondary">
-                Connecting to GitHub...
-              </p>
-            </div>
-          )}
-
-          {/* ─── Waiting for User (show code) ─────────────────── */}
-          {loginPhase === 'waiting_for_user' && deviceCode && (
-            <>
-              <h2 className="mb-2 text-lg font-semibold text-text-primary">
-                Enter this code on GitHub
-              </h2>
-              <p className="mb-6 text-sm text-text-secondary">
-                A new tab has been opened. Enter the code below at{' '}
-                <a
-                  href={deviceCode.verification_uri}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary-400 hover:text-primary-300"
-                >
-                  github.com/login/device
-                </a>
-              </p>
-
-              {/* User Code Display */}
-              <button
-                type="button"
-                onClick={copyCode}
-                className="group mb-6 flex w-full items-center justify-center gap-3 rounded-lg border border-surface-border bg-surface-bg px-6 py-4 transition hover:border-primary-500/50"
-                title="Click to copy"
-              >
-                <span className="font-mono text-3xl font-bold tracking-[0.3em] text-text-primary">
-                  {deviceCode.user_code}
-                </span>
-                <svg
-                  className="h-5 w-5 text-text-muted transition group-hover:text-primary-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={1.5}
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9.75a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"
-                  />
-                </svg>
-              </button>
-
-              {/* Polling indicator */}
-              <div className="mb-4 flex items-center justify-center gap-2">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
-                <span className="text-sm text-text-secondary">
-                  Waiting for authorization...
-                </span>
-              </div>
-
-              <button
-                type="button"
-                onClick={cancelLogin}
-                className="flex w-full items-center justify-center rounded-lg border border-surface-border px-4 py-2 text-sm text-text-secondary transition hover:bg-surface-border/50"
-              >
-                Cancel
-              </button>
-            </>
-          )}
-
-          {/* ─── Exchanging Token ─────────────────────────────── */}
-          {loginPhase === 'exchanging_token' && (
-            <div className="flex flex-col items-center gap-4 py-8">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
-              <p className="text-sm text-text-secondary">
-                Authorized! Loading your profile...
-              </p>
-            </div>
-          )}
-
-          {/* ─── Success (brief flash before redirect) ────────── */}
-          {loginPhase === 'success' && (
-            <div className="flex flex-col items-center gap-4 py-8">
-              <div className="text-4xl">✅</div>
-              <p className="text-sm text-text-secondary">
-                Logged in! Redirecting...
-              </p>
-            </div>
           )}
         </div>
       </div>

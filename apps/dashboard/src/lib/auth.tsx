@@ -7,24 +7,10 @@ import {
   type ReactNode,
 } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import {
-  requestDeviceCode,
-  pollForAccessToken,
-  fetchGitHubUser,
-  type DeviceCodeResponse,
-  type GitHubUser,
-} from './oauth';
+import { fetchGitHubUser, API_URL, type GitHubUser } from './oauth';
 import type { User } from './types';
 
 // ─── Types ──────────────────────────────────────────────────────
-
-export type LoginPhase =
-  | 'idle'
-  | 'requesting_code'
-  | 'waiting_for_user'
-  | 'exchanging_token'
-  | 'success'
-  | 'error';
 
 interface AuthContextType {
   user: User | null;
@@ -32,26 +18,20 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
 
-  /** Start the Device Flow login process (requires backend) */
-  startLogin: () => Promise<void>;
+  /** Login with token obtained from the Web Flow callback */
+  loginFromCallback: (token: string) => Promise<boolean>;
 
   /** Login with a manually entered Personal Access Token (fallback) */
   loginWithToken: (token: string) => Promise<void>;
 
-  /** Cancel an in-progress login */
-  cancelLogin: () => void;
-
   /** Log out and clear credentials */
   logout: () => void;
 
-  /** Clear credentials and restart Device Flow (for scope upgrade) */
-  reAuthenticate: () => Promise<void>;
-
-  /** Current phase of the Device Flow */
-  loginPhase: LoginPhase;
-
-  /** Device code info (user_code, verification_uri) during flow */
-  deviceCode: DeviceCodeResponse | null;
+  /**
+   * Re-authenticate by redirecting to the server's /auth/login endpoint.
+   * Clears current credentials and initiates a new Web Flow login.
+   */
+  reAuthenticate: () => void;
 
   /** Error message if login failed */
   error: string | null;
@@ -61,6 +41,8 @@ interface AuthContextType {
 
 const TOKEN_KEY = 'ghagga_token';
 const USER_KEY = 'ghagga_user';
+/** sessionStorage key for redirect-after-login destination */
+export const REDIRECT_KEY = 'ghagga_redirect_after_login';
 
 // ─── Context ────────────────────────────────────────────────────
 
@@ -84,10 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => localStorage.getItem(TOKEN_KEY),
   );
   const [isLoading, setIsLoading] = useState(false);
-  const [loginPhase, setLoginPhase] = useState<LoginPhase>('idle');
-  const [deviceCode, setDeviceCode] = useState<DeviceCodeResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [abortController, setAbortController] = useState<AbortController | null>(null);
 
   // Validate stored token on mount
   useEffect(() => {
@@ -115,70 +94,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Device Flow Login ───────────────────────────────────────
+  // ── Web Flow Callback Login ─────────────────────────────────
 
-  const startLogin = useCallback(async () => {
-    setError(null);
-    setLoginPhase('requesting_code');
-    setIsLoading(true);
-
-    const controller = new AbortController();
-    setAbortController(controller);
-
-    try {
-      // Step 1: Request device code
-      const codeResponse = await requestDeviceCode();
-      setDeviceCode(codeResponse);
-      setLoginPhase('waiting_for_user');
-
-      // Open GitHub device page in new tab
-      window.open(codeResponse.verification_uri, '_blank', 'noopener');
-
-      // Step 2: Poll for access token
-      setLoginPhase('waiting_for_user');
-      const accessToken = await pollForAccessToken(
-        codeResponse.device_code,
-        codeResponse.interval,
-        codeResponse.expires_in,
-        controller.signal,
-      );
-
-      // Step 3: Fetch user profile
-      setLoginPhase('exchanging_token');
-      const githubUser = await fetchGitHubUser(accessToken);
-
-      const appUser: User = {
-        githubLogin: githubUser.login,
-        githubUserId: githubUser.id,
-        avatarUrl: githubUser.avatar_url,
-      };
-
-      // Step 4: Save credentials
-      localStorage.setItem(TOKEN_KEY, accessToken);
-      localStorage.setItem(USER_KEY, JSON.stringify(appUser));
-      setToken(accessToken);
-      setUser(appUser);
-      setLoginPhase('success');
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (message !== 'Login cancelled') {
-        setError(message);
-        setLoginPhase('error');
-      } else {
-        setLoginPhase('idle');
-      }
-    } finally {
-      setIsLoading(false);
-      setAbortController(null);
-    }
-  }, []);
-
-  // ── PAT Login (fallback when no backend) ─────────────────────
-
-  const loginWithToken = useCallback(async (newToken: string) => {
+  const loginFromCallback = useCallback(async (newToken: string): Promise<boolean> => {
     setError(null);
     setIsLoading(true);
-    setLoginPhase('exchanging_token');
 
     try {
       const githubUser = await fetchGitHubUser(newToken);
@@ -193,54 +113,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(USER_KEY, JSON.stringify(appUser));
       setToken(newToken);
       setUser(appUser);
-      setLoginPhase('success');
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // ── PAT Login (fallback when no backend) ─────────────────────
+
+  const loginWithToken = useCallback(async (newToken: string) => {
+    setError(null);
+    setIsLoading(true);
+
+    try {
+      const githubUser = await fetchGitHubUser(newToken);
+
+      const appUser: User = {
+        githubLogin: githubUser.login,
+        githubUserId: githubUser.id,
+        avatarUrl: githubUser.avatar_url,
+      };
+
+      localStorage.setItem(TOKEN_KEY, newToken);
+      localStorage.setItem(USER_KEY, JSON.stringify(appUser));
+      setToken(newToken);
+      setUser(appUser);
     } catch {
       setError('Invalid token. Make sure it has not expired.');
-      setLoginPhase('error');
       throw new Error('Invalid token');
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  const cancelLogin = useCallback(() => {
-    abortController?.abort();
-    setLoginPhase('idle');
-    setDeviceCode(null);
-    setError(null);
-    setIsLoading(false);
-  }, [abortController]);
-
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    sessionStorage.removeItem(REDIRECT_KEY);
     setToken(null);
     setUser(null);
     setError(null);
-    setLoginPhase('idle');
-    setDeviceCode(null);
   }, []);
 
-  const reAuthenticate = useCallback(async () => {
+  /**
+   * Re-authenticate: clear credentials and redirect to /auth/login.
+   * Used when a scope upgrade is needed (e.g. public_repo for runner creation).
+   */
+  const reAuthenticate = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     setToken(null);
     setUser(null);
-    await startLogin();
-  }, [startLogin]);
+    // Redirect to server's OAuth login endpoint
+    window.location.href = `${API_URL}/auth/login`;
+  }, []);
 
   const value: AuthContextType = {
     user,
     token,
     isAuthenticated: !!user && !!token,
     isLoading,
-    startLogin,
+    loginFromCallback,
     loginWithToken,
-    cancelLogin,
     logout,
     reAuthenticate,
-    loginPhase,
-    deviceCode,
     error,
   };
 
@@ -270,6 +208,8 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
   }
 
   if (!isAuthenticated) {
+    // Store the intended destination before redirecting to login
+    sessionStorage.setItem(REDIRECT_KEY, location.pathname);
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 

@@ -106,6 +106,17 @@ Copy the entire base64 string (one long line, no line breaks). This is your `GIT
 
 > **Keep the `.pem` file safe.** If you lose it, you'll need to generate a new one.
 
+### 1.8b Save the OAuth credentials (for Dashboard login)
+
+On the same GitHub App settings page, under **"Client ID"**, copy the value — this is your `GITHUB_CLIENT_ID`.
+
+Then click **"Generate a new client secret"** and copy the value immediately — this is your `GITHUB_CLIENT_SECRET`.
+
+> **Keep the client secret safe.** You won't be able to see it again.
+
+Also configure the **OAuth callback URL**:
+- Under **"Callback URL"**, enter: `https://your-domain.com/auth/callback`
+
 ### 1.9 Install the App on your repositories
 
 Go to: `https://github.com/settings/apps/YOUR-APP-NAME/installations`
@@ -159,6 +170,16 @@ This outputs a 64-character hex string. Save it as `ENCRYPTION_KEY`.
 
 > **This key encrypts all stored API keys.** If you lose it, users will need to re-enter their API keys.
 
+### 3.1b State Secret (OAuth CSRF protection)
+
+Used to sign the OAuth state parameter for CSRF protection:
+
+```bash
+openssl rand -hex 32
+```
+
+Save this as `STATE_SECRET`.
+
 ### 3.2 Summary of all credentials
 
 By now you should have all of these:
@@ -171,6 +192,9 @@ By now you should have all of these:
 | `INNGEST_EVENT_KEY` | Step 2.2 | `evt_xxxx` |
 | `INNGEST_SIGNING_KEY` | Step 2.2 | `signkey-xxxx` |
 | `ENCRYPTION_KEY` | Step 3.1 | `a1b2c3d4...` (64 hex chars) |
+| `GITHUB_CLIENT_ID` | Step 1.8b | `Ov23li...` |
+| `GITHUB_CLIENT_SECRET` | Step 1.8b | `abcdef...` (keep secret!) |
+| `STATE_SECRET` | Step 3.1b | `a1b2c3d4...` (64 hex chars) |
 
 ---
 
@@ -302,7 +326,7 @@ Create a test Pull Request on a repository where you installed the GitHub App. Y
 
 Navigate to `https://your-domain.com` (or use the [GitHub Pages dashboard](https://jnzader.github.io/ghagga/app/) with your server URL configured).
 
-Log in with a GitHub PAT that has access to the repositories where GHAGGA is installed.
+Log in with your GitHub account (OAuth) or a Personal Access Token. OAuth login requires `GITHUB_CLIENT_SECRET` and `STATE_SECRET` to be configured.
 
 ---
 

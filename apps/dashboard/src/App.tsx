@@ -6,6 +6,7 @@ import { Layout } from '@/components/Layout';
 
 // ─── Lazy-loaded pages (code splitting) ─────────────────────────
 const Login = lazy(() => import('@/pages/Login').then((m) => ({ default: m.Login })));
+const AuthCallback = lazy(() => import('@/pages/AuthCallback').then((m) => ({ default: m.AuthCallback })));
 const Dashboard = lazy(() => import('@/pages/Dashboard').then((m) => ({ default: m.Dashboard })));
 const Reviews = lazy(() => import('@/pages/Reviews').then((m) => ({ default: m.Reviews })));
 const Settings = lazy(() => import('@/pages/Settings').then((m) => ({ default: m.Settings })));
@@ -37,6 +38,7 @@ export function App() {
         <Suspense fallback={<PageSpinner />}>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
           <Route
             path="/"
             element={
