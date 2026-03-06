@@ -42,9 +42,13 @@ vi.mock('../github/runner.js', () => ({
 // Core review pipeline
 const mockReviewPipeline = vi.fn();
 
-vi.mock('ghagga-core', () => ({
-  reviewPipeline: mockReviewPipeline,
-}));
+vi.mock('ghagga-core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('ghagga-core')>();
+  return {
+    ...actual,
+    reviewPipeline: mockReviewPipeline,
+  };
+});
 
 // Database
 const mockCreateDatabaseFromEnv = vi.fn();

@@ -44,25 +44,13 @@ vi.mock('@actions/github', () => ({
 
 const mockReviewPipeline = vi.fn();
 
-vi.mock('ghagga-core', () => ({
-  reviewPipeline: (...args: unknown[]) => mockReviewPipeline(...args),
-  DEFAULT_SETTINGS: {
-    enableSemgrep: true,
-    enableTrivy: true,
-    enableCpd: true,
-    enableMemory: true,
-    customRules: [],
-    ignorePatterns: [],
-    reviewLevel: 'normal',
-  },
-  DEFAULT_MODELS: {
-    anthropic: 'claude-sonnet-4-20250514',
-    openai: 'gpt-4o',
-    google: 'gemini-2.0-flash',
-    github: 'gpt-4o-mini',
-    ollama: 'qwen2.5-coder:7b',
-  },
-}));
+vi.mock('ghagga-core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('ghagga-core')>();
+  return {
+    ...actual,
+    reviewPipeline: (...args: unknown[]) => mockReviewPipeline(...args),
+  };
+});
 
 // ─── Helpers ────────────────────────────────────────────────────
 

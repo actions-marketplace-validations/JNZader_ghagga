@@ -70,3 +70,7 @@ export type { FallbackProvider, FallbackOptions, FallbackResult } from './provid
 
 export { formatMemoryContext } from './memory/context.js';
 export { stripPrivateData } from './memory/privacy.js';
+
+// ─── Formatting ─────────────────────────────────────────────────
+
+export { formatReviewComment, STATUS_EMOJI, SEVERITY_EMOJI } from './format.js';
