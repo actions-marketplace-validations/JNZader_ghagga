@@ -14,11 +14,15 @@ import { authMiddleware } from './auth.js';
 const mockGetInstallationsByUserId = vi.fn();
 const mockGetInstallationsByAccountLogin = vi.fn();
 const mockUpsertUserMapping = vi.fn();
+const mockGetRawMappingsByUserId = vi.fn();
+const mockDeleteStaleUserMappings = vi.fn();
 
 vi.mock('ghagga-db', () => ({
   getInstallationsByUserId: (...args: unknown[]) => mockGetInstallationsByUserId(...args),
   getInstallationsByAccountLogin: (...args: unknown[]) => mockGetInstallationsByAccountLogin(...args),
   upsertUserMapping: (...args: unknown[]) => mockUpsertUserMapping(...args),
+  getRawMappingsByUserId: (...args: unknown[]) => mockGetRawMappingsByUserId(...args),
+  deleteStaleUserMappings: (...args: unknown[]) => mockDeleteStaleUserMappings(...args),
 }));
 
 vi.mock('../lib/logger.js', () => ({
@@ -118,7 +122,7 @@ describe('auth middleware — GitHub API verification', () => {
     expect(json.error).toBe('Invalid or expired token');
   });
 
-  it('returns 401 when GitHub API throws', async () => {
+  it('returns 503 with Retry-After when GitHub API is unreachable', async () => {
     mockFetch.mockRejectedValueOnce(new Error('Network error'));
 
     const app = createApp();
@@ -126,9 +130,10 @@ describe('auth middleware — GitHub API verification', () => {
       headers: { Authorization: 'Bearer some-token' },
     });
 
-    expect(res.status).toBe(401);
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Retry-After')).toBe('30');
     const json = await res.json();
-    expect(json.error).toBe('Failed to verify token');
+    expect(json.error).toMatch(/GitHub API/i);
   });
 
   it('calls GitHub /user API with correct headers', async () => {
@@ -136,6 +141,9 @@ describe('auth middleware — GitHub API verification', () => {
       ok: true,
       json: async () => ({ id: 1, login: 'testuser' }),
     });
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 1, githubUserId: 1, githubLogin: 'testuser', installationId: 100 },
+    ]);
     mockGetInstallationsByUserId.mockResolvedValueOnce([
       { id: 100, accountLogin: 'testuser' },
     ]);
@@ -166,6 +174,10 @@ describe('auth middleware — successful auth', () => {
       ok: true,
       json: async () => ({ id: 42, login: 'octocat' }),
     });
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 1, githubUserId: 42, githubLogin: 'octocat', installationId: 100 },
+      { id: 2, githubUserId: 42, githubLogin: 'octocat', installationId: 200 },
+    ]);
     mockGetInstallationsByUserId.mockResolvedValueOnce([
       { id: 100, accountLogin: 'octocat' },
       { id: 200, accountLogin: 'org-a' },
@@ -187,13 +199,17 @@ describe('auth middleware — successful auth', () => {
     // Should NOT trigger auto-discovery
     expect(mockGetInstallationsByAccountLogin).not.toHaveBeenCalled();
     expect(mockUpsertUserMapping).not.toHaveBeenCalled();
+    expect(mockDeleteStaleUserMappings).not.toHaveBeenCalled();
   });
 
-  it('passes the db to getInstallationsByUserId', async () => {
+  it('passes the db to getRawMappingsByUserId', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ id: 1, login: 'testuser' }),
     });
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 1, githubUserId: 1, githubLogin: 'testuser', installationId: 100 },
+    ]);
     mockGetInstallationsByUserId.mockResolvedValueOnce([{ id: 100 }]);
 
     const app = createApp();
@@ -201,7 +217,7 @@ describe('auth middleware — successful auth', () => {
       headers: { Authorization: 'Bearer valid-token' },
     });
 
-    expect(mockGetInstallationsByUserId).toHaveBeenCalledWith(mockDb, 1);
+    expect(mockGetRawMappingsByUserId).toHaveBeenCalledWith(mockDb, 1);
   });
 });
 
@@ -213,8 +229,8 @@ describe('auth middleware — auto-discovery', () => {
       ok: true,
       json: async () => ({ id: 55, login: 'newuser' }),
     });
-    // No existing mappings
-    mockGetInstallationsByUserId.mockResolvedValueOnce([]);
+    // No raw mappings at all
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([]);
     // Discover matching installations
     mockGetInstallationsByAccountLogin.mockResolvedValueOnce([
       { id: 300, accountLogin: 'newuser' },
@@ -230,6 +246,9 @@ describe('auth middleware — auto-discovery', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.user.installationIds).toEqual([300, 400]);
+
+    // Should NOT call getInstallationsByUserId (no raw mappings → skip straight to discovery)
+    expect(mockGetInstallationsByUserId).not.toHaveBeenCalled();
 
     // Should create mappings for each discovered installation
     expect(mockUpsertUserMapping).toHaveBeenCalledTimes(2);
@@ -250,7 +269,7 @@ describe('auth middleware — auto-discovery', () => {
       ok: true,
       json: async () => ({ id: 99, login: 'loner' }),
     });
-    mockGetInstallationsByUserId.mockResolvedValueOnce([]);
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([]);
     mockGetInstallationsByAccountLogin.mockResolvedValueOnce([]);
 
     const app = createApp();
@@ -269,7 +288,7 @@ describe('auth middleware — auto-discovery', () => {
       ok: true,
       json: async () => ({ id: 99, login: 'erroruser' }),
     });
-    mockGetInstallationsByUserId.mockResolvedValueOnce([]);
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([]);
     mockGetInstallationsByAccountLogin.mockRejectedValueOnce(new Error('DB error'));
 
     const app = createApp();
@@ -287,12 +306,12 @@ describe('auth middleware — auto-discovery', () => {
 // ─── DB Error During Lookup ─────────────────────────────────────
 
 describe('auth middleware — DB errors', () => {
-  it('returns 500 when getInstallationsByUserId throws', async () => {
+  it('returns 500 when getRawMappingsByUserId throws', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({ id: 1, login: 'testuser' }),
     });
-    mockGetInstallationsByUserId.mockRejectedValueOnce(new Error('DB connection lost'));
+    mockGetRawMappingsByUserId.mockRejectedValueOnce(new Error('DB connection lost'));
 
     const app = createApp();
     const res = await app.request('/test', {
@@ -302,5 +321,264 @@ describe('auth middleware — DB errors', () => {
     expect(res.status).toBe(500);
     const json = await res.json();
     expect(json.error).toBe('Internal server error');
+  });
+});
+
+// ─── Stale Mapping Detection & Cleanup ──────────────────────────
+
+describe('auth middleware — stale mapping cleanup', () => {
+  // Helper: mock GitHub /user API to return a valid user
+  function mockGitHubUser(id: number, login: string) {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id, login }),
+    });
+  }
+
+  it('S-R9.1: valid mappings — normal flow, no cleanup', async () => {
+    mockGitHubUser(42, 'octocat');
+    // Raw mappings → one mapping to installation 5
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 10, githubUserId: 42, githubLogin: 'octocat', installationId: 5 },
+    ]);
+    // Active installations → installation 5 is active
+    mockGetInstallationsByUserId.mockResolvedValueOnce([
+      { id: 5, accountLogin: 'octocat' },
+    ]);
+
+    const app = createApp();
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.user.installationIds).toEqual([5]);
+
+    // No cleanup, no re-discovery
+    expect(mockDeleteStaleUserMappings).not.toHaveBeenCalled();
+    expect(mockGetInstallationsByAccountLogin).not.toHaveBeenCalled();
+  });
+
+  it('S-R9.2: mapping to inactive installation — cleanup + re-discovery', async () => {
+    mockGitHubUser(42, 'octocat');
+    // Raw mappings → one mapping to installation 5
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 10, githubUserId: 42, githubLogin: 'octocat', installationId: 5 },
+    ]);
+    // Active installations → empty (installation 5 is inactive)
+    mockGetInstallationsByUserId.mockResolvedValueOnce([]);
+    // Cleanup stale mapping
+    mockDeleteStaleUserMappings.mockResolvedValueOnce(undefined);
+    // Re-discovery finds a new installation
+    mockGetInstallationsByAccountLogin.mockResolvedValueOnce([
+      { id: 10, accountLogin: 'octocat' },
+    ]);
+    mockUpsertUserMapping.mockResolvedValue({});
+
+    const app = createApp();
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.user.installationIds).toEqual([10]);
+
+    // Should have cleaned up stale mapping
+    expect(mockDeleteStaleUserMappings).toHaveBeenCalledWith(mockDb, [10]);
+    // Should have re-discovered
+    expect(mockGetInstallationsByAccountLogin).toHaveBeenCalledWith(mockDb, 'octocat');
+    expect(mockUpsertUserMapping).toHaveBeenCalledWith(mockDb, {
+      githubUserId: 42,
+      githubLogin: 'octocat',
+      installationId: 10,
+    });
+  });
+
+  it('S-R9.3: mapping to non-existent installation — cleanup', async () => {
+    mockGitHubUser(42, 'octocat');
+    // Raw mapping to installation 99 (which doesn't exist)
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 20, githubUserId: 42, githubLogin: 'octocat', installationId: 99 },
+    ]);
+    // Active installations → empty (99 doesn't exist)
+    mockGetInstallationsByUserId.mockResolvedValueOnce([]);
+    mockDeleteStaleUserMappings.mockResolvedValueOnce(undefined);
+    // Re-discovery finds nothing
+    mockGetInstallationsByAccountLogin.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.user.installationIds).toEqual([]);
+
+    expect(mockDeleteStaleUserMappings).toHaveBeenCalledWith(mockDb, [20]);
+    expect(mockGetInstallationsByAccountLogin).toHaveBeenCalled();
+  });
+
+  it('S-R9.4: mixed mappings — one valid, one stale — cleanup only stale, no re-discovery', async () => {
+    mockGitHubUser(42, 'octocat');
+    // Raw mappings → two mappings
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 10, githubUserId: 42, githubLogin: 'octocat', installationId: 5 },
+      { id: 11, githubUserId: 42, githubLogin: 'octocat', installationId: 7 },
+    ]);
+    // Active installations → only 5 is active (7 is inactive)
+    mockGetInstallationsByUserId.mockResolvedValueOnce([
+      { id: 5, accountLogin: 'octocat' },
+    ]);
+    mockDeleteStaleUserMappings.mockResolvedValueOnce(undefined);
+
+    const app = createApp();
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.user.installationIds).toEqual([5]);
+
+    // Should cleanup only the stale mapping (id=11, installationId=7)
+    expect(mockDeleteStaleUserMappings).toHaveBeenCalledWith(mockDb, [11]);
+    // Should NOT re-discover (still have valid mappings)
+    expect(mockGetInstallationsByAccountLogin).not.toHaveBeenCalled();
+  });
+
+  it('S-R9.5: all mappings stale, discovery finds new installation', async () => {
+    mockGitHubUser(55, 'johndoe');
+    // Raw mapping to installation 3 (inactive)
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 30, githubUserId: 55, githubLogin: 'johndoe', installationId: 3 },
+    ]);
+    // No active installations
+    mockGetInstallationsByUserId.mockResolvedValueOnce([]);
+    mockDeleteStaleUserMappings.mockResolvedValueOnce(undefined);
+    // Discovery finds new installation
+    mockGetInstallationsByAccountLogin.mockResolvedValueOnce([
+      { id: 10, accountLogin: 'johndoe' },
+    ]);
+    mockUpsertUserMapping.mockResolvedValue({});
+
+    const app = createApp();
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.user.installationIds).toEqual([10]);
+
+    expect(mockDeleteStaleUserMappings).toHaveBeenCalledWith(mockDb, [30]);
+    expect(mockUpsertUserMapping).toHaveBeenCalledWith(mockDb, {
+      githubUserId: 55,
+      githubLogin: 'johndoe',
+      installationId: 10,
+    });
+  });
+
+  it('S-R12.1: all stale, discovery finds nothing — empty installationIds', async () => {
+    mockGitHubUser(55, 'johndoe');
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 30, githubUserId: 55, githubLogin: 'johndoe', installationId: 3 },
+      { id: 31, githubUserId: 55, githubLogin: 'johndoe', installationId: 4 },
+    ]);
+    mockGetInstallationsByUserId.mockResolvedValueOnce([]);
+    mockDeleteStaleUserMappings.mockResolvedValueOnce(undefined);
+    mockGetInstallationsByAccountLogin.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.user.installationIds).toEqual([]);
+
+    expect(mockDeleteStaleUserMappings).toHaveBeenCalledWith(mockDb, [30, 31]);
+    expect(mockGetInstallationsByAccountLogin).toHaveBeenCalled();
+    expect(mockUpsertUserMapping).not.toHaveBeenCalled();
+  });
+
+  it('S-R12.2: mixed mappings — does NOT re-discover when valid remain', async () => {
+    mockGitHubUser(42, 'octocat');
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 10, githubUserId: 42, githubLogin: 'octocat', installationId: 5 },
+      { id: 11, githubUserId: 42, githubLogin: 'octocat', installationId: 7 },
+    ]);
+    mockGetInstallationsByUserId.mockResolvedValueOnce([
+      { id: 5, accountLogin: 'octocat' },
+    ]);
+    mockDeleteStaleUserMappings.mockResolvedValueOnce(undefined);
+
+    const app = createApp();
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer valid-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.user.installationIds).toEqual([5]);
+
+    expect(mockDeleteStaleUserMappings).toHaveBeenCalledWith(mockDb, [11]);
+    expect(mockGetInstallationsByAccountLogin).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Backward Compatibility ─────────────────────────────────────
+
+describe('auth middleware — backward compatibility', () => {
+  it('S-CC4.1: existing PAT token still works normally', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: 42, login: 'patuser' }),
+    });
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 1, githubUserId: 42, githubLogin: 'patuser', installationId: 100 },
+    ]);
+    mockGetInstallationsByUserId.mockResolvedValueOnce([
+      { id: 100, accountLogin: 'patuser' },
+    ]);
+
+    const app = createApp();
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer ghp_existing_pat_token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.user).toEqual({
+      githubUserId: 42,
+      githubLogin: 'patuser',
+      installationIds: [100],
+    });
+  });
+
+  it('S-CC4.2: token from any source (Web Flow, Device Flow, PAT) is accepted', async () => {
+    // The middleware doesn't care about token source — it just verifies via GitHub API
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: 77, login: 'webflowuser' }),
+    });
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 5, githubUserId: 77, githubLogin: 'webflowuser', installationId: 200 },
+    ]);
+    mockGetInstallationsByUserId.mockResolvedValueOnce([
+      { id: 200, accountLogin: 'webflowuser' },
+    ]);
+
+    const app = createApp();
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer gho_web_flow_token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.user.installationIds).toEqual([200]);
   });
 });

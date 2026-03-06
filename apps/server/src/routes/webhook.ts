@@ -23,6 +23,8 @@ import {
   upsertRepository,
   getRepoByGithubId,
   getEffectiveRepoSettings,
+  getInstallationByGitHubId,
+  deleteMappingsByInstallationId,
 } from 'ghagga-db';
 import type { Database } from 'ghagga-db';
 
@@ -444,10 +446,20 @@ async function handleInstallation(
   if (action === 'deleted') {
     await deactivateInstallation(db, installation.id);
 
-    logger.info(
-      { account: installation.account.login, installationId: installation.id },
-      'Installation deactivated',
-    );
+    // Clean up user-installation mappings for this installation
+    const inst = await getInstallationByGitHubId(db, installation.id);
+    if (inst) {
+      await deleteMappingsByInstallationId(db, inst.id);
+      logger.info(
+        { account: installation.account.login, installationId: installation.id, internalId: inst.id },
+        'Installation deactivated and user mappings cleaned up',
+      );
+    } else {
+      logger.warn(
+        { account: installation.account.login, installationId: installation.id },
+        'Installation deactivated but internal record not found for mapping cleanup',
+      );
+    }
 
     return c.json({ message: 'Installation deactivated' }, 200);
   }

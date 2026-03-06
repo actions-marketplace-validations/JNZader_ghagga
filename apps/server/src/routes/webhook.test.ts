@@ -17,6 +17,8 @@ const mockDeactivateInstallation = vi.fn();
 const mockUpsertRepository = vi.fn();
 const mockGetRepoByGithubId = vi.fn();
 const mockGetEffectiveRepoSettings = vi.fn();
+const mockGetInstallationByGitHubId = vi.fn();
+const mockDeleteMappingsByInstallationId = vi.fn();
 
 vi.mock('ghagga-db', () => ({
   upsertInstallation: (...args: unknown[]) => mockUpsertInstallation(...args),
@@ -24,6 +26,8 @@ vi.mock('ghagga-db', () => ({
   upsertRepository: (...args: unknown[]) => mockUpsertRepository(...args),
   getRepoByGithubId: (...args: unknown[]) => mockGetRepoByGithubId(...args),
   getEffectiveRepoSettings: (...args: unknown[]) => mockGetEffectiveRepoSettings(...args),
+  getInstallationByGitHubId: (...args: unknown[]) => mockGetInstallationByGitHubId(...args),
+  deleteMappingsByInstallationId: (...args: unknown[]) => mockDeleteMappingsByInstallationId(...args),
 }));
 
 // Mock inngest client
@@ -116,6 +120,8 @@ beforeEach(() => {
   mockUpsertInstallation.mockResolvedValue({ id: 1 });
   mockUpsertRepository.mockResolvedValue({ id: 1 });
   mockDeactivateInstallation.mockResolvedValue(undefined);
+  mockGetInstallationByGitHubId.mockResolvedValue(null);
+  mockDeleteMappingsByInstallationId.mockResolvedValue(undefined);
   mockGetRepoByGithubId.mockResolvedValue(null);
   mockAddCommentReaction.mockResolvedValue(undefined);
   mockGetInstallationToken.mockResolvedValue('fake-installation-token');
@@ -362,7 +368,9 @@ describe('installation event handling', () => {
     expect(mockUpsertRepository).toHaveBeenCalledTimes(2);
   });
 
-  it('deactivates installation on deleted', async () => {
+  it('deactivates installation and cleans up mappings on deleted', async () => {
+    // Internal installation record found
+    mockGetInstallationByGitHubId.mockResolvedValueOnce({ id: 42, githubInstallationId: 555 });
     const body = JSON.stringify({ ...installPayload, action: 'deleted' });
     const req = makeRequest(body, 'installation');
     const res = await router.fetch(req);
@@ -371,6 +379,9 @@ describe('installation event handling', () => {
     const json = await res.json();
     expect(json).toHaveProperty('message', 'Installation deactivated');
     expect(mockDeactivateInstallation).toHaveBeenCalledOnce();
+    // Should look up internal installation and delete mappings
+    expect(mockGetInstallationByGitHubId).toHaveBeenCalledOnce();
+    expect(mockDeleteMappingsByInstallationId).toHaveBeenCalledWith(expect.anything(), 42);
   });
 
   it('ignores unknown installation actions (suspend, etc)', async () => {
@@ -694,5 +705,72 @@ describe('issue_comment event handling', () => {
     // Should still dispatch the review despite reaction failure
     expect(res.status).toBe(202);
     expect(mockInngestSend).toHaveBeenCalledOnce();
+  });
+});
+
+// ─── Installation Deleted — Mapping Cleanup ─────────────────────
+
+describe('installation.deleted — mapping cleanup', () => {
+  const deletePayload = {
+    action: 'deleted',
+    installation: {
+      id: 12345,
+      account: { login: 'my-org', type: 'Organization' },
+    },
+  };
+
+  it('S-R10.1: deactivates installation and deletes associated mappings', async () => {
+    // Internal installation record exists with id=5
+    mockGetInstallationByGitHubId.mockResolvedValueOnce({
+      id: 5,
+      githubInstallationId: 12345,
+      accountLogin: 'my-org',
+    });
+
+    const body = JSON.stringify(deletePayload);
+    const req = makeRequest(body, 'installation');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toHaveProperty('message', 'Installation deactivated');
+
+    // Deactivation happens first
+    expect(mockDeactivateInstallation).toHaveBeenCalledWith(expect.anything(), 12345);
+    // Then lookup internal installation
+    expect(mockGetInstallationByGitHubId).toHaveBeenCalledWith(expect.anything(), 12345);
+    // Then delete mappings by internal ID
+    expect(mockDeleteMappingsByInstallationId).toHaveBeenCalledWith(expect.anything(), 5);
+  });
+
+  it('S-R10.2: no error when no mappings exist for installation', async () => {
+    // Internal installation exists but no mappings (deleteMappingsByInstallationId is a no-op)
+    mockGetInstallationByGitHubId.mockResolvedValueOnce({
+      id: 5,
+      githubInstallationId: 12345,
+      accountLogin: 'my-org',
+    });
+    mockDeleteMappingsByInstallationId.mockResolvedValueOnce(undefined);
+
+    const body = JSON.stringify(deletePayload);
+    const req = makeRequest(body, 'installation');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(200);
+    expect(mockDeleteMappingsByInstallationId).toHaveBeenCalledWith(expect.anything(), 5);
+  });
+
+  it('handles case when internal installation record is not found', async () => {
+    // getInstallationByGitHubId returns null (e.g., DB inconsistency)
+    mockGetInstallationByGitHubId.mockResolvedValueOnce(null);
+
+    const body = JSON.stringify(deletePayload);
+    const req = makeRequest(body, 'installation');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(200);
+    expect(mockDeactivateInstallation).toHaveBeenCalledOnce();
+    // Should NOT attempt to delete mappings without internal ID
+    expect(mockDeleteMappingsByInstallationId).not.toHaveBeenCalled();
   });
 });
