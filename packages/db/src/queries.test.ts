@@ -70,6 +70,9 @@ import {
   getObservationsBySession,
   upsertUserMapping,
   getInstallationsByUserId,
+  getRawMappingsByUserId,
+  deleteStaleUserMappings,
+  deleteMappingsByInstallationId,
 } from './queries.js';
 
 // ─── Installations ─────────────────────────────────────────────
@@ -894,7 +897,7 @@ describe('getObservationsBySession', () => {
 // ─── User Mappings ─────────────────────────────────────────────
 
 describe('upsertUserMapping', () => {
-  it('should update and return existing mapping', async () => {
+  it('should update and return existing mapping when same user+installation exists (S-R11.2)', async () => {
     const existing = { id: 1, githubUserId: 123, githubLogin: 'old', installationId: 5 };
 
     const mockUpdateWhere = vi.fn().mockResolvedValue(undefined);
@@ -911,14 +914,18 @@ describe('upsertUserMapping', () => {
     const result = await upsertUserMapping(db, {
       githubUserId: 123,
       githubLogin: 'newLogin',
-      installationId: 10,
+      installationId: 5, // same installation — should update, not insert
     });
 
     expect(result).toEqual(existing);
     expect(mockUpdate).toHaveBeenCalled();
+    // Verify only githubLogin is updated (not installationId, since it's part of the composite key)
+    const setArg = mockSet.mock.calls[0]![0] as Record<string, unknown>;
+    expect(setArg.githubLogin).toBe('newLogin');
+    expect(setArg.installationId).toBeUndefined();
   });
 
-  it('should insert and return new mapping when not found', async () => {
+  it('should insert new mapping when user+installation combo not found (S-R11.3)', async () => {
     const inserted = { id: 2, githubUserId: 456, githubLogin: 'user', installationId: 7 };
 
     const mockReturning = vi.fn().mockResolvedValue([inserted]);
@@ -941,6 +948,36 @@ describe('upsertUserMapping', () => {
     expect(result).toEqual(inserted);
     expect(mockInsert).toHaveBeenCalled();
   });
+
+  it('should create second mapping for same user with different installation (S-R11.1)', async () => {
+    // Simulate: user 100 already has mapping to installation 5, now adding installation 7
+    // The select for (user=100, installation=7) returns empty → insert
+    const inserted = { id: 3, githubUserId: 100, githubLogin: 'john', installationId: 7 };
+
+    const mockReturning = vi.fn().mockResolvedValue([inserted]);
+    const mockValues = vi.fn().mockReturnValue({ returning: mockReturning });
+    const mockInsert = vi.fn().mockReturnValue({ values: mockValues });
+
+    const mockLimit = vi.fn().mockResolvedValue([]); // no existing mapping for this combo
+    const mockWhere = vi.fn().mockReturnValue({ limit: mockLimit });
+    const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
+
+    const db = { select: mockSelect, insert: mockInsert } as unknown as Database;
+
+    const result = await upsertUserMapping(db, {
+      githubUserId: 100,
+      githubLogin: 'john',
+      installationId: 7, // different from existing installation 5
+    });
+
+    expect(result).toEqual(inserted);
+    expect(mockInsert).toHaveBeenCalled();
+    // Verify the values passed to insert include the correct installationId
+    const valuesArg = mockValues.mock.calls[0]![0] as Record<string, unknown>;
+    expect(valuesArg.githubUserId).toBe(100);
+    expect(valuesArg.installationId).toBe(7);
+  });
 });
 
 describe('getInstallationsByUserId', () => {
@@ -954,7 +991,7 @@ describe('getInstallationsByUserId', () => {
     expect(result).toEqual([]);
   });
 
-  it('should return active installations for mapped user', async () => {
+  it('should return only active installations for mapped user', async () => {
     const mappings = [
       { id: 1, githubUserId: 123, installationId: 5 },
       { id: 2, githubUserId: 123, installationId: 10 },
@@ -977,6 +1014,142 @@ describe('getInstallationsByUserId', () => {
     const result = await getInstallationsByUserId(db, 123);
     expect(result).toEqual(activeInstallations);
     expect(mockSelect).toHaveBeenCalledTimes(2);
+  });
+
+  it('should filter out deactivated installations', async () => {
+    const mappings = [
+      { id: 1, githubUserId: 100, installationId: 5 },
+      { id: 2, githubUserId: 100, installationId: 7 },
+    ];
+    // Only installation 5 is active; 7 is filtered by the WHERE is_active=true
+    const onlyActiveInstallations = [
+      { id: 5, isActive: true },
+    ];
+
+    let selectCallCount = 0;
+    const mockWhere = vi.fn().mockImplementation(() => {
+      selectCallCount++;
+      if (selectCallCount === 1) return Promise.resolve(mappings);
+      return Promise.resolve(onlyActiveInstallations);
+    });
+    const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
+    const db = { select: mockSelect } as unknown as Database;
+
+    const result = await getInstallationsByUserId(db, 100);
+    expect(result).toEqual(onlyActiveInstallations);
+    expect(result).toHaveLength(1);
+  });
+
+  it('should return empty when all mapped installations are deactivated', async () => {
+    const mappings = [
+      { id: 1, githubUserId: 100, installationId: 5 },
+    ];
+    // The active filter returns nothing — installation 5 is deactivated
+    const noActiveInstallations: unknown[] = [];
+
+    let selectCallCount = 0;
+    const mockWhere = vi.fn().mockImplementation(() => {
+      selectCallCount++;
+      if (selectCallCount === 1) return Promise.resolve(mappings);
+      return Promise.resolve(noActiveInstallations);
+    });
+    const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
+    const db = { select: mockSelect } as unknown as Database;
+
+    const result = await getInstallationsByUserId(db, 100);
+    expect(result).toEqual([]);
+  });
+});
+
+// ─── getRawMappingsByUserId ────────────────────────────────────
+
+describe('getRawMappingsByUserId', () => {
+  it('should return all mappings including those for inactive installations', async () => {
+    const allMappings = [
+      { id: 1, githubUserId: 100, githubLogin: 'john', installationId: 5 },
+      { id: 2, githubUserId: 100, githubLogin: 'john', installationId: 7 },
+    ];
+
+    const mockWhere = vi.fn().mockResolvedValue(allMappings);
+    const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
+    const db = { select: mockSelect } as unknown as Database;
+
+    const result = await getRawMappingsByUserId(db, 100);
+    expect(result).toEqual(allMappings);
+    expect(result).toHaveLength(2);
+    // Only one select call — no JOIN with installations
+    expect(mockSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it('should return empty array when no mappings exist', async () => {
+    const mockWhere = vi.fn().mockResolvedValue([]);
+    const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
+    const db = { select: mockSelect } as unknown as Database;
+
+    const result = await getRawMappingsByUserId(db, 999);
+    expect(result).toEqual([]);
+  });
+});
+
+// ─── deleteStaleUserMappings ───────────────────────────────────
+
+describe('deleteStaleUserMappings', () => {
+  it('should delete mappings by their IDs', async () => {
+    const mockWhere = vi.fn().mockResolvedValue(undefined);
+    const mockDelete = vi.fn().mockReturnValue({ where: mockWhere });
+    const db = { delete: mockDelete } as unknown as Database;
+
+    await deleteStaleUserMappings(db, [1, 2]);
+
+    expect(mockDelete).toHaveBeenCalled();
+    expect(mockWhere).toHaveBeenCalled();
+  });
+
+  it('should be a no-op when mappingIds is empty', async () => {
+    const mockDelete = vi.fn();
+    const db = { delete: mockDelete } as unknown as Database;
+
+    await deleteStaleUserMappings(db, []);
+
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it('should delete a single mapping ID', async () => {
+    const mockWhere = vi.fn().mockResolvedValue(undefined);
+    const mockDelete = vi.fn().mockReturnValue({ where: mockWhere });
+    const db = { delete: mockDelete } as unknown as Database;
+
+    await deleteStaleUserMappings(db, [42]);
+
+    expect(mockDelete).toHaveBeenCalled();
+  });
+});
+
+// ─── deleteMappingsByInstallationId ────────────────────────────
+
+describe('deleteMappingsByInstallationId', () => {
+  it('should delete all mappings for the given installation', async () => {
+    const mockWhere = vi.fn().mockResolvedValue(undefined);
+    const mockDelete = vi.fn().mockReturnValue({ where: mockWhere });
+    const db = { delete: mockDelete } as unknown as Database;
+
+    await deleteMappingsByInstallationId(db, 5);
+
+    expect(mockDelete).toHaveBeenCalled();
+    expect(mockWhere).toHaveBeenCalled();
+  });
+
+  it('should not throw when no mappings exist for the installation (no-op)', async () => {
+    const mockWhere = vi.fn().mockResolvedValue(undefined);
+    const mockDelete = vi.fn().mockReturnValue({ where: mockWhere });
+    const db = { delete: mockDelete } as unknown as Database;
+
+    // Should not throw even if there are no rows to delete
+    await expect(deleteMappingsByInstallationId(db, 999)).resolves.toBeUndefined();
   });
 });
 

@@ -8,6 +8,7 @@ import {
   jsonb,
   integer,
   index,
+  unique,
 } from 'drizzle-orm/pg-core';
 
 // ─── Installations ──────────────────────────────────────────────
@@ -180,12 +181,15 @@ export const githubUserMappings = pgTable(
   'github_user_mappings',
   {
     id: serial('id').primaryKey(),
-    githubUserId: integer('github_user_id').unique().notNull(),
+    githubUserId: integer('github_user_id').notNull(),
     githubLogin: varchar('github_login', { length: 255 }).notNull(),
     installationId: integer('installation_id')
       .references(() => installations.id)
       .notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
-  (t) => [index('idx_user_mappings_github_user').on(t.githubUserId)],
+  (t) => [
+    index('idx_user_mappings_github_user').on(t.githubUserId),
+    unique('uq_user_installation').on(t.githubUserId, t.installationId),
+  ],
 );

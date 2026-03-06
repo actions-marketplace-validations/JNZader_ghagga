@@ -490,6 +490,11 @@ export async function getObservationsBySession(db: Database, sessionId: number) 
 
 // ─── User Mappings ──────────────────────────────────────────────
 
+/**
+ * Upsert a user-installation mapping using the composite key (github_user_id, installation_id).
+ * If the combination already exists, updates github_login. Otherwise inserts a new mapping.
+ * This allows the same user to have mappings to multiple installations.
+ */
 export async function upsertUserMapping(
   db: Database,
   data: {
@@ -501,14 +506,24 @@ export async function upsertUserMapping(
   const existing = await db
     .select()
     .from(githubUserMappings)
-    .where(eq(githubUserMappings.githubUserId, data.githubUserId))
+    .where(
+      and(
+        eq(githubUserMappings.githubUserId, data.githubUserId),
+        eq(githubUserMappings.installationId, data.installationId),
+      ),
+    )
     .limit(1);
 
   if (existing.length > 0) {
     await db
       .update(githubUserMappings)
-      .set({ githubLogin: data.githubLogin, installationId: data.installationId })
-      .where(eq(githubUserMappings.githubUserId, data.githubUserId));
+      .set({ githubLogin: data.githubLogin })
+      .where(
+        and(
+          eq(githubUserMappings.githubUserId, data.githubUserId),
+          eq(githubUserMappings.installationId, data.installationId),
+        ),
+      );
     return existing[0]!;
   }
 
@@ -516,6 +531,16 @@ export async function upsertUserMapping(
   return result!;
 }
 
+/**
+ * Get active installations for a user by their GitHub user ID.
+ *
+ * This function joins user mappings with the installations table and
+ * filters by `is_active = true`. This means it will NOT return installations
+ * that have been deactivated (uninstalled). If a user has mappings pointing
+ * to deactivated installations, those are silently excluded from the result.
+ *
+ * To get raw mappings without the active filter, use `getRawMappingsByUserId`.
+ */
 export async function getInstallationsByUserId(db: Database, githubUserId: number) {
   const mappings = await db
     .select()
@@ -534,4 +559,56 @@ export async function getInstallationsByUserId(db: Database, githubUserId: numbe
         eq(installations.isActive, true),
       ),
     );
+}
+
+/**
+ * Get raw user mappings WITHOUT filtering by active installation.
+ * Returns all mappings for a user, including those pointing to
+ * deactivated or non-existent installations.
+ *
+ * Used by the auth middleware to detect stale mappings.
+ */
+export async function getRawMappingsByUserId(
+  db: Database,
+  githubUserId: number,
+): Promise<Array<{ id: number; githubUserId: number; githubLogin: string; installationId: number }>> {
+  return db
+    .select({
+      id: githubUserMappings.id,
+      githubUserId: githubUserMappings.githubUserId,
+      githubLogin: githubUserMappings.githubLogin,
+      installationId: githubUserMappings.installationId,
+    })
+    .from(githubUserMappings)
+    .where(eq(githubUserMappings.githubUserId, githubUserId));
+}
+
+/**
+ * Delete specific user mappings by their IDs.
+ * Used to clean up stale mappings that point to deactivated installations.
+ * No-op if mappingIds is empty.
+ */
+export async function deleteStaleUserMappings(
+  db: Database,
+  mappingIds: number[],
+): Promise<void> {
+  if (mappingIds.length === 0) return;
+
+  await db
+    .delete(githubUserMappings)
+    .where(inArray(githubUserMappings.id, mappingIds));
+}
+
+/**
+ * Delete ALL user mappings for a given installation.
+ * Used by the webhook handler when an installation is deleted/uninstalled.
+ * No-op if no mappings exist for the installation.
+ */
+export async function deleteMappingsByInstallationId(
+  db: Database,
+  installationId: number,
+): Promise<void> {
+  await db
+    .delete(githubUserMappings)
+    .where(eq(githubUserMappings.installationId, installationId));
 }
