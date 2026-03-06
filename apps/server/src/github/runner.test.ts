@@ -23,8 +23,8 @@ vi.mock('../lib/logger.js', () => ({
 }));
 
 import {
-  storeCallbackSecret,
-  verifyAndConsumeSecret,
+  deriveCallbackSecret,
+  verifyCallbackSignature,
   discoverRunnerRepo,
   setRunnerSecret,
   dispatchWorkflow,
@@ -58,269 +58,317 @@ function makeDispatchParams(overrides: Partial<DispatchParams> = {}): DispatchPa
   };
 }
 
-// ─── Group 1: storeCallbackSecret + verifyAndConsumeSecret ──────
+/** Create a callbackId with an embedded timestamp at a given time offset from now. */
+function makeCallbackId(ageMs = 0): string {
+  const ts = (Date.now() - ageMs).toString(36);
+  return `550e8400-e29b-41d4-a716-446655440000.${ts}`;
+}
 
-describe('storeCallbackSecret / verifyAndConsumeSecret', () => {
-  const callbackId = 'cb-test-001';
-  const secret = 'super-secret-value';
-  const payload = '{"result":"ok"}';
+// ─── Group 1: deriveCallbackSecret ──────────────────────────────
+
+describe('deriveCallbackSecret', () => {
+  const TEST_SECRET = 'test-secret-key';
 
   beforeEach(() => {
+    process.env.STATE_SECRET = TEST_SECRET;
     mockRunnerLogger.warn.mockClear();
     mockRunnerLogger.info.mockClear();
   });
 
   afterEach(() => {
-    // Consume any leftover entry so tests don't leak state
-    verifyAndConsumeSecret(callbackId, '', 'sha256=0000');
-    verifyAndConsumeSecret('cb-test-expire', '', 'sha256=0000');
-    verifyAndConsumeSecret('cb-test-prefix', '', 'sha256=0000');
-    verifyAndConsumeSecret('cb-test-len', '', 'sha256=0000');
-    verifyAndConsumeSecret('cb-test-hmac', '', 'sha256=0000');
-    verifyAndConsumeSecret('cb-test-catch', '', 'sha256=0000');
+    delete process.env.STATE_SECRET;
   });
 
-  it('returns true for a valid HMAC signature', () => {
-    storeCallbackSecret(callbackId, secret);
-    const signature = computeSignature(payload, secret);
+  it('produces deterministic output — same input yields same result (S-R1.1)', () => {
+    const callbackId = '550e8400-e29b-41d4-a716-446655440000.m1abc';
+    const result1 = deriveCallbackSecret(callbackId);
+    const result2 = deriveCallbackSecret(callbackId);
 
-    expect(verifyAndConsumeSecret(callbackId, payload, signature)).toBe(true);
+    expect(result1).toBe(result2);
   });
 
-  it('returns false on second verification (one-time use)', () => {
-    storeCallbackSecret(callbackId, secret);
-    const signature = computeSignature(payload, secret);
+  it('returns exactly 64 hexadecimal characters (S-R1.1)', () => {
+    const callbackId = '550e8400-e29b-41d4-a716-446655440000.m1abc';
+    const result = deriveCallbackSecret(callbackId);
 
-    expect(verifyAndConsumeSecret(callbackId, payload, signature)).toBe(true);
-    expect(verifyAndConsumeSecret(callbackId, payload, signature)).toBe(false);
+    expect(result).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('returns false for an incorrect HMAC signature', () => {
-    storeCallbackSecret(callbackId, secret);
-    const wrongSignature = computeSignature(payload, 'wrong-secret');
+  it('produces different secrets for different callbackIds (S-R1.2)', () => {
+    const secret1 = deriveCallbackSecret('id-a.ts1');
+    const secret2 = deriveCallbackSecret('id-b.ts2');
 
-    expect(verifyAndConsumeSecret(callbackId, payload, wrongSignature)).toBe(false);
+    expect(secret1).not.toBe(secret2);
   });
 
-  it('returns false when sha256= prefix is missing', () => {
-    storeCallbackSecret(callbackId, secret);
-    const hex = createHmac('sha256', secret).update(payload).digest('hex');
+  it('produces different secrets for different STATE_SECRETs (S-R1.3)', () => {
+    process.env.STATE_SECRET = 'key-1';
+    const secret1 = deriveCallbackSecret('same-id.ts1');
 
-    expect(verifyAndConsumeSecret(callbackId, payload, hex)).toBe(false);
+    process.env.STATE_SECRET = 'key-2';
+    const secret2 = deriveCallbackSecret('same-id.ts1');
+
+    expect(secret1).not.toBe(secret2);
   });
 
-  it('returns false for a non-existent callbackId', () => {
-    expect(verifyAndConsumeSecret('unknown-id', payload, 'sha256=aabb')).toBe(false);
+  it('computes HMAC-SHA256(STATE_SECRET, callbackId) as hex', () => {
+    const callbackId = '550e8400-e29b-41d4-a716-446655440000.m1abc';
+    const expected = createHmac('sha256', TEST_SECRET)
+      .update(callbackId)
+      .digest('hex');
+
+    expect(deriveCallbackSecret(callbackId)).toBe(expected);
   });
 
-  it('returns false when the secret has expired', () => {
-    storeCallbackSecret(callbackId, secret);
-    const signature = computeSignature(payload, secret);
+  it('throws when STATE_SECRET is undefined (S-CC1.1)', () => {
+    delete process.env.STATE_SECRET;
 
-    // Advance time past the 11-minute TTL
-    vi.useFakeTimers();
-    vi.advanceTimersByTime(12 * 60 * 1000);
+    expect(() => deriveCallbackSecret('any-id.ts1')).toThrow(
+      'STATE_SECRET is not configured',
+    );
+  });
 
-    expect(verifyAndConsumeSecret(callbackId, payload, signature)).toBe(false);
+  it('throws when STATE_SECRET is empty string', () => {
+    process.env.STATE_SECRET = '';
 
+    expect(() => deriveCallbackSecret('any-id.ts1')).toThrow(
+      'STATE_SECRET is not configured',
+    );
+  });
+});
+
+// ─── Group 1b: verifyCallbackSignature ──────────────────────────
+
+describe('verifyCallbackSignature', () => {
+  const TEST_SECRET = 'my-server-secret';
+  const payload = '{"result":"ok"}';
+
+  beforeEach(() => {
+    process.env.STATE_SECRET = TEST_SECRET;
+    mockRunnerLogger.warn.mockClear();
+    mockRunnerLogger.info.mockClear();
+  });
+
+  afterEach(() => {
+    delete process.env.STATE_SECRET;
     vi.useRealTimers();
   });
 
-  it('returns false for invalid hex in signature (triggers catch block)', () => {
-    storeCallbackSecret(callbackId, secret);
+  // ─── Happy path (S-R4.1) ────────────────────────────────────
 
-    // "zz" is not valid hex — Buffer.from('zz','hex') produces a 0-length buffer
-    // which will hit the length-mismatch branch
-    expect(verifyAndConsumeSecret(callbackId, payload, 'sha256=zzzzzz')).toBe(false);
-  });
-
-  it('returns false when signature hex decodes to a different length', () => {
-    storeCallbackSecret(callbackId, secret);
-
-    // SHA-256 produces 32 bytes (64 hex chars). Provide only 4 hex chars (2 bytes).
-    expect(verifyAndConsumeSecret(callbackId, payload, 'sha256=aabbccdd')).toBe(false);
-  });
-
-  // ─── Secret deletion on every failure path ─────────────────────
-
-  it('deletes secret on expiry — second call also returns false', () => {
-    const id = 'cb-test-expire';
-    storeCallbackSecret(id, secret);
+  it('returns true for a valid callbackId and valid signature (S-R4.1)', () => {
+    const callbackId = makeCallbackId(0);
+    const secret = deriveCallbackSecret(callbackId);
     const signature = computeSignature(payload, secret);
 
-    vi.useFakeTimers();
-    vi.advanceTimersByTime(12 * 60 * 1000);
-
-    // First call: expired → should delete and return false
-    expect(verifyAndConsumeSecret(id, payload, signature)).toBe(false);
-    vi.useRealTimers();
-
-    // Second call: secret was deleted, so it's "not found"
-    expect(verifyAndConsumeSecret(id, payload, signature)).toBe(false);
+    expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(true);
   });
 
-  it('deletes secret on missing sha256= prefix — second call also returns false', () => {
-    const id = 'cb-test-prefix';
-    storeCallbackSecret(id, secret);
-    const hex = createHmac('sha256', secret).update(payload).digest('hex');
+  // ─── TTL enforcement (S-R3.1 through S-R3.4) ─────────────────
 
-    // First call: bad format → should return false but NOTE: the production code
-    // does NOT delete on bad prefix, so a second call with correct sig should succeed
-    expect(verifyAndConsumeSecret(id, payload, hex)).toBe(false);
+  it('accepts callback within TTL — 5 minutes old (S-R3.1)', () => {
+    const callbackId = makeCallbackId(5 * 60 * 1000); // 5 min ago
+    const secret = deriveCallbackSecret(callbackId);
+    const signature = computeSignature(payload, secret);
 
-    // The secret is still there — verify with correct signature
-    const goodSig = computeSignature(payload, secret);
-    expect(verifyAndConsumeSecret(id, payload, goodSig)).toBe(true);
+    expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(true);
   });
 
-  it('deletes secret on HMAC mismatch (!valid branch) — second call returns false', () => {
-    const id = 'cb-test-hmac';
-    storeCallbackSecret(id, secret);
-    const wrongSig = computeSignature(payload, 'wrong-secret');
+  it('rejects callback at exactly 11 minutes (S-R3.2)', () => {
+    const callbackId = makeCallbackId(11 * 60 * 1000); // exactly 11 min
+    const secret = deriveCallbackSecret(callbackId);
+    const signature = computeSignature(payload, secret);
 
-    // HMAC mismatch: timingSafeEqual returns false → delete + return false
-    expect(verifyAndConsumeSecret(id, payload, wrongSig)).toBe(false);
-
-    // Secret was deleted — second call with CORRECT signature should also fail
-    const goodSig = computeSignature(payload, secret);
-    expect(verifyAndConsumeSecret(id, payload, goodSig)).toBe(false);
+    expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(false);
   });
 
-  it('deletes secret on length mismatch — second call returns false', () => {
-    const id = 'cb-test-len';
-    storeCallbackSecret(id, secret);
+  it('accepts callback at 11 minutes minus 1ms (S-R3.3)', () => {
+    const callbackId = makeCallbackId(11 * 60 * 1000 - 1); // 11 min - 1ms
+    const secret = deriveCallbackSecret(callbackId);
+    const signature = computeSignature(payload, secret);
 
-    // 4 hex chars = 2 bytes, SHA-256 = 32 bytes → length mismatch → delete + false
-    expect(verifyAndConsumeSecret(id, payload, 'sha256=aabbccdd')).toBe(false);
-
-    // Second call: secret deleted
-    const goodSig = computeSignature(payload, secret);
-    expect(verifyAndConsumeSecret(id, payload, goodSig)).toBe(false);
+    expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(true);
   });
 
-  it('deletes secret when catch block triggers — second call returns false', () => {
-    const id = 'cb-test-catch';
-    storeCallbackSecret(id, secret);
+  it('rejects callback older than 11 minutes — 12 min (S-R3.4)', () => {
+    const callbackId = makeCallbackId(12 * 60 * 1000); // 12 min
+    const secret = deriveCallbackSecret(callbackId);
+    const signature = computeSignature(payload, secret);
 
-    // Invalid hex triggers catch or length mismatch
-    expect(verifyAndConsumeSecret(id, payload, 'sha256=zzzzzz')).toBe(false);
-
-    // Second call: secret deleted
-    const goodSig = computeSignature(payload, secret);
-    expect(verifyAndConsumeSecret(id, payload, goodSig)).toBe(false);
+    expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(false);
   });
 
-  it('returns true exactly at the boundary (not yet expired)', () => {
-    const id = 'cb-test-001';
-    // We need to control Date.now() precisely
+  it('logs warning when callback is expired (S-R3.4)', () => {
+    const callbackId = makeCallbackId(12 * 60 * 1000);
+    const secret = deriveCallbackSecret(callbackId);
+    const signature = computeSignature(payload, secret);
+
+    verifyCallbackSignature(callbackId, payload, signature);
+
+    expect(mockRunnerLogger.warn).toHaveBeenCalledWith(
+      { callbackId },
+      'Callback expired — TTL exceeded',
+    );
+  });
+
+  // ─── TTL with fake timers ────────────────────────────────────
+
+  it('handles TTL boundary with fake timers — just before expiry', () => {
     const now = Date.now();
     vi.useFakeTimers({ now });
 
-    storeCallbackSecret(id, secret);
+    // Create callbackId at "now"
+    const ts = now.toString(36);
+    const callbackId = `550e8400-e29b-41d4-a716-446655440000.${ts}`;
+    const secret = deriveCallbackSecret(callbackId);
     const signature = computeSignature(payload, secret);
 
-    // Advance to exactly 11 minutes minus 1ms — should still be valid
-    // TTL is 11 * 60 * 1000 = 660000ms. Expires at now + 660000.
-    // entry.expires <= Date.now() → false when Date.now() < expires
+    // Advance to 11 min - 1ms
     vi.advanceTimersByTime(11 * 60 * 1000 - 1);
 
-    expect(verifyAndConsumeSecret(id, payload, signature)).toBe(true);
-
-    vi.useRealTimers();
+    expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(true);
   });
 
-  it('returns false exactly at expiry boundary', () => {
-    const id = 'cb-test-001';
+  it('handles TTL boundary with fake timers — exactly at expiry', () => {
     const now = Date.now();
     vi.useFakeTimers({ now });
 
-    storeCallbackSecret(id, secret);
+    const ts = now.toString(36);
+    const callbackId = `550e8400-e29b-41d4-a716-446655440000.${ts}`;
+    const secret = deriveCallbackSecret(callbackId);
     const signature = computeSignature(payload, secret);
 
-    // Advance exactly to TTL — entry.expires <= Date.now() should be true
+    // Advance to exactly 11 min
     vi.advanceTimersByTime(11 * 60 * 1000);
 
-    expect(verifyAndConsumeSecret(id, payload, signature)).toBe(false);
-
-    vi.useRealTimers();
+    expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(false);
   });
 
-  // ─── Logger assertions for verifyAndConsumeSecret ───────────────
+  // ─── Tampered inputs (S-R4.2, S-R4.3) ────────────────────────
 
-  it('creates a child logger with { module: "runner" }', () => {
-    expect(mockRootChildFn).toHaveBeenCalledWith({ module: 'runner' });
+  it('rejects tampered callbackId (S-R4.2)', () => {
+    const callbackId = makeCallbackId(0);
+    const secret = deriveCallbackSecret(callbackId);
+    const signature = computeSignature(payload, secret);
+
+    // Tamper the UUID portion
+    const tampered = callbackId.replace('550e8400', 'aaaaaaaa');
+    expect(verifyCallbackSignature(tampered, payload, signature)).toBe(false);
   });
 
-  it('logs warn with "Callback secret not found" when callbackId is unknown', () => {
-    verifyAndConsumeSecret('unknown-id-log', payload, 'sha256=aabb');
+  it('rejects tampered signature (S-R4.3)', () => {
+    const callbackId = makeCallbackId(0);
+    const secret = deriveCallbackSecret(callbackId);
+    const correctSig = computeSignature(payload, secret);
 
-    expect(mockRunnerLogger.warn).toHaveBeenCalledWith(
-      { callbackId: 'unknown-id-log' },
-      'Callback secret not found (expired or already consumed)',
-    );
+    // Flip a character in the signature hex
+    const tampered = correctSig.slice(0, -1) + (correctSig.endsWith('0') ? '1' : '0');
+    expect(verifyCallbackSignature(callbackId, payload, tampered)).toBe(false);
   });
 
-  it('logs warn with "Callback secret expired" when TTL exceeded', () => {
-    const id = 'cb-log-expire';
-    storeCallbackSecret(id, secret);
+  // ─── Format validation (S-R4.4, S-R4.5, S-R4.6, S-R4.7) ─────
 
-    vi.useFakeTimers();
-    vi.advanceTimersByTime(12 * 60 * 1000);
-
-    verifyAndConsumeSecret(id, payload, computeSignature(payload, secret));
-
-    expect(mockRunnerLogger.warn).toHaveBeenCalledWith(
-      { callbackId: id },
-      'Callback secret expired',
-    );
-
-    vi.useRealTimers();
-    // cleanup
-    verifyAndConsumeSecret(id, '', 'sha256=0000');
-  });
-
-  it('logs warn with "Invalid signature format" when sha256= prefix is missing', () => {
-    const id = 'cb-log-prefix';
-    storeCallbackSecret(id, secret);
+  it('rejects signature missing sha256= prefix (S-R4.4)', () => {
+    const callbackId = makeCallbackId(0);
+    const secret = deriveCallbackSecret(callbackId);
     const hex = createHmac('sha256', secret).update(payload).digest('hex');
 
-    verifyAndConsumeSecret(id, payload, hex);
-
-    expect(mockRunnerLogger.warn).toHaveBeenCalledWith(
-      { callbackId: id },
-      'Invalid signature format — missing sha256= prefix',
-    );
-
-    // cleanup
-    verifyAndConsumeSecret(id, '', 'sha256=0000');
+    expect(verifyCallbackSignature(callbackId, payload, hex)).toBe(false);
   });
 
-  it('logs warn with "HMAC verification failed" when HMAC does not match', () => {
-    const id = 'cb-log-hmac';
-    storeCallbackSecret(id, secret);
-    const wrongSig = computeSignature(payload, 'wrong-secret');
+  it('logs warning when sha256= prefix is missing', () => {
+    const callbackId = makeCallbackId(0);
+    const secret = deriveCallbackSecret(callbackId);
+    const hex = createHmac('sha256', secret).update(payload).digest('hex');
 
-    verifyAndConsumeSecret(id, payload, wrongSig);
+    verifyCallbackSignature(callbackId, payload, hex);
 
     expect(mockRunnerLogger.warn).toHaveBeenCalledWith(
-      { callbackId: id },
+      { callbackId },
+      'Invalid signature format — missing sha256= prefix',
+    );
+  });
+
+  it('rejects callbackId without dot separator (S-R4.5)', () => {
+    expect(
+      verifyCallbackSignature('plain-uuid-no-timestamp', payload, 'sha256=aabb'),
+    ).toBe(false);
+  });
+
+  it('logs warning for callbackId without dot separator', () => {
+    verifyCallbackSignature('plain-uuid-no-timestamp', payload, 'sha256=aabb');
+
+    expect(mockRunnerLogger.warn).toHaveBeenCalledWith(
+      { callbackId: 'plain-uuid-no-timestamp' },
+      'Invalid callbackId format — no timestamp separator',
+    );
+  });
+
+  it('rejects signature with wrong-length hex (S-R4.6)', () => {
+    const callbackId = makeCallbackId(0);
+
+    expect(
+      verifyCallbackSignature(callbackId, payload, 'sha256=aabbccdd'),
+    ).toBe(false);
+  });
+
+  it('rejects invalid hex in signature without throwing (S-R4.7)', () => {
+    const callbackId = makeCallbackId(0);
+
+    expect(
+      verifyCallbackSignature(callbackId, payload, 'sha256=zzzzzz'),
+    ).toBe(false);
+  });
+
+  // ─── HMAC failure logging ───────────────────────────────────────
+
+  it('logs warn with "Callback HMAC verification failed" on HMAC mismatch', () => {
+    const callbackId = makeCallbackId(0);
+    const wrongSig = computeSignature(payload, 'wrong-secret');
+
+    verifyCallbackSignature(callbackId, payload, wrongSig);
+
+    expect(mockRunnerLogger.warn).toHaveBeenCalledWith(
+      { callbackId },
       'Callback HMAC verification failed',
     );
   });
 
   it('does NOT log warn when HMAC verification succeeds', () => {
-    const id = 'cb-log-ok';
-    storeCallbackSecret(id, secret);
-    const sig = computeSignature(payload, secret);
+    const callbackId = makeCallbackId(0);
+    const secret = deriveCallbackSecret(callbackId);
+    const signature = computeSignature(payload, secret);
 
-    verifyAndConsumeSecret(id, payload, sig);
+    mockRunnerLogger.warn.mockClear();
+    verifyCallbackSignature(callbackId, payload, signature);
 
-    // Should not have logged any warn about HMAC failure
-    const warnCalls = mockRunnerLogger.warn.mock.calls;
-    const hmacFailCalls = warnCalls.filter(
-      (call: unknown[]) => typeof call[1] === 'string' && call[1].includes('HMAC verification failed'),
+    const hmacFailCalls = mockRunnerLogger.warn.mock.calls.filter(
+      (call: unknown[]) =>
+        typeof call[1] === 'string' && call[1].includes('HMAC verification failed'),
     );
     expect(hmacFailCalls).toHaveLength(0);
+  });
+
+  // ─── STATE_SECRET-undefined tests (S-CC1.2) ──────────────────
+
+  it('throws when STATE_SECRET is undefined during verification (S-CC1.2)', () => {
+    // First create a valid callbackId with secret set
+    const callbackId = makeCallbackId(0);
+    const secret = deriveCallbackSecret(callbackId);
+    const signature = computeSignature(payload, secret);
+
+    // Now remove STATE_SECRET
+    delete process.env.STATE_SECRET;
+
+    expect(() =>
+      verifyCallbackSignature(callbackId, payload, signature),
+    ).toThrow('STATE_SECRET is not configured');
+  });
+
+  // ─── Logger assertions ────────────────────────────────────────
+
+  it('creates a child logger with { module: "runner" }', () => {
+    expect(mockRootChildFn).toHaveBeenCalledWith({ module: 'runner' });
   });
 });
 
@@ -578,6 +626,7 @@ describe('setRunnerSecret', () => {
 
 describe('dispatchWorkflow', () => {
   const mockFetch = vi.fn();
+  const TEST_SECRET = 'test-dispatch-secret';
 
   // Same valid test public key as Group 3
   const testPublicKeyB64 = 'C2o8Fz0SSCMy56fVlx+MPxPvZC7eQVOMlf82K32KJYA=';
@@ -587,10 +636,12 @@ describe('dispatchWorkflow', () => {
     mockFetch.mockReset();
     mockRunnerLogger.info.mockClear();
     mockRunnerLogger.warn.mockClear();
+    process.env.STATE_SECRET = TEST_SECRET;
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    delete process.env.STATE_SECRET;
   });
 
   /**
@@ -631,28 +682,42 @@ describe('dispatchWorkflow', () => {
     );
   }
 
-  it('returns a callbackId and stores secret in memory (happy path)', async () => {
+  it('returns a callbackId in {uuid}.{timestamp_base36} format (S-R2.1)', async () => {
     setupMockChain(204);
 
     const callbackId = await dispatchWorkflow(makeDispatchParams());
 
-    // Should return a UUID
+    // Should match uuid.timestamp_base36
     expect(callbackId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[0-9a-z]+$/,
     );
 
-    // 5 fetch calls: GET+PUT (GHAGGA_TOKEN), GET+PUT (GHAGGA_CALLBACK_SECRET), POST dispatch
+    // Timestamp portion should parse to a valid time
+    const tsPart = callbackId.split('.').pop()!;
+    const timestamp = parseInt(tsPart, 36);
+    expect(timestamp).toBeGreaterThan(0);
+    expect(Math.abs(Date.now() - timestamp)).toBeLessThan(2000); // within 2s
+  });
+
+  it('callbackSecret equals HMAC-SHA256(STATE_SECRET, callbackId) (S-R5.1)', async () => {
+    setupMockChain(204);
+
+    const callbackId = await dispatchWorkflow(makeDispatchParams());
+
+    const body = JSON.parse(mockFetch.mock.calls[4][1].body as string);
+    const expectedSecret = createHmac('sha256', TEST_SECRET)
+      .update(callbackId)
+      .digest('hex');
+
+    expect(body.inputs.callbackSecret).toBe(expectedSecret);
+  });
+
+  it('5 fetch calls: GET+PUT (GHAGGA_TOKEN), GET+PUT (GHAGGA_CALLBACK_SECRET), POST dispatch', async () => {
+    setupMockChain(204);
+
+    await dispatchWorkflow(makeDispatchParams());
+
     expect(mockFetch).toHaveBeenCalledTimes(5);
-
-    // Verify dispatch call
-    const dispatchCall = mockFetch.mock.calls[4];
-    expect(dispatchCall[0]).toContain('/actions/workflows/ghagga-analysis.yml/dispatches');
-    expect(dispatchCall[1].method).toBe('POST');
-
-    const body = JSON.parse(dispatchCall[1].body as string);
-    expect(body.ref).toBe('main');
-    expect(body.inputs.callbackId).toBe(callbackId);
-    expect(body.inputs.callbackSecret).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('dispatch URL includes ownerLogin/ghagga-runner path', async () => {
@@ -836,7 +901,7 @@ describe('dispatchWorkflow', () => {
     expect(body.inputs.enableCpd).toBe('true');
   });
 
-  it('throws and cleans up secret when dispatch API fails (422)', async () => {
+  it('throws when dispatch API fails (422) — no in-memory cleanup needed (S-R5.3)', async () => {
     setupMockChain(422, '{"message":"Validation Failed"}');
 
     const params = makeDispatchParams();
@@ -844,33 +909,16 @@ describe('dispatchWorkflow', () => {
       /GitHub API error dispatching workflow: 422/,
     );
 
-    // The secret should have been cleaned up — any verifyAndConsumeSecret
-    // call with any callbackId that was generated should fail.
-    // Since we can't know the callbackId (it was generated internally),
-    // we verify indirectly by checking fetch was called 5 times
-    // (meaning both setRunnerSecret calls succeeded before dispatch failed).
+    // Verify all 5 fetch calls were made (both setRunnerSecret calls succeeded)
     expect(mockFetch).toHaveBeenCalledTimes(5);
   });
 
-  it('on failure, the secret is removed from the store', async () => {
-    // We need to intercept the callbackId to verify it was removed.
-    // We'll capture it from the dispatch POST body.
-    setupMockChain(422, '{"message":"Fail"}');
-
-    const params = makeDispatchParams();
-    try {
-      await dispatchWorkflow(params);
-    } catch {
-      // expected
-    }
-
-    // Extract the callbackId from the dispatch request body
-    const dispatchBody = JSON.parse(mockFetch.mock.calls[4][1].body as string);
-    const callbackId = dispatchBody.inputs.callbackId;
-
-    // The secret should have been deleted — verifyAndConsumeSecret should return false
-    const sig = computeSignature('test', 'any-secret');
-    expect(verifyAndConsumeSecret(callbackId, 'test', sig)).toBe(false);
+  it('throws when STATE_SECRET is undefined (S-CC1.1)', async () => {
+    delete process.env.STATE_SECRET;
+    // Don't set up mock chain — it will fail on deriveCallbackSecret before any fetch
+    await expect(dispatchWorkflow(makeDispatchParams())).rejects.toThrow(
+      'STATE_SECRET is not configured',
+    );
   });
 });
 

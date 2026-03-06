@@ -10,7 +10,7 @@
  * `ghagga-analysis.yml` workflow via `workflow_dispatch`.
  */
 
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { logger as rootLogger } from '../lib/logger.js';
@@ -100,90 +100,88 @@ export interface DiscoveredRunner {
   isPrivate: boolean;
 }
 
-// ─── In-Memory Secret Store ─────────────────────────────────────
-// Each workflow dispatch gets a unique callback secret stored here.
-// Secrets expire after 11 minutes (workflow_dispatch timeout is ~10min).
-// Secrets are one-time use — consumed on first verification.
+// ─── Stateless Callback Secret Derivation ───────────────────────
+// Callback secrets are derived deterministically from STATE_SECRET +
+// callbackId using HMAC-SHA256. This replaces the previous in-memory
+// Map<string, StoredSecret> store, ensuring callbacks survive server
+// restarts and container redeploys.
 
 const CALLBACK_SECRET_TTL_MS = 11 * 60 * 1000; // 11 minutes
 
-interface StoredSecret {
-  secret: string;
-  expires: number;
-}
-
-const secretStore = new Map<string, StoredSecret>();
-
-// Cleanup expired secrets every 2 minutes
-const cleanupInterval = setInterval(() => {
-  const now = Date.now();
-  for (const [id, entry] of secretStore) {
-    if (entry.expires <= now) {
-      secretStore.delete(id);
-    }
+/**
+ * Derive a callback secret deterministically using HMAC-SHA256.
+ * Returns a 64-char hex string (32 bytes).
+ *
+ * @throws {Error} if STATE_SECRET is not configured
+ */
+export function deriveCallbackSecret(callbackId: string): string {
+  const STATE_SECRET = process.env.STATE_SECRET;
+  if (!STATE_SECRET) {
+    throw new Error('STATE_SECRET is not configured');
   }
-}, 2 * 60 * 1000);
-
-// Allow the process to exit cleanly
-cleanupInterval.unref();
-
-/**
- * Store a callback secret for a dispatch. Returns the callbackId.
- */
-export function storeCallbackSecret(callbackId: string, secret: string): void {
-  secretStore.set(callbackId, {
-    secret,
-    expires: Date.now() + CALLBACK_SECRET_TTL_MS,
-  });
+  return createHmac('sha256', STATE_SECRET).update(callbackId).digest('hex');
 }
 
 /**
- * Verify and consume a callback secret (one-time use).
- * Returns true if the HMAC signature matches, false otherwise.
+ * Verify a callback HMAC signature statelessly.
+ *
+ * Steps:
+ * 1. Extract timestamp from callbackId (after last `.`)
+ * 2. Reject if older than CALLBACK_SECRET_TTL_MS (11 minutes)
+ * 3. Derive secret via deriveCallbackSecret
+ * 4. Validate `sha256=` prefix on signatureHeader
+ * 5. Compute expected HMAC over payload
+ * 6. Compare with timingSafeEqual
  */
-export function verifyAndConsumeSecret(
+export function verifyCallbackSignature(
   callbackId: string,
   payload: string,
   signatureHeader: string,
 ): boolean {
-  const entry = secretStore.get(callbackId);
-  if (!entry) {
-    logger.warn({ callbackId }, 'Callback secret not found (expired or already consumed)');
+  // Step 1: Extract timestamp from callbackId
+  const dotIndex = callbackId.lastIndexOf('.');
+  if (dotIndex === -1) {
+    logger.warn({ callbackId }, 'Invalid callbackId format — no timestamp separator');
     return false;
   }
 
-  if (entry.expires <= Date.now()) {
-    secretStore.delete(callbackId);
-    logger.warn({ callbackId }, 'Callback secret expired');
+  const ts = callbackId.slice(dotIndex + 1);
+  const timestamp = parseInt(ts, 36);
+  if (isNaN(timestamp)) {
+    logger.warn({ callbackId }, 'Invalid callbackId format — unparseable timestamp');
     return false;
   }
 
-  // Verify HMAC-SHA256 signature
-  // Expected format: sha256=<hex>
+  // Step 2: Check TTL
+  if (Date.now() - timestamp >= CALLBACK_SECRET_TTL_MS) {
+    logger.warn({ callbackId }, 'Callback expired — TTL exceeded');
+    return false;
+  }
+
+  // Step 3: Derive secret
+  const secret = deriveCallbackSecret(callbackId);
+
+  // Step 4: Validate sha256= prefix
   const expectedPrefix = 'sha256=';
   if (!signatureHeader.startsWith(expectedPrefix)) {
     logger.warn({ callbackId }, 'Invalid signature format — missing sha256= prefix');
     return false;
   }
 
+  // Step 5: Compute expected HMAC
   const signatureHex = signatureHeader.slice(expectedPrefix.length);
-  const computed = createHmac('sha256', entry.secret)
-    .update(payload)
-    .digest('hex');
+  const computed = createHmac('sha256', secret).update(payload).digest('hex');
 
+  // Step 6: Timing-safe comparison
   try {
     const sigBuffer = Buffer.from(signatureHex, 'hex');
     const computedBuffer = Buffer.from(computed, 'hex');
 
     if (sigBuffer.length !== computedBuffer.length) {
-      secretStore.delete(callbackId);
       return false;
     }
 
     const valid = timingSafeEqual(sigBuffer, computedBuffer);
-
-    // Always consume (one-time use)
-    secretStore.delete(callbackId);
 
     if (!valid) {
       logger.warn({ callbackId }, 'Callback HMAC verification failed');
@@ -191,7 +189,6 @@ export function verifyAndConsumeSecret(
 
     return valid;
   } catch {
-    secretStore.delete(callbackId);
     return false;
   }
 }
@@ -298,9 +295,10 @@ export async function setRunnerSecret(
 /**
  * Dispatch the `ghagga-analysis.yml` workflow on the user's runner repo.
  *
- * Generates a unique callbackId and per-dispatch secret, stores the
- * secret in-memory, sets it as a GitHub Actions secret on the runner
- * repo, and dispatches the workflow with all required inputs.
+ * Generates a unique callbackId with embedded timestamp, derives a
+ * per-dispatch secret via HMAC-SHA256 (stateless), sets it as a GitHub
+ * Actions secret on the runner repo, and dispatches the workflow with
+ * all required inputs.
  *
  * Returns the callbackId for correlation with the callback.
  */
@@ -318,11 +316,8 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
     token,
   } = params;
 
-  const callbackId = randomUUID();
-  const callbackSecret = randomBytes(32).toString('hex');
-
-  // Store secret in-memory for callback verification
-  storeCallbackSecret(callbackId, callbackSecret);
+  const callbackId = `${randomUUID()}.${Date.now().toString(36)}`;
+  const callbackSecret = deriveCallbackSecret(callbackId);
 
   // Set secrets on the runner repo before dispatching
   const runnerRepo = `${ownerLogin}/ghagga-runner`;
@@ -360,8 +355,6 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
   });
 
   if (!response.ok) {
-    // Clean up the stored secret since dispatch failed
-    secretStore.delete(callbackId);
     const body = await response.text();
     throw new Error(
       `GitHub API error dispatching workflow: ${response.status} ${response.statusText} — ${body}`,

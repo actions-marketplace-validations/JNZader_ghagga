@@ -10,11 +10,11 @@ import { Hono } from 'hono';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
-const mockVerifyAndConsumeSecret = vi.fn();
+const mockVerifyCallbackSignature = vi.fn();
 const mockInngestSend = vi.fn();
 
 vi.mock('../github/runner.js', () => ({
-  verifyAndConsumeSecret: (...args: unknown[]) => mockVerifyAndConsumeSecret(...args),
+  verifyCallbackSignature: (...args: unknown[]) => mockVerifyCallbackSignature(...args),
 }));
 
 vi.mock('../inngest/client.js', () => ({
@@ -78,7 +78,7 @@ function postCallback(
 // ─── Setup ──────────────────────────────────────────────────────
 
 beforeEach(() => {
-  mockVerifyAndConsumeSecret.mockReset();
+  mockVerifyCallbackSignature.mockReset();
   mockInngestSend.mockReset();
   mockInngestSend.mockResolvedValue(undefined);
   mockLoggerChild.info.mockClear();
@@ -107,7 +107,7 @@ describe('logger initialisation', () => {
 describe('POST /runner/callback', () => {
   describe('valid callback', () => {
     it('returns 200 { ok: true } when HMAC and all fields are valid', async () => {
-      mockVerifyAndConsumeSecret.mockReturnValue(true);
+      mockVerifyCallbackSignature.mockReturnValue(true);
 
       const app = createApp();
       const body = JSON.stringify(VALID_PAYLOAD);
@@ -121,7 +121,7 @@ describe('POST /runner/callback', () => {
     });
 
     it('logs info with callbackId, repoFullName, and prNumber on success', async () => {
-      mockVerifyAndConsumeSecret.mockReturnValue(true);
+      mockVerifyCallbackSignature.mockReturnValue(true);
 
       const app = createApp();
       const body = JSON.stringify(VALID_PAYLOAD);
@@ -136,16 +136,16 @@ describe('POST /runner/callback', () => {
       );
     });
 
-    it('calls verifyAndConsumeSecret with callbackId, rawBody, and signature', async () => {
-      mockVerifyAndConsumeSecret.mockReturnValue(true);
+    it('calls verifyCallbackSignature with callbackId, rawBody, and signature', async () => {
+      mockVerifyCallbackSignature.mockReturnValue(true);
 
       const app = createApp();
       const body = JSON.stringify(VALID_PAYLOAD);
       const signature = 'sha256=deadbeef';
       await postCallback(app, body, { 'x-ghagga-signature': signature });
 
-      expect(mockVerifyAndConsumeSecret).toHaveBeenCalledOnce();
-      expect(mockVerifyAndConsumeSecret).toHaveBeenCalledWith(
+      expect(mockVerifyCallbackSignature).toHaveBeenCalledOnce();
+      expect(mockVerifyCallbackSignature).toHaveBeenCalledWith(
         VALID_PAYLOAD.callbackId,
         body,
         signature,
@@ -153,7 +153,7 @@ describe('POST /runner/callback', () => {
     });
 
     it('sends inngest event with correct shape', async () => {
-      mockVerifyAndConsumeSecret.mockReturnValue(true);
+      mockVerifyCallbackSignature.mockReturnValue(true);
 
       const app = createApp();
       const body = JSON.stringify(VALID_PAYLOAD);
@@ -175,7 +175,7 @@ describe('POST /runner/callback', () => {
     });
 
     it('inngest event name is exactly "ghagga/runner.completed"', async () => {
-      mockVerifyAndConsumeSecret.mockReturnValue(true);
+      mockVerifyCallbackSignature.mockReturnValue(true);
 
       const app = createApp();
       const body = JSON.stringify(VALID_PAYLOAD);
@@ -188,7 +188,7 @@ describe('POST /runner/callback', () => {
     });
 
     it('inngest event data includes all payload fields', async () => {
-      mockVerifyAndConsumeSecret.mockReturnValue(true);
+      mockVerifyCallbackSignature.mockReturnValue(true);
 
       const app = createApp();
       const body = JSON.stringify(VALID_PAYLOAD);
@@ -241,12 +241,12 @@ describe('POST /runner/callback', () => {
       expect(json.error).toBe('Missing signature');
     });
 
-    it('does not call verifyAndConsumeSecret', async () => {
+    it('does not call verifyCallbackSignature', async () => {
       const app = createApp();
       const body = JSON.stringify(VALID_PAYLOAD);
       await postCallback(app, body);
 
-      expect(mockVerifyAndConsumeSecret).not.toHaveBeenCalled();
+      expect(mockVerifyCallbackSignature).not.toHaveBeenCalled();
     });
 
     it('does not send inngest event', async () => {
@@ -264,7 +264,7 @@ describe('POST /runner/callback', () => {
 
   describe('invalid HMAC', () => {
     it('returns 401 with { error: "Invalid signature" }', async () => {
-      mockVerifyAndConsumeSecret.mockReturnValue(false);
+      mockVerifyCallbackSignature.mockReturnValue(false);
 
       const app = createApp();
       const body = JSON.stringify(VALID_PAYLOAD);
@@ -278,7 +278,7 @@ describe('POST /runner/callback', () => {
     });
 
     it('logs a warning with callbackId when HMAC verification fails', async () => {
-      mockVerifyAndConsumeSecret.mockReturnValue(false);
+      mockVerifyCallbackSignature.mockReturnValue(false);
 
       const app = createApp();
       const body = JSON.stringify(VALID_PAYLOAD);
@@ -293,7 +293,7 @@ describe('POST /runner/callback', () => {
     });
 
     it('error field is exactly "Invalid signature"', async () => {
-      mockVerifyAndConsumeSecret.mockReturnValue(false);
+      mockVerifyCallbackSignature.mockReturnValue(false);
 
       const app = createApp();
       const body = JSON.stringify(VALID_PAYLOAD);
@@ -306,7 +306,7 @@ describe('POST /runner/callback', () => {
     });
 
     it('does not send inngest event when HMAC fails', async () => {
-      mockVerifyAndConsumeSecret.mockReturnValue(false);
+      mockVerifyCallbackSignature.mockReturnValue(false);
 
       const app = createApp();
       const body = JSON.stringify(VALID_PAYLOAD);
@@ -355,13 +355,13 @@ describe('POST /runner/callback', () => {
       expect(json.error).toBe('Invalid JSON body');
     });
 
-    it('does not call verifyAndConsumeSecret for bad JSON', async () => {
+    it('does not call verifyCallbackSignature for bad JSON', async () => {
       const app = createApp();
       await postCallback(app, '<<<invalid>>>', {
         'x-ghagga-signature': 'sha256=abc',
       });
 
-      expect(mockVerifyAndConsumeSecret).not.toHaveBeenCalled();
+      expect(mockVerifyCallbackSignature).not.toHaveBeenCalled();
     });
 
     it('does not send inngest event for bad JSON', async () => {
@@ -463,14 +463,14 @@ describe('POST /runner/callback', () => {
       expect(json.error).toBe('Missing required fields');
     });
 
-    it('does not call verifyAndConsumeSecret for missing fields', async () => {
+    it('does not call verifyCallbackSignature for missing fields', async () => {
       const { callbackId: _, ...payload } = VALID_PAYLOAD;
       const app = createApp();
       await postCallback(app, JSON.stringify(payload), {
         'x-ghagga-signature': 'sha256=abc',
       });
 
-      expect(mockVerifyAndConsumeSecret).not.toHaveBeenCalled();
+      expect(mockVerifyCallbackSignature).not.toHaveBeenCalled();
     });
 
     it('does not send inngest event for missing fields', async () => {

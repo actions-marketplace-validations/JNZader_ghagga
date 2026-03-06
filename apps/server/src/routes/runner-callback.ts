@@ -19,7 +19,7 @@
  */
 
 import { Hono } from 'hono';
-import { verifyAndConsumeSecret } from '../github/runner.js';
+import { verifyCallbackSignature } from '../github/runner.js';
 import { inngest } from '../inngest/client.js';
 import { logger as rootLogger } from '../lib/logger.js';
 import type { StaticAnalysisResult } from 'ghagga-core';
@@ -64,7 +64,7 @@ export function createRunnerCallbackRouter() {
       return c.json({ error: 'Missing signature' }, 401);
     }
 
-    const valid = verifyAndConsumeSecret(callbackId, rawBody, signature);
+    const valid = verifyCallbackSignature(callbackId, rawBody, signature);
     if (!valid) {
       logger.warn({ callbackId }, 'Runner callback: HMAC verification failed');
       return c.json({ error: 'Invalid signature' }, 401);
