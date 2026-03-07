@@ -12,6 +12,7 @@ import { createApiRouter } from './api.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
+const mockGetReviewsByDay = vi.fn();
 const mockGetReviewsByRepoId = vi.fn();
 const mockGetReviewStats = vi.fn();
 const mockGetRepoByFullName = vi.fn();
@@ -31,6 +32,7 @@ const mockDeleteMemorySession = vi.fn();
 const mockClearEmptyMemorySessions = vi.fn();
 
 vi.mock('ghagga-db', () => ({
+  getReviewsByDay: (...args: unknown[]) => mockGetReviewsByDay(...args),
   getReviewsByRepoId: (...args: unknown[]) => mockGetReviewsByRepoId(...args),
   getReviewStats: (...args: unknown[]) => mockGetReviewStats(...args),
   getRepoByFullName: (...args: unknown[]) => mockGetRepoByFullName(...args),
@@ -261,7 +263,7 @@ describe('GET /api/reviews', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('GET /api/stats', () => {
-  it('returns mapped review stats', async () => {
+  it('returns mapped review stats with reviewsByDay data', async () => {
     mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
     mockGetReviewStats.mockResolvedValueOnce({
       total: 100,
@@ -269,6 +271,11 @@ describe('GET /api/stats', () => {
       failed: 10,
       skipped: 5,
     });
+    const fakeReviewsByDay = [
+      { date: '2026-03-01', total: 3, passed: 2, failed: 1 },
+      { date: '2026-03-02', total: 5, passed: 4, failed: 0 },
+    ];
+    mockGetReviewsByDay.mockResolvedValueOnce(fakeReviewsByDay);
 
     const app = createApp();
     const res = await app.request('/api/stats?repo=owner/repo');
@@ -281,6 +288,30 @@ describe('GET /api/stats', () => {
     expect(json.data.skipped).toBe(5);
     expect(json.data.needsHumanReview).toBe(15); // 100 - 70 - 10 - 5
     expect(json.data.passRate).toBe(70); // (70/100) * 100
+    expect(json.data.reviewsByDay).toEqual(fakeReviewsByDay);
+  });
+
+  it('calls getReviewsByDay with correct repository id', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockGetReviewStats.mockResolvedValueOnce({ total: 0, passed: 0, failed: 0, skipped: 0 });
+    mockGetReviewsByDay.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    await app.request('/api/stats?repo=owner/repo');
+
+    expect(mockGetReviewsByDay).toHaveBeenCalledWith(mockDb, 42);
+  });
+
+  it('returns empty reviewsByDay when no reviews exist', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockGetReviewStats.mockResolvedValueOnce({ total: 0, passed: 0, failed: 0, skipped: 0 });
+    mockGetReviewsByDay.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request('/api/stats?repo=owner/repo');
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
     expect(json.data.reviewsByDay).toEqual([]);
   });
 
@@ -292,6 +323,7 @@ describe('GET /api/stats', () => {
       failed: 0,
       skipped: 0,
     });
+    mockGetReviewsByDay.mockResolvedValueOnce([]);
 
     const app = createApp();
     const res = await app.request('/api/stats?repo=owner/repo');
@@ -310,6 +342,7 @@ describe('GET /api/stats', () => {
       failed: null,
       skipped: null,
     });
+    mockGetReviewsByDay.mockResolvedValueOnce([]);
 
     const app = createApp();
     const res = await app.request('/api/stats?repo=owner/repo');
@@ -320,6 +353,25 @@ describe('GET /api/stats', () => {
     expect(json.data.passed).toBe(0);
     expect(json.data.failed).toBe(0);
     expect(json.data.skipped).toBe(0);
+  });
+
+  it('reviewsByDay entries contain date, total, passed, and failed', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockGetReviewStats.mockResolvedValueOnce({ total: 10, passed: 7, failed: 3, skipped: 0 });
+    mockGetReviewsByDay.mockResolvedValueOnce([
+      { date: '2026-03-05', total: 5, passed: 3, failed: 1 },
+      { date: '2026-03-06', total: 5, passed: 4, failed: 2 },
+    ]);
+
+    const app = createApp();
+    const res = await app.request('/api/stats?repo=owner/repo');
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    const days = json.data.reviewsByDay;
+    expect(days).toHaveLength(2);
+    expect(days[0]).toEqual({ date: '2026-03-05', total: 5, passed: 3, failed: 1 });
+    expect(days[1]).toEqual({ date: '2026-03-06', total: 5, passed: 4, failed: 2 });
   });
 
   it('returns 400 when repo param is missing', async () => {

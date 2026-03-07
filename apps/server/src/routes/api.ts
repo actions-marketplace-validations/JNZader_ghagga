@@ -21,6 +21,7 @@ import {
   getObservationsBySession,
   getRepoByFullName,
   getReposByInstallationId,
+  getReviewsByDay,
   getReviewStats,
   getReviewsByRepoId,
   getSessionsByProject,
@@ -100,7 +101,10 @@ export function createApiRouter(db: Database) {
         return c.json({ error: 'Forbidden' }, 403);
       }
 
-      const raw = await getReviewStats(db, repo.id);
+      const [raw, reviewsByDay] = await Promise.all([
+        getReviewStats(db, repo.id),
+        getReviewsByDay(db, repo.id),
+      ]);
 
       // Map DB shape to dashboard Stats type
       const total = raw.total ?? 0;
@@ -117,7 +121,7 @@ export function createApiRouter(db: Database) {
           needsHumanReview,
           skipped,
           passRate: total > 0 ? (passed / total) * 100 : 0,
-          reviewsByDay: [], // TODO: implement daily aggregation query
+          reviewsByDay,
         },
       });
     } catch (err) {

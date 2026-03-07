@@ -323,6 +323,28 @@ export async function getReviewStats(db: Database, repositoryId: number) {
   return result[0]!;
 }
 
+export async function getReviewsByDay(db: Database, repositoryId: number) {
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  return db
+    .select({
+      date: sql<string>`to_char(date(${reviews.createdAt}), 'YYYY-MM-DD')`,
+      total: sql<number>`count(*)::int`,
+      passed: sql<number>`count(*) filter (where ${reviews.status} = 'PASSED')::int`,
+      failed: sql<number>`count(*) filter (where ${reviews.status} = 'FAILED')::int`,
+    })
+    .from(reviews)
+    .where(
+      and(
+        eq(reviews.repositoryId, repositoryId),
+        sql`${reviews.createdAt} >= ${thirtyDaysAgo}`,
+      ),
+    )
+    .groupBy(sql`date(${reviews.createdAt})`)
+    .orderBy(sql`date(${reviews.createdAt}) asc`);
+}
+
 // ─── Memory: Sessions ───────────────────────────────────────────
 
 export async function createMemorySession(
