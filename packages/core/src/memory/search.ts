@@ -9,6 +9,50 @@
 import type { MemoryStorage } from '../types.js';
 import { formatMemoryContext } from './context.js';
 
+// ─── Constants ──────────────────────────────────────────────────
+
+/** Maximum number of search terms to include in a query. */
+export const MAX_SEARCH_TERMS = 10;
+
+/** Minimum length for a path segment to be considered a useful search term. */
+const MIN_TERM_LENGTH = 3;
+
+/**
+ * Default set of path segments to ignore when building search queries.
+ * These are common directory names that carry no semantic value.
+ */
+export const DEFAULT_IGNORED_SEGMENTS = new Set([
+  'src',
+  'lib',
+  'dist',
+  'build',
+  'out',
+  'output',
+  'node_modules',
+  'vendor',
+  'test',
+  'tests',
+  '__tests__',
+  '__mocks__',
+  '__fixtures__',
+  '__snapshots__',
+  '.git',
+  '.github',
+  '.vscode',
+  'coverage',
+  'tmp',
+  'temp',
+]);
+
+/**
+ * Regex that strips all file extensions from a filename,
+ * including multi-part extensions like `.test.ts`, `.spec.tsx`, `.d.ts`.
+ *
+ * Matches one or more consecutive `.ext` groups at the end of the string
+ * where each extension part is alphanumeric (1-10 chars).
+ */
+const EXTENSIONS_RE = /(?:\.[a-zA-Z0-9]{1,10})+$/;
+
 // ─── Helpers ────────────────────────────────────────────────────
 
 /**
@@ -17,11 +61,22 @@ import { formatMemoryContext } from './context.js';
  * Extracts meaningful segments from file paths (directory names,
  * file names without extensions) to use as search terms.
  *
+ * @param fileList - List of file paths to extract terms from.
+ * @param ignoredSegments - Optional set of path segments to ignore.
+ *   Defaults to {@link DEFAULT_IGNORED_SEGMENTS}.
+ *
  * @example
  *   ["src/auth/login.ts", "lib/db/pool.ts"]
- *   → "auth login db pool"
+ *   → "auth login pool"
+ *
+ * @example
+ *   ["src/auth/login.test.ts"]
+ *   → "auth login"   // multi-part extension fully stripped
  */
-function buildSearchQuery(fileList: string[]): string {
+export function buildSearchQuery(
+  fileList: string[],
+  ignoredSegments: Set<string> = DEFAULT_IGNORED_SEGMENTS,
+): string {
   const terms = new Set<string>();
 
   for (const filePath of fileList) {
@@ -29,20 +84,20 @@ function buildSearchQuery(fileList: string[]): string {
     const segments = filePath.split('/').filter(Boolean);
 
     for (const segment of segments) {
-      // Skip common uninformative directories
-      if (['src', 'lib', 'dist', 'build', 'node_modules', 'test', 'tests'].includes(segment)) {
+      // Skip uninformative directories
+      if (ignoredSegments.has(segment)) {
         continue;
       }
 
-      // Remove file extension and add as a search term
-      const name = segment.replace(/\.[^.]+$/, '');
-      if (name.length > 2) {
+      // Remove all file extensions (handles .test.ts, .spec.tsx, .d.ts, etc.)
+      const name = segment.replace(EXTENSIONS_RE, '');
+      if (name.length >= MIN_TERM_LENGTH) {
         terms.add(name);
       }
     }
   }
 
-  return [...terms].slice(0, 10).join(' ');
+  return [...terms].slice(0, MAX_SEARCH_TERMS).join(' ');
 }
 
 // ─── Main Function ──────────────────────────────────────────────

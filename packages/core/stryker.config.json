@@ -6,6 +6,7 @@
   "mutate": [
     "src/agents/consensus.ts",
     "src/agents/simple.ts",
+    "src/agents/workflow.ts",
     "src/agents/prompts.ts",
     "src/tools/semgrep.ts",
     "src/tools/trivy.ts",
@@ -16,10 +17,15 @@
     "src/utils/token-budget.ts",
     "src/memory/context.ts",
     "src/memory/privacy.ts",
+    "src/memory/search.ts",
+    "src/memory/persist.ts",
+    "src/memory/sqlite.ts",
     "src/memory/engram-client.ts",
     "src/memory/engram-mapping.ts",
     "src/memory/engram.ts",
+    "src/providers/index.ts",
     "src/providers/fallback.ts",
+    "src/format.ts",
     "src/pipeline.ts"
   ],
   "ignorePatterns": ["dist", "node_modules"],
@@ -32,6 +38,6 @@
   "thresholds": {
     "high": 80,
     "low": 60,
-    "break": null
+    "break": 60
   }
 }
