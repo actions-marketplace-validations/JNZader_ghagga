@@ -45,6 +45,9 @@ export type {
   MemoryObservation,
   MemoryStorage,
   MemoryObservationRow,
+  MemoryObservationDetail,
+  MemoryStats,
+  ListObservationsOptions,
 
   // Progress callback types
   ProgressCallback,

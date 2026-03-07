@@ -1,4 +1,10 @@
-import type { MemoryStorage, MemoryObservationRow } from 'ghagga-core';
+import type {
+  MemoryStorage,
+  MemoryObservationRow,
+  MemoryObservationDetail,
+  MemoryStats,
+  ListObservationsOptions,
+} from 'ghagga-core';
 import {
   searchObservations,
   saveObservation,
@@ -69,5 +75,28 @@ export class PostgresMemoryStorage implements MemoryStorage {
 
   async close(): Promise<void> {
     // No-op — PostgreSQL connection lifecycle is managed externally
+  }
+
+  // ── Management method stubs (R5) ──────────────────────────────
+  // These will be implemented via the Dashboard UI in a future change.
+
+  async listObservations(options?: ListObservationsOptions): Promise<MemoryObservationDetail[]> {
+    throw new Error('Not implemented — use Dashboard for memory management');
+  }
+
+  async getObservation(id: number): Promise<MemoryObservationDetail | null> {
+    throw new Error('Not implemented — use Dashboard for memory management');
+  }
+
+  async deleteObservation(id: number): Promise<boolean> {
+    throw new Error('Not implemented — use Dashboard for memory management');
+  }
+
+  async getStats(): Promise<MemoryStats> {
+    throw new Error('Not implemented — use Dashboard for memory management');
+  }
+
+  async clearObservations(options?: { project?: string }): Promise<number> {
+    throw new Error('Not implemented — use Dashboard for memory management');
   }
 }

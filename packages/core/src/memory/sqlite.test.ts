@@ -497,4 +497,434 @@ describe('SqliteMemoryStorage', () => {
       await storage2.close();
     });
   });
+
+  // ── listObservations ──
+
+  describe('listObservations()', () => {
+    it('returns all observations newest first when no filters are set', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      // Insert 3 observations, then set distinct timestamps via raw SQL
+      // to guarantee ORDER BY created_at DESC produces a deterministic order
+      await storage.saveObservation(
+        makeObservationData({ title: 'Oldest', content: 'Oldest observation content.' }),
+      );
+      await storage.saveObservation(
+        makeObservationData({ title: 'Middle', content: 'Middle observation content.' }),
+      );
+      await storage.saveObservation(
+        makeObservationData({ title: 'Newest', content: 'Newest observation content.' }),
+      );
+
+      // Manually stagger created_at so ordering is deterministic
+      const db = (storage as any).db;
+      db.run("UPDATE memory_observations SET created_at = '2025-01-01 00:00:00' WHERE title = 'Oldest'");
+      db.run("UPDATE memory_observations SET created_at = '2025-01-02 00:00:00' WHERE title = 'Middle'");
+      db.run("UPDATE memory_observations SET created_at = '2025-01-03 00:00:00' WHERE title = 'Newest'");
+
+      const results = await storage.listObservations();
+
+      expect(results).toHaveLength(3);
+      // newest first (created_at DESC)
+      expect(results[0]!.title).toBe('Newest');
+      expect(results[1]!.title).toBe('Middle');
+      expect(results[2]!.title).toBe('Oldest');
+
+      // Verify shape: each result is a MemoryObservationDetail
+      for (const obs of results) {
+        expect(obs).toEqual(expect.objectContaining({
+          id: expect.any(Number),
+          type: expect.any(String),
+          title: expect.any(String),
+          content: expect.any(String),
+          project: expect.any(String),
+          revisionCount: expect.any(Number),
+          createdAt: expect.any(String),
+          updatedAt: expect.any(String),
+        }));
+      }
+
+      await storage.close();
+    });
+
+    it('filters by project when project option is provided', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      await storage.saveObservation(
+        makeObservationData({ project: 'acme/widgets', title: 'Widget obs', content: 'Widget content.' }),
+      );
+      await storage.saveObservation(
+        makeObservationData({ project: 'acme/gadgets', title: 'Gadget obs', content: 'Gadget content.' }),
+      );
+
+      const results = await storage.listObservations({ project: 'acme/widgets' });
+
+      expect(results).toHaveLength(1);
+      expect(results[0]!.project).toBe('acme/widgets');
+      expect(results[0]!.title).toBe('Widget obs');
+
+      await storage.close();
+    });
+
+    it('filters by type when type option is provided', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      await storage.saveObservation(
+        makeObservationData({ type: 'pattern', title: 'Pattern obs', content: 'Pattern content.' }),
+      );
+      await storage.saveObservation(
+        makeObservationData({ type: 'bugfix', title: 'Bugfix obs', content: 'Bugfix content.' }),
+      );
+      await storage.saveObservation(
+        makeObservationData({ type: 'learning', title: 'Learning obs', content: 'Learning content.' }),
+      );
+
+      const results = await storage.listObservations({ type: 'pattern' });
+
+      expect(results).toHaveLength(1);
+      expect(results[0]!.type).toBe('pattern');
+      expect(results[0]!.title).toBe('Pattern obs');
+
+      await storage.close();
+    });
+
+    it('combines project and type filters', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      await storage.saveObservation(
+        makeObservationData({ project: 'acme/widgets', type: 'bugfix', title: 'Widget bugfix', content: 'Widget bugfix content.' }),
+      );
+      await storage.saveObservation(
+        makeObservationData({ project: 'acme/widgets', type: 'pattern', title: 'Widget pattern', content: 'Widget pattern content.' }),
+      );
+      await storage.saveObservation(
+        makeObservationData({ project: 'acme/gadgets', type: 'bugfix', title: 'Gadget bugfix', content: 'Gadget bugfix content.' }),
+      );
+
+      const results = await storage.listObservations({ project: 'acme/widgets', type: 'bugfix' });
+
+      expect(results).toHaveLength(1);
+      expect(results[0]!.project).toBe('acme/widgets');
+      expect(results[0]!.type).toBe('bugfix');
+      expect(results[0]!.title).toBe('Widget bugfix');
+
+      await storage.close();
+    });
+
+    it('respects custom limit', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      for (let i = 0; i < 5; i++) {
+        await storage.saveObservation(
+          makeObservationData({
+            title: `Observation ${i}`,
+            content: `Content for observation ${i}.`,
+          }),
+        );
+      }
+
+      const results = await storage.listObservations({ limit: 2 });
+
+      expect(results).toHaveLength(2);
+
+      await storage.close();
+    });
+
+    it('returns empty array when no observations match', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      const results = await storage.listObservations();
+
+      expect(results).toEqual([]);
+
+      await storage.close();
+    });
+  });
+
+  // ── getObservation ──
+
+  describe('getObservation()', () => {
+    it('returns full MemoryObservationDetail for an existing observation', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      const saved = await storage.saveObservation(
+        makeObservationData({
+          project: 'acme/widgets',
+          type: 'pattern',
+          title: 'OAuth token refresh patterns',
+          content: 'Full multi-line content about OAuth.',
+          topicKey: 'auth-token-refresh',
+          filePaths: ['src/auth.ts', 'lib/token.ts'],
+        }),
+      );
+
+      const detail = await storage.getObservation(saved.id);
+
+      expect(detail).not.toBeNull();
+      expect(detail!.id).toBe(saved.id);
+      expect(detail!.type).toBe('pattern');
+      expect(detail!.title).toBe('OAuth token refresh patterns');
+      expect(detail!.content).toBe('Full multi-line content about OAuth.');
+      expect(detail!.filePaths).toEqual(['src/auth.ts', 'lib/token.ts']);
+      expect(detail!.project).toBe('acme/widgets');
+      expect(detail!.topicKey).toBe('auth-token-refresh');
+      expect(detail!.revisionCount).toBe(1);
+      expect(detail!.createdAt).toEqual(expect.any(String));
+      expect(detail!.updatedAt).toEqual(expect.any(String));
+
+      await storage.close();
+    });
+
+    it('returns null for a non-existent observation ID', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      const detail = await storage.getObservation(999);
+
+      expect(detail).toBeNull();
+
+      await storage.close();
+    });
+  });
+
+  // ── deleteObservation ──
+
+  describe('deleteObservation()', () => {
+    it('returns true when observation is found and deleted', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      const saved = await storage.saveObservation(
+        makeObservationData({ title: 'To delete', content: 'Content to delete.' }),
+      );
+
+      const result = await storage.deleteObservation(saved.id);
+
+      expect(result).toBe(true);
+
+      // Verify it's gone
+      const detail = await storage.getObservation(saved.id);
+      expect(detail).toBeNull();
+
+      await storage.close();
+    });
+
+    it('returns false when observation ID does not exist', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      const result = await storage.deleteObservation(999);
+
+      expect(result).toBe(false);
+
+      await storage.close();
+    });
+
+    it('cleans up FTS5 index so searchObservations returns empty after delete', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      const saved = await storage.saveObservation(
+        makeObservationData({
+          title: 'FTS5 cleanup target',
+          content: 'Unique xylophone content for FTS5 verification.',
+        }),
+      );
+
+      // Verify it can be found via search before delete
+      const beforeDelete = await storage.searchObservations('owner/repo', 'xylophone');
+      expect(beforeDelete).toHaveLength(1);
+
+      // Delete the observation
+      await storage.deleteObservation(saved.id);
+
+      // Verify FTS5 is cleaned up — search should return empty
+      const afterDelete = await storage.searchObservations('owner/repo', 'xylophone');
+      expect(afterDelete).toHaveLength(0);
+
+      await storage.close();
+    });
+  });
+
+  // ── getStats ──
+
+  describe('getStats()', () => {
+    it('returns correct stats for populated database', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      // Insert observations across multiple types and projects
+      await storage.saveObservation(
+        makeObservationData({ project: 'acme/widgets', type: 'pattern', title: 'Pattern 1', content: 'Pattern content 1.' }),
+      );
+      await storage.saveObservation(
+        makeObservationData({ project: 'acme/widgets', type: 'pattern', title: 'Pattern 2', content: 'Pattern content 2.' }),
+      );
+      await storage.saveObservation(
+        makeObservationData({ project: 'acme/widgets', type: 'bugfix', title: 'Bugfix 1', content: 'Bugfix content 1.' }),
+      );
+      await storage.saveObservation(
+        makeObservationData({ project: 'acme/gadgets', type: 'learning', title: 'Learning 1', content: 'Learning content 1.' }),
+      );
+
+      const stats = await storage.getStats();
+
+      expect(stats.totalObservations).toBe(4);
+      expect(stats.byType).toEqual({
+        pattern: 2,
+        bugfix: 1,
+        learning: 1,
+      });
+      expect(stats.byProject).toEqual({
+        'acme/widgets': 3,
+        'acme/gadgets': 1,
+      });
+      expect(stats.oldestObservation).toEqual(expect.any(String));
+      expect(stats.newestObservation).toEqual(expect.any(String));
+
+      await storage.close();
+    });
+
+    it('returns zeroes and nulls for empty database', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      const stats = await storage.getStats();
+
+      expect(stats.totalObservations).toBe(0);
+      expect(stats.byType).toEqual({});
+      expect(stats.byProject).toEqual({});
+      expect(stats.oldestObservation).toBeNull();
+      expect(stats.newestObservation).toBeNull();
+
+      await storage.close();
+    });
+  });
+
+  // ── clearObservations ──
+
+  describe('clearObservations()', () => {
+    it('deletes all observations and returns the count', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      await storage.saveObservation(
+        makeObservationData({ title: 'Obs 1', content: 'Content 1 for clear.' }),
+      );
+      await storage.saveObservation(
+        makeObservationData({ title: 'Obs 2', content: 'Content 2 for clear.' }),
+      );
+      await storage.saveObservation(
+        makeObservationData({ title: 'Obs 3', content: 'Content 3 for clear.' }),
+      );
+
+      const deleted = await storage.clearObservations();
+
+      expect(deleted).toBe(3);
+
+      // Verify DB is empty
+      const remaining = await storage.listObservations();
+      expect(remaining).toEqual([]);
+
+      await storage.close();
+    });
+
+    it('scoped clear deletes only the specified project', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      await storage.saveObservation(
+        makeObservationData({ project: 'acme/widgets', title: 'Widget obs', content: 'Widget content for clear.' }),
+      );
+      await storage.saveObservation(
+        makeObservationData({ project: 'acme/gadgets', title: 'Gadget obs', content: 'Gadget content for clear.' }),
+      );
+
+      const deleted = await storage.clearObservations({ project: 'acme/widgets' });
+
+      expect(deleted).toBe(1);
+
+      // Verify only acme/gadgets remains
+      const remaining = await storage.listObservations();
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]!.project).toBe('acme/gadgets');
+
+      await storage.close();
+    });
+
+    it('cleans up FTS5 index after clear so search returns empty', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'FTS5 bulk target',
+          content: 'Unique zephyr content for bulk FTS5 test.',
+        }),
+      );
+
+      // Verify searchable before clear
+      const beforeClear = await storage.searchObservations('owner/repo', 'zephyr');
+      expect(beforeClear).toHaveLength(1);
+
+      await storage.clearObservations();
+
+      // Verify FTS5 is cleaned up — search should return empty
+      const afterClear = await storage.searchObservations('owner/repo', 'zephyr');
+      expect(afterClear).toHaveLength(0);
+
+      await storage.close();
+    });
+  });
+
+  // ── FTS5 delete trigger idempotency ──
+
+  describe('FTS5 delete trigger idempotency', () => {
+    it('trigger functions correctly after re-opening an existing database', async () => {
+      // Phase 1: Create DB, insert observations, close (persist to file)
+      const storage1 = await SqliteMemoryStorage.create(dbPath);
+
+      await storage1.saveObservation(
+        makeObservationData({
+          title: 'Trigger test observation',
+          content: 'Unique quasar content for trigger idempotency.',
+        }),
+      );
+      await storage1.saveObservation(
+        makeObservationData({
+          title: 'Second trigger observation',
+          content: 'Another nebula content for trigger test.',
+        }),
+      );
+
+      await storage1.close();
+
+      // Phase 2: Re-open the SAME file — trigger should already exist via IF NOT EXISTS
+      const storage2 = await SqliteMemoryStorage.create(dbPath);
+
+      // Verify both observations are searchable
+      const beforeDelete = await storage2.searchObservations('owner/repo', 'quasar');
+      expect(beforeDelete).toHaveLength(1);
+
+      // Delete one observation
+      const deleted = await storage2.deleteObservation(beforeDelete[0]!.id);
+      expect(deleted).toBe(true);
+
+      // FTS5 should be clean — deleted observation no longer searchable
+      const afterDelete = await storage2.searchObservations('owner/repo', 'quasar');
+      expect(afterDelete).toHaveLength(0);
+
+      // The other observation should still be searchable
+      const otherStillExists = await storage2.searchObservations('owner/repo', 'nebula');
+      expect(otherStillExists).toHaveLength(1);
+
+      await storage2.close();
+    });
+
+    it('schema re-run on existing DB does not error (CREATE TRIGGER IF NOT EXISTS)', async () => {
+      // Create and close
+      const storage1 = await SqliteMemoryStorage.create(dbPath);
+      await storage1.close();
+
+      // Re-open — SCHEMA_SQL runs again; all CREATE ... IF NOT EXISTS should be no-ops
+      const storage2 = await SqliteMemoryStorage.create(dbPath);
+
+      // Should not throw; basic operation should work
+      const stats = await storage2.getStats();
+      expect(stats.totalObservations).toBe(0);
+
+      await storage2.close();
+    });
+  });
 });

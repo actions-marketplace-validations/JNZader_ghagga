@@ -10,7 +10,7 @@ import initSqlJs, { type Database } from 'fts5-sql-bundle';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { MemoryStorage, MemoryObservationRow } from '../types.js';
+import type { MemoryStorage, MemoryObservationRow, MemoryObservationDetail, MemoryStats, ListObservationsOptions } from '../types.js';
 
 /**
  * Extended Database interface — fts5-sql-bundle types omit the params overload
@@ -62,6 +62,11 @@ const SCHEMA_SQL = `
       VALUES ('delete', old.id, old.title, old.content);
     INSERT INTO memory_observations_fts(rowid, title, content)
       VALUES (new.id, new.title, new.content);
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS obs_fts_delete AFTER DELETE ON memory_observations BEGIN
+    INSERT INTO memory_observations_fts(memory_observations_fts, rowid, title, content)
+      VALUES ('delete', old.id, old.title, old.content);
   END;
 `;
 
@@ -257,6 +262,126 @@ export class SqliteMemoryStorage implements MemoryStorage {
       SET ended_at = datetime('now'), summary = ?
       WHERE id = ?
     `, [summary, sessionId]);
+  }
+
+  // ── Management methods ──────────────────────────────────────────
+
+  private mapToDetail(row: Record<string, unknown>): MemoryObservationDetail {
+    return {
+      id: row['id'] as number,
+      type: row['type'] as string,
+      title: row['title'] as string,
+      content: row['content'] as string,
+      filePaths: row['file_paths'] ? JSON.parse(row['file_paths'] as string) : null,
+      project: row['project'] as string,
+      topicKey: (row['topic_key'] as string) ?? null,
+      revisionCount: row['revision_count'] as number,
+      createdAt: row['created_at'] as string,
+      updatedAt: row['updated_at'] as string,
+    };
+  }
+
+  async listObservations(options: ListObservationsOptions = {}): Promise<MemoryObservationDetail[]> {
+    const { project, type, limit = 20, offset = 0 } = options;
+
+    let sql = `
+      SELECT id, type, title, content, file_paths, project, topic_key,
+             revision_count, created_at, updated_at
+      FROM memory_observations
+      WHERE 1=1
+    `;
+    const params: (string | number)[] = [];
+
+    if (project) {
+      sql += ' AND project = ?';
+      params.push(project);
+    }
+    if (type) {
+      sql += ' AND type = ?';
+      params.push(type);
+    }
+
+    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+
+    const stmt = this.db.prepare(sql);
+    stmt.bind(params);
+
+    const rows: MemoryObservationDetail[] = [];
+    while (stmt.step()) {
+      const row = stmt.getAsObject();
+      rows.push(this.mapToDetail(row));
+    }
+    stmt.free();
+    return rows;
+  }
+
+  async getObservation(id: number): Promise<MemoryObservationDetail | null> {
+    const stmt = this.db.prepare(`
+      SELECT id, type, title, content, file_paths, project, topic_key,
+             revision_count, created_at, updated_at
+      FROM memory_observations
+      WHERE id = ?
+    `);
+    stmt.bind([id]);
+
+    if (!stmt.step()) {
+      stmt.free();
+      return null;
+    }
+
+    const row = stmt.getAsObject();
+    stmt.free();
+    return this.mapToDetail(row);
+  }
+
+  async deleteObservation(id: number): Promise<boolean> {
+    this.db.run('DELETE FROM memory_observations WHERE id = ?', [id]);
+    return this.db.getRowsModified() > 0;
+  }
+
+  async getStats(): Promise<MemoryStats> {
+    // Query 1: totals and date range
+    const totals = this.db.exec(
+      'SELECT COUNT(*) AS total, MIN(created_at) AS oldest, MAX(created_at) AS newest FROM memory_observations',
+    );
+    const totalRow = totals[0]?.values[0];
+    const totalObservations = (totalRow?.[0] as number) ?? 0;
+    const oldestObservation = (totalRow?.[1] as string) ?? null;
+    const newestObservation = (totalRow?.[2] as string) ?? null;
+
+    // Query 2: count by type
+    const byTypeResult = this.db.exec(
+      'SELECT type, COUNT(*) AS count FROM memory_observations GROUP BY type ORDER BY count DESC',
+    );
+    const byType: Record<string, number> = {};
+    if (byTypeResult.length > 0) {
+      for (const row of byTypeResult[0]!.values) {
+        byType[row[0] as string] = row[1] as number;
+      }
+    }
+
+    // Query 3: count by project
+    const byProjectResult = this.db.exec(
+      'SELECT project, COUNT(*) AS count FROM memory_observations GROUP BY project ORDER BY count DESC',
+    );
+    const byProject: Record<string, number> = {};
+    if (byProjectResult.length > 0) {
+      for (const row of byProjectResult[0]!.values) {
+        byProject[row[0] as string] = row[1] as number;
+      }
+    }
+
+    return { totalObservations, byType, byProject, oldestObservation, newestObservation };
+  }
+
+  async clearObservations(options: { project?: string } = {}): Promise<number> {
+    if (options.project) {
+      this.db.run('DELETE FROM memory_observations WHERE project = ?', [options.project]);
+    } else {
+      this.db.run('DELETE FROM memory_observations');
+    }
+    return this.db.getRowsModified();
   }
 
   async close(): Promise<void> {

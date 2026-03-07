@@ -323,6 +323,23 @@ export interface MemoryStorage {
 
   /** Release resources. SQLite: export to disk. PostgreSQL: no-op. */
   close(): Promise<void>;
+
+  // ── Management methods (this change) ──────────────────────────
+
+  /** List observations with optional filtering and pagination. */
+  listObservations(options?: ListObservationsOptions): Promise<MemoryObservationDetail[]>;
+
+  /** Get a single observation by ID. Returns null if not found. */
+  getObservation(id: number): Promise<MemoryObservationDetail | null>;
+
+  /** Delete a single observation by ID. Returns true if deleted, false if not found. */
+  deleteObservation(id: number): Promise<boolean>;
+
+  /** Get aggregate statistics about the memory store. */
+  getStats(): Promise<MemoryStats>;
+
+  /** Delete all observations, optionally scoped to a project. Returns count of deleted rows. */
+  clearObservations(options?: { project?: string }): Promise<number>;
 }
 
 /**
@@ -335,6 +352,46 @@ export interface MemoryObservationRow {
   title: string;
   content: string;
   filePaths: string[] | null;
+}
+
+/**
+ * Full observation row with all database columns.
+ * Used by management commands (list, show, stats).
+ * Extends MemoryObservationRow with metadata fields.
+ */
+export interface MemoryObservationDetail {
+  id: number;
+  type: string;
+  title: string;
+  content: string;
+  filePaths: string[] | null;
+  project: string;
+  topicKey: string | null;
+  revisionCount: number;
+  createdAt: string;   // ISO 8601 from SQLite datetime()
+  updatedAt: string;   // ISO 8601 from SQLite datetime()
+}
+
+/**
+ * Aggregate statistics about the memory store.
+ * Used by the `ghagga memory stats` command.
+ */
+export interface MemoryStats {
+  totalObservations: number;
+  byType: Record<string, number>;
+  byProject: Record<string, number>;
+  oldestObservation: string | null;  // ISO 8601, null if empty
+  newestObservation: string | null;  // ISO 8601, null if empty
+}
+
+/**
+ * Options for listing observations with filtering and pagination.
+ */
+export interface ListObservationsOptions {
+  project?: string;
+  type?: string;
+  limit?: number;
+  offset?: number;
 }
 
 // ─── Configuration Defaults ─────────────────────────────────────

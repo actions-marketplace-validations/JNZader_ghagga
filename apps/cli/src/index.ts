@@ -32,6 +32,7 @@ import { reviewCommand } from './commands/review.js';
 import { loginCommand } from './commands/login.js';
 import { logoutCommand } from './commands/logout.js';
 import { statusCommand } from './commands/status.js';
+import { memoryCommand } from './commands/memory/index.js';
 
 // Read version from package.json at runtime (no hardcoded strings)
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -188,6 +189,10 @@ program
       verbose: options.verbose ?? false,
     });
   });
+
+// ─── Memory ─────────────────────────────────────────────────────
+
+program.addCommand(memoryCommand);
 
 program.parse();
 
