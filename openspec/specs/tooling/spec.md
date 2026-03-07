@@ -215,6 +215,105 @@ Both MUST fall back to the current hardcoded value if the environment variable i
 
 ---
 
+### Requirement: CI Security Scanning
+
+> **Origin**: Archived from `ci-hardening` change (2026-03-07)
+
+The CI workflow (`.github/workflows/ci.yml`) MUST include a `security` job that runs on every push and PR to main.
+
+The `security` job MUST run `pnpm audit --prod --audit-level=high` to flag high and critical dependency vulnerabilities.
+
+The `security` job MUST use `continue-on-error: true` — it warns but does not block CI.
+
+The `security` job MUST run in parallel with existing `check` and `lint` jobs (no dependencies).
+
+#### Scenario: PR triggers security scanning
+
+- GIVEN a pull request is opened against `main`
+- WHEN the CI pipeline runs
+- THEN the `security` job MUST execute `pnpm audit --prod --audit-level=high`
+- AND the job MUST NOT block other jobs from running
+
+#### Scenario: pnpm audit finds high vulnerability
+
+- GIVEN a dependency has a known high-severity vulnerability
+- WHEN the `security` job runs
+- THEN the vulnerability MUST be reported in the job logs
+- AND CI MUST continue (not fail) due to `continue-on-error: true`
+
+#### Scenario: pnpm audit network error
+
+- GIVEN the npm registry is unreachable during CI
+- WHEN the `security` job attempts to run `pnpm audit`
+- THEN `continue-on-error` MUST prevent CI failure
+
+---
+
+### Requirement: CI Coverage Reporting
+
+> **Origin**: Archived from `ci-hardening` change (2026-03-07)
+
+The existing CI `test` job MUST run `pnpm exec turbo test:coverage` instead of `pnpm exec turbo test`.
+
+All workspace packages already define `test:coverage` scripts — no `package.json` changes are needed.
+
+Coverage output directories MUST be uploaded as CI artifacts with 7-day retention.
+
+No external coverage services are required (no Codecov, no SonarCloud).
+
+#### Scenario: Test job generates coverage
+
+- GIVEN a push or PR triggers CI
+- WHEN the `test` job runs
+- THEN it MUST execute `pnpm exec turbo test:coverage`
+- AND coverage artifacts MUST be uploaded with 7-day retention
+
+#### Scenario: No coverage data generated
+
+- GIVEN a workspace package has no tests or produces no coverage output
+- WHEN the artifact upload step runs
+- THEN `if-no-files-found: ignore` MUST prevent the step from failing
+
+---
+
+### Requirement: CI Mutation Testing
+
+> **Origin**: Archived from `ci-hardening` change (2026-03-07)
+
+The CI workflow MUST include a `mutation` job that runs **only** on pushes to main (`github.event_name == 'push'`).
+
+The `mutation` job MUST depend on the test job: `needs: [test]`.
+
+The `mutation` job MUST run Stryker only on `packages/core` (the most critical code).
+
+The `mutation` job MUST have a `timeout-minutes: 30` limit.
+
+The `mutation` job MUST use `continue-on-error: true` — mutation score is informational.
+
+The mutation report MUST be uploaded as a CI artifact.
+
+#### Scenario: Push to main triggers mutation testing
+
+- GIVEN a push to `main` triggers CI
+- WHEN the `test` job completes successfully
+- THEN the `mutation` job MUST run Stryker on `packages/core`
+- AND the mutation report MUST be uploaded as an artifact
+
+#### Scenario: PR does not trigger mutation testing
+
+- GIVEN a pull request is opened against `main`
+- WHEN the CI pipeline runs
+- THEN the `mutation` job MUST NOT run
+
+#### Scenario: Stryker exceeds timeout
+
+- GIVEN the mutation job is running Stryker
+- WHEN the job exceeds 30 minutes
+- THEN the job MUST be killed at the timeout limit
+- AND CI MUST continue (not fail)
+
+---
+
 ## Coverage Summary
 
 | Requirement | Happy Paths | Edge Cases | Error States |
@@ -225,3 +324,6 @@ Both MUST fall back to the current hardcoded value if the environment variable i
 | Clean Codebase | Full lint passes | biome-ignore with justification | — |
 | Logger in OAuth | Errors logged via pino | — | No console.error remains |
 | Client ID from env | Reads from env var | Falls back to hardcoded value | — |
+| CI Security Scanning | Audit runs on every push/PR | Network error handled | Warnings don't block CI |
+| CI Coverage Reporting | Coverage generated and uploaded | No coverage data handled | — |
+| CI Mutation Testing | Stryker runs on push to main | PR skips mutation | Timeout at 30 min, continue-on-error |
