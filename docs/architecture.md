@@ -48,9 +48,9 @@ Each adapter does the minimum work necessary to bridge between its I/O world and
 |---------|-------|--------|--------|----------------|
 | **Server** | GitHub webhook | PR comment via GitHub API | Yes (PostgreSQL) | Delegated to runner |
 | **Action** | PR event in GitHub Actions | PR comment via Octokit | Yes (SQLite) | Direct on runner |
-| **CLI** | Local `git diff` | Terminal output (markdown/json) | Yes (SQLite) | If installed locally |
+| **CLI** | Local `git diff` | Terminal output (markdown/json) | Yes (SQLite or Engram) | If installed locally |
 
-> Memory uses PostgreSQL + tsvector FTS in Server mode, and a lightweight SQLite database (via `sql.js` WASM) with FTS5 full-text search in CLI and Action modes. This means all three distribution modes have full memory support.
+> Memory uses PostgreSQL + tsvector FTS in Server mode, SQLite (via `sql.js` WASM) with FTS5 in Action mode, and SQLite or [Engram](https://github.com/Gentleman-Programming/engram) in CLI mode (`--memory-backend engram`). All three distribution modes have full memory support.
 
 ## Monorepo Structure
 
@@ -63,7 +63,7 @@ ghagga/
 │   │       ├── types.ts        # All TypeScript interfaces
 │   │       ├── agents/         # Simple, Workflow, Consensus
 │   │       ├── tools/          # Semgrep, Trivy, CPD runners
-│   │       ├── memory/         # Search, persist, privacy
+│   │       ├── memory/         # Search, persist, privacy, engram.ts
 │   │       ├── providers/      # Vercel AI SDK multi-provider
 │   │       └── utils/          # Diff parsing, stack detect, tokens
 │   └── db/             # @ghagga/db — Database layer

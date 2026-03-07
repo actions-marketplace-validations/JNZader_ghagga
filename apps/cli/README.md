@@ -52,7 +52,15 @@ npx ghagga status    # Show auth & config
 npx ghagga logout    # Clear credentials
 ```
 
-### 4. Manage review memory
+### 4. Install git hooks (optional)
+
+```bash
+npx ghagga hooks install    # Auto-review on every commit
+npx ghagga hooks status     # Check hook status
+npx ghagga hooks uninstall  # Remove hooks
+```
+
+### 5. Manage review memory
 
 ```bash
 npx ghagga memory list                    # List stored observations
@@ -98,8 +106,28 @@ Options:
   --no-trivy                 Disable Trivy vulnerability scanning
   --no-cpd                   Disable CPD duplicate detection
   --no-memory                Disable review memory (skip search and persist)
+  --memory-backend <type>    Memory backend: sqlite (default) or engram
+  --staged                   Review only staged files (for pre-commit hook)
+  --quick                    Static analysis only, skip AI review (~5-10s)
+  --commit-msg <file>        Validate commit message from file
+  --exit-on-issues           Exit with code 1 if critical/high issues found
   -c, --config <path>        Path to .ghagga.json config file
 ```
+
+## Git Hooks
+
+Install git hooks for automatic code review on every commit:
+
+```bash
+ghagga hooks install                  # Install pre-commit + commit-msg hooks
+ghagga hooks install --force          # Overwrite existing hooks (backs up originals)
+ghagga hooks install --pre-commit     # Only pre-commit hook
+ghagga hooks install --commit-msg     # Only commit-msg hook
+ghagga hooks uninstall                # Remove GHAGGA-managed hooks
+ghagga hooks status                   # Show hook status
+```
+
+Hooks auto-detect `ghagga` in PATH and fail gracefully if not found. Installed hooks use `--plain --exit-on-issues` automatically.
 
 ## Memory Subcommands
 
@@ -160,10 +188,13 @@ ghagga review --provider ollama
 ## Environment Variables
 
 ```bash
-GHAGGA_API_KEY=<key>       # API key for the LLM provider
-GHAGGA_PROVIDER=<provider> # LLM provider override
-GHAGGA_MODEL=<model>       # Model identifier override
-GITHUB_TOKEN=<token>       # GitHub token (fallback for github provider)
+GHAGGA_API_KEY=<key>              # API key for the LLM provider
+GHAGGA_PROVIDER=<provider>        # LLM provider override
+GHAGGA_MODEL=<model>              # Model identifier override
+GHAGGA_MEMORY_BACKEND=<type>      # Memory backend: sqlite (default) or engram
+GHAGGA_ENGRAM_HOST=<url>          # Engram server URL (default: http://localhost:7437)
+GHAGGA_ENGRAM_TIMEOUT=<seconds>   # Engram connection timeout (default: 5)
+GITHUB_TOKEN=<token>              # GitHub token (fallback for github provider)
 ```
 
 ## Config File
@@ -183,13 +214,15 @@ Create a `.ghagga.json` in your project root:
 
 ## How It Works
 
-1. Gets your `git diff` (staged or uncommitted changes)
+1. Gets your `git diff` (staged or uncommitted changes; `--staged` uses `git diff --cached`)
 2. Parses the diff and detects tech stacks
 3. Runs static analysis (Semgrep, Trivy, CPD) if available
-4. Searches local memory for relevant past observations (SQLite + FTS5 at `~/.config/ghagga/memory.db`)
-5. Sends the diff + static findings + memory context to the AI review agent
+4. Searches memory for relevant past observations (SQLite + FTS5 at `~/.config/ghagga/memory.db`, or Engram if `--memory-backend engram`)
+5. Sends the diff + static findings + memory context to the AI review agent (skipped with `--quick`)
 6. Returns findings with severity, file, line, and suggestions
 7. Persists new observations (decisions, patterns, bug fixes) to local memory for future reviews
+
+With `ghagga hooks install`, steps 1-7 run automatically on every commit via pre-commit and commit-msg hooks.
 
 ## Requirements
 

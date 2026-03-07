@@ -7,7 +7,7 @@
 | **Monorepo** | pnpm workspaces + Turborepo | Fast installs, parallel builds, caching |
 | **Language** | TypeScript 5.7 (strict mode) | Type safety across all packages |
 | **Backend** | Hono 4 | Fastest TS framework, 14KB, runs anywhere |
-| **Database** | PostgreSQL 16 + Drizzle ORM, sql.js (CLI/Action) | Zero-overhead SQL, tsvector FTS, plain TS migrations; WASM SQLite with FTS5 for CLI/Action |
+| **Database** | PostgreSQL 16 + Drizzle ORM, sql.js (CLI/Action), [Engram](https://github.com/Gentleman-Programming/engram) (optional CLI) | Zero-overhead SQL, tsvector FTS, plain TS migrations; WASM SQLite with FTS5 for CLI/Action; Engram HTTP API for cross-tool memory sharing |
 | **AI** | Vercel AI SDK 4 | Multi-provider (6 providers), streaming, structured output, fallback chains |
 | **Async** | Inngest 3 | Zero-infra durable functions, step checkpointing, automatic retries |
 | **Frontend** | React 19 + Vite + Tailwind 3 | Lazy-loaded routes, vendor splitting, dark theme |
@@ -42,13 +42,13 @@ Zero infrastructure — no Redis. 50k events/month free. Step-based checkpointin
 
 ## Test Suite
 
-1,728 tests across 6 packages. All passing.
+1,940 tests across 6 packages. All passing.
 
 | Package | Tests | What's Covered |
 |---------|------:|----------------|
-| `@ghagga/core` | 526 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), tools (semgrep, trivy, cpd), parsers, security audit |
+| `@ghagga/core` | 675 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), tools (semgrep, trivy, cpd), parsers, security audit, Engram memory adapter |
 | `@ghagga/db` | 118 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto |
 | `@ghagga/server` | 413 | API routes, webhooks, auth middleware, provider validation, Inngest review function, GitHub client, runner dispatch, callback verification |
-| `ghagga` (CLI) | 209 | Config resolution, review command — input validation, output formatting, exit codes |
+| `ghagga` (CLI) | 272 | Config resolution, review command — input validation, output formatting, exit codes, git hooks (install, uninstall, status) |
 | `@ghagga/action` | 195 | Input parsing, output setting, comment formatting, error handling, tool installation, cache management |
 | `@ghagga/dashboard` | 267 | Component rendering |

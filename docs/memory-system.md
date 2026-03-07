@@ -90,9 +90,50 @@ Memory is available in **all 3 distribution modes**:
 |-------------|-----------------|-----------------|
 | Server (SaaS) | Yes | PostgreSQL + tsvector FTS |
 | CLI | Yes (SQLite + FTS5) | `~/.config/ghagga/memory.db` |
+| CLI + Engram | Yes (Engram HTTP API) | Engram server (default: `http://localhost:7437`) |
 | GitHub Action | Yes (SQLite + FTS5) | Persisted via `@actions/cache` |
 
 The pipeline degrades gracefully — if the memory database is inaccessible for any reason, reviews still work using only the current diff and static analysis.
+
+## Engram Integration
+
+The CLI supports [Engram](https://github.com/Gentleman-Programming/engram) as an alternative memory backend. Engram is a cross-tool memory system that enables memory sharing between GHAGGA, Claude Code, OpenCode, Gemini CLI, GGA, and other compatible tools.
+
+### Configuration
+
+Enable the Engram backend via CLI flag or environment variable:
+
+```bash
+# Via CLI flag
+ghagga review --memory-backend engram
+
+# Via environment variables
+export GHAGGA_MEMORY_BACKEND=engram
+export GHAGGA_ENGRAM_HOST=http://localhost:7437   # default
+export GHAGGA_ENGRAM_TIMEOUT=5                     # seconds, default
+```
+
+### Schema Mapping
+
+GHAGGA observations are mapped to Engram memories as follows:
+
+| GHAGGA Field | Engram Field | Format |
+|-------------|-------------|--------|
+| `severity` | content tag | `[severity:xxx]` tag in content |
+| `filePaths` | content footer | `Files: ...` appended to content |
+| `topicKey` | `topic_key` | Direct mapping |
+| Source | content tag | Tagged as `Source: ghagga` |
+
+### What Engram Enables
+
+- **Cross-tool context**: Review insights from GHAGGA are available to Claude Code, OpenCode, Gemini CLI, GGA, and any Engram-compatible tool
+- **`engram tui`**: Browse GHAGGA review memories from the Engram terminal UI
+- **`engram sync`**: Share memories across machines via git
+- **Bidirectional learning**: What Claude Code learns about your codebase enriches GHAGGA reviews, and vice versa
+
+### Graceful Degradation
+
+If the Engram server is unreachable (connection refused, timeout, or error), the CLI automatically falls back to the local SQLite backend. A warning is logged, but the review continues without interruption.
 
 ## SQLite Storage Backend
 

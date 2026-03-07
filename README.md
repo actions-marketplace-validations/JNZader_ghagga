@@ -145,6 +145,9 @@ ghagga review --provider ollama --model qwen2.5-coder:7b
 ghagga memory list
 ghagga memory search "error handling"
 ghagga memory stats
+
+# Install git hooks (optional)
+ghagga hooks install
 ```
 
 #### CLI Commands
@@ -156,6 +159,7 @@ ghagga memory stats
 | `ghagga status` | Show auth and configuration |
 | `ghagga review [path]` | Review local code changes |
 | `ghagga memory <subcommand>` | Inspect, search, and manage review memory (`list`, `search`, `show`, `delete`, `stats`, `clear`) |
+| `ghagga hooks <subcommand>` | Install, uninstall, and check status of git hooks (`install`, `uninstall`, `status`) |
 
 #### CLI Options
 
@@ -171,6 +175,11 @@ ghagga memory stats
 | `--no-trivy` | — | — | Disable Trivy |
 | `--no-cpd` | — | — | Disable CPD |
 | `--no-memory` | — | — | Disable review memory |
+| `--staged` | — | — | Review only staged files (for pre-commit hook usage) |
+| `--quick` | — | — | Static analysis only, skip AI review (~5-10s vs ~30-60s) |
+| `--commit-msg <file>` | — | — | Validate commit message from file |
+| `--exit-on-issues` | — | — | Exit with code 1 if critical/high issues found |
+| `--memory-backend <type>` | — | `sqlite` | Memory backend: `sqlite` or `engram` |
 | `--plain` | — | — | Disable styled terminal output (auto-enabled in non-TTY/CI) |
 | `--config <path>` | `-c` | `.ghagga.json` | Path to config file |
 | `--verbose` | `-v` | — | Show real-time progress of each pipeline step |
@@ -467,7 +476,7 @@ Before any observation is stored in memory, GHAGGA strips sensitive data using 1
 | Password/secret assignments | `password = "..."` | `[REDACTED]` |
 | Base64 credentials | `SECRET=aGVsbG8...` | `[REDACTED_BASE64]` |
 
-> Memory is available in **all 3 distribution modes**: Server uses PostgreSQL + tsvector FTS, while CLI and Action use a lightweight SQLite database (via `sql.js` WASM) with FTS5 full-text search. CLI stores its database at `~/.config/ghagga/memory.db`; Action persists its database across runs via `@actions/cache`.
+> Memory is available in **all 3 distribution modes**: Server uses PostgreSQL + tsvector FTS, Action uses SQLite, and CLI uses SQLite by default with an optional [Engram](https://github.com/Gentleman-Programming/engram) backend (`--memory-backend engram`). The Engram backend connects via HTTP API and enables cross-tool memory sharing with Claude Code, OpenCode, Gemini CLI, and other Engram-compatible tools. If Engram is unreachable, the CLI falls back to SQLite automatically.
 
 ---
 
@@ -613,6 +622,12 @@ ghagga/
 │   │       ├── index.ts           # Commander entry point
 │   │       ├── commands/
 │   │       │   ├── review.ts      # Git diff → pipeline → output
+│   │       │   ├── review-commit-msg.ts  # Commit message validation
+│   │       │   ├── hooks/         # Git hooks management
+│   │       │   │   ├── index.ts   # Hooks command group
+│   │       │   │   ├── install.ts # Install pre-commit/commit-msg hooks
+│   │       │   │   ├── uninstall.ts # Remove GHAGGA-managed hooks
+│   │       │   │   └── status.ts  # Show hook status
 │   │       │   └── memory/        # Memory management subcommands
 │   │       │       ├── list.ts    # List observations (with filters)
 │   │       │       ├── search.ts  # Full-text search across memory
@@ -674,6 +689,9 @@ ghagga/
 | `INNGEST_EVENT_KEY` | Server only | Inngest event ingestion key |
 | `INNGEST_SIGNING_KEY` | Server only | Inngest webhook signing key |
 | `ENCRYPTION_KEY` | Server only | 64-character hex string for AES-256-GCM encryption |
+| `GHAGGA_MEMORY_BACKEND` | CLI only | Memory backend: `sqlite` (default) or `engram` |
+| `GHAGGA_ENGRAM_HOST` | CLI only | Engram server URL (default: `http://localhost:7437`) |
+| `GHAGGA_ENGRAM_TIMEOUT` | CLI only | Engram connection timeout in seconds (default: `5`) |
 | `PORT` | No | Server port (default: `3000`) |
 | `NODE_ENV` | No | `development` or `production` |
 
@@ -737,19 +755,19 @@ pnpm --filter @ghagga/dashboard dev
 ```bash
 pnpm exec turbo typecheck    # Typecheck all packages
 pnpm exec turbo build         # Build all packages
-pnpm exec turbo test          # Run all 1,728 tests
+pnpm exec turbo test          # Run all 1,940 tests
 ```
 
 ### Test Suite
 
-1,728 tests across 6 packages. All passing.
+1,940 tests across 6 packages. All passing.
 
 | Package | Tests | What's Covered |
 |---------|------:|----------------|
-| `@ghagga/core` | 526 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), static analysis tools (semgrep, trivy, cpd), parsers, security audit, review calibration |
+| `@ghagga/core` | 675 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), static analysis tools (semgrep, trivy, cpd), parsers, security audit, review calibration, Engram memory adapter |
 | `@ghagga/db` | 118 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto (roundtrip, tamper, edge cases) |
 | `@ghagga/server` | 413 | API routes, webhook handlers, auth middleware, provider validation, Inngest review function, GitHub client, runner dispatch, callback verification |
-| `ghagga` (CLI) | 209 | Config resolution, review command — input validation, output formatting, exit codes |
+| `ghagga` (CLI) | 272 | Config resolution, review command — input validation, output formatting, exit codes, git hooks (install, uninstall, status) |
 | `@ghagga/action` | 195 | Input parsing, output setting, comment formatting, error handling, tool installation, cache management |
 | `@ghagga/dashboard` | 267 | Component rendering |
 
@@ -817,7 +835,7 @@ GHAGGA v2 is a **complete rewrite** from scratch. The v1 codebase (~11,000 lines
 | Runtime | Deno + Node.js + Python | Node.js only |
 | Database | Supabase (hosted PostgreSQL) | Any PostgreSQL (self-hosted or cloud) |
 | Deploy steps | 10+ manual steps | 3 env vars + `docker compose up` |
-| Test suite | 0 tests | 1,728 tests |
+| Test suite | 0 tests | 1,940 tests |
 | Distribution modes | 1 (webhook only) | 3 (SaaS, Action, CLI) |
 | Static analysis | Semgrep only (via microservice) | Semgrep + Trivy + CPD (direct binary execution) |
 | Memory | Partial (stored but never consumed) | Full pipeline (search → inject → review → extract → persist) |

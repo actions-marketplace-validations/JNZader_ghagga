@@ -11,6 +11,7 @@ Review local code changes from your terminal with AI-powered analysis. The CLI i
 The CLI is best for:
 
 - **Local development** — review changes before committing or pushing
+- **Pre-commit hooks** — automatic review on every commit via `ghagga hooks install`
 - **Pre-push checks** — catch issues before they hit CI
 - **CI/CD pipelines** — integrate reviews into any pipeline with exit codes
 - **Reviewing specific files** — target a directory or subdirectory with `ghagga review ./src`
@@ -128,7 +129,7 @@ flowchart LR
     M2 --> G["Display in terminal"]
 ```
 
-1. The CLI runs `git diff` (staged changes first, then falls back to uncommitted changes)
+1. The CLI runs `git diff` (staged changes first, then falls back to uncommitted changes; `--staged` forces `git diff --cached` only)
 2. The diff is parsed and the tech stack is auto-detected from file extensions
 3. If Semgrep, Trivy, or CPD are installed locally, static analysis runs first (zero LLM tokens)
 4. Relevant observations are retrieved from the local memory database via FTS5 full-text search
@@ -137,13 +138,22 @@ flowchart LR
 7. New observations (decisions, patterns, bugs) are extracted and persisted to memory
 8. The result is formatted as markdown (default) or JSON and printed to stdout
 
-> 💡 **Memory**: The CLI includes a local SQLite memory database (via `sql.js` WASM) stored at `~/.config/ghagga/memory.db`. Past observations are searched using FTS5 full-text search and injected into agent prompts, just like the Server mode. Observations from each review are persisted locally so your project memory grows over time. Use `--no-memory` to disable memory for a single review, or manage stored observations with `ghagga memory`.
+### Git Hooks Workflow
+
+When git hooks are installed via `ghagga hooks install`, the review runs automatically on each commit:
+
+- **pre-commit**: Runs `ghagga review --staged --plain --exit-on-issues`. Uses `--quick` mode by default for fast feedback (~5-10s). If critical/high issues are found, the commit is blocked.
+- **commit-msg**: Runs `ghagga review --commit-msg <file> --plain --exit-on-issues`. Validates message format (empty, too short, subject >72 chars, trailing period, missing body separation).
+
+Hooks auto-detect `ghagga` in PATH and skip gracefully if not found, so they won't break your workflow if GHAGGA is uninstalled.
+
+> 💡 **Memory**: The CLI includes a local SQLite memory database (via `sql.js` WASM) stored at `~/.config/ghagga/memory.db`. Past observations are searched using FTS5 full-text search and injected into agent prompts, just like the Server mode. Observations from each review are persisted locally so your project memory grows over time. Use `--no-memory` to disable memory for a single review, or manage stored observations with `ghagga memory`. Alternatively, use `--memory-backend engram` to store observations in [Engram](https://github.com/Gentleman-Programming/engram), enabling cross-tool memory sharing with Claude Code, OpenCode, Gemini CLI, and other Engram-compatible tools. If Engram is unreachable, the CLI falls back to SQLite automatically.
 
 ---
 
 ## Commands
 
-The CLI has 5 commands:
+The CLI has 6 commands:
 
 ### `ghagga login`
 
@@ -213,6 +223,41 @@ ghagga memory search "error handling"
 ghagga memory stats
 ```
 
+### `ghagga hooks`
+
+Install, uninstall, and check status of git hooks for automated code review on commit.
+
+#### `ghagga hooks install [--force] [--pre-commit] [--commit-msg]`
+
+Install GHAGGA-managed git hooks in the current repository. By default, installs both `pre-commit` and `commit-msg` hooks. Use `--pre-commit` or `--commit-msg` to install only one.
+
+```bash
+ghagga hooks install                  # Install both hooks
+ghagga hooks install --pre-commit     # Only pre-commit hook
+ghagga hooks install --commit-msg     # Only commit-msg hook
+ghagga hooks install --force          # Overwrite existing hooks (backs up originals)
+```
+
+- Hooks auto-detect `ghagga` in PATH and fail gracefully if not found.
+- `--force` backs up existing hooks (e.g., `pre-commit.bak`) before overwriting.
+- Installed hooks use `--plain --exit-on-issues` automatically.
+
+#### `ghagga hooks uninstall`
+
+Remove GHAGGA-managed hooks from the current repository.
+
+```bash
+ghagga hooks uninstall
+```
+
+#### `ghagga hooks status`
+
+Show the current status of git hooks in the repository (installed, not installed, or third-party).
+
+```bash
+ghagga hooks status
+```
+
 ---
 
 ## Review Command Options
@@ -229,7 +274,12 @@ ghagga memory stats
 | `--no-trivy` | — | — | Disable Trivy vulnerability scanning |
 | `--no-cpd` | — | — | Disable CPD duplicate detection |
 | `--no-memory` | — | — | Disable review memory (skip search and persist steps) |
+| `--memory-backend <type>` | — | `sqlite` | Memory backend: `sqlite` or `engram` |
 | `--config <path>` | `-c` | `.ghagga.json` | Path to config file (must be a file path, not inline JSON) |
+| `--staged` | — | — | Review only staged files (uses `git diff --cached`; designed for pre-commit hook) |
+| `--quick` | — | — | Static analysis only, skip AI review (~5-10s vs ~30-60s) |
+| `--commit-msg <file>` | — | — | Validate commit message from file (empty, too short, subject >72 chars, trailing period, body separation) |
+| `--exit-on-issues` | — | — | Exit with code 1 if critical/high issues found |
 | `--verbose` | `-v` | — | Show real-time progress of each pipeline step |
 
 ---
@@ -251,10 +301,13 @@ ghagga memory stats
 The CLI supports environment variables as an alternative to CLI flags:
 
 ```bash
-GHAGGA_API_KEY=<key>       # API key for the LLM provider
-GHAGGA_PROVIDER=<provider> # LLM provider override
-GHAGGA_MODEL=<model>       # Model identifier override
-GITHUB_TOKEN=<token>       # GitHub token (fallback for github provider)
+GHAGGA_API_KEY=<key>              # API key for the LLM provider
+GHAGGA_PROVIDER=<provider>        # LLM provider override
+GHAGGA_MODEL=<model>              # Model identifier override
+GHAGGA_MEMORY_BACKEND=<type>      # Memory backend: sqlite (default) or engram
+GHAGGA_ENGRAM_HOST=<url>          # Engram server URL (default: http://localhost:7437)
+GHAGGA_ENGRAM_TIMEOUT=<seconds>   # Engram connection timeout (default: 5)
+GITHUB_TOKEN=<token>              # GitHub token (fallback for github provider)
 ```
 
 ### Resolution Priority

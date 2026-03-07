@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.2.0] - 2026-03-07
+
+### Added
+- **Git Hooks Support** — `ghagga hooks install/uninstall/status` command group for automated pre-commit and commit-msg review. Hooks auto-detect `ghagga` in PATH with graceful fallback.
+- **`--staged` Flag** — Review only staged files via `git diff --cached` (for pre-commit hook).
+- **`--quick` Flag** — Static analysis only, skip AI review (~5-10s vs ~30-60s).
+- **`--commit-msg` Flag** — Validate commit message from file (subject length, format, body separation).
+- **`--exit-on-issues` Flag** — Exit with code 1 when critical/high issues found (blocks commit).
+- **Engram Memory Adapter** — `EngramMemoryStorage` connects GHAGGA to the Engram ecosystem via HTTP API. Review insights shared with Claude Code, OpenCode, Gemini CLI, GGA, and any MCP-compatible tool.
+- **`--memory-backend` Flag** — Select memory backend: `sqlite` (default) or `engram`.
+- **3 New Environment Variables** — `GHAGGA_MEMORY_BACKEND`, `GHAGGA_ENGRAM_HOST`, `GHAGGA_ENGRAM_TIMEOUT`.
+
+### Testing
+- **1,940 Total Tests** — Added 63 hooks tests + 149 Engram adapter tests. Per-package: db:118, core:675, cli:272, server:413, action:195, dashboard:267.
+- **91.61% Mutation Score** — Stryker mutation testing on EngramMemoryStorage (client: 87.96%, mapping: 91.40%, adapter: 95.41%).
+
 ## [2.1.0] - 2026-03-07
 
 ### Added
