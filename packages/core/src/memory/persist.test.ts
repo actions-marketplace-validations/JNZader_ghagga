@@ -19,11 +19,16 @@ function createMockStorage(overrides: Partial<MemoryStorage> = {}): MemoryStorag
   return {
     searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockResolvedValue([]),
     saveObservation: vi.fn<MemoryStorage['saveObservation']>().mockResolvedValue({
-      id: 1, type: 'pattern', title: 'test', content: 'test', filePaths: null,
+      id: 1, type: 'pattern', title: 'test', content: 'test', filePaths: null, severity: null,
     }),
     createSession: vi.fn<MemoryStorage['createSession']>().mockResolvedValue({ id: 1 }),
     endSession: vi.fn<MemoryStorage['endSession']>().mockResolvedValue(undefined),
     close: vi.fn<MemoryStorage['close']>().mockResolvedValue(undefined),
+    listObservations: vi.fn().mockResolvedValue([]),
+    getObservation: vi.fn().mockResolvedValue(null),
+    deleteObservation: vi.fn().mockResolvedValue(false),
+    getStats: vi.fn().mockResolvedValue({ totalObservations: 0, byType: {}, byProject: {}, oldestObservation: null, newestObservation: null }),
+    clearObservations: vi.fn().mockResolvedValue(0),
     ...overrides,
   };
 }
@@ -123,7 +128,7 @@ describe('persistReviewObservations', () => {
 
   // ── Filtering: only critical and high ──
 
-  it('only persists critical and high severity findings', async () => {
+  it('persists critical, high, and medium severity findings', async () => {
     const findings = [
       makeFinding({ severity: 'critical', message: 'Critical issue' }),
       makeFinding({ severity: 'high', message: 'High issue' }),
@@ -136,13 +141,12 @@ describe('persistReviewObservations', () => {
 
     await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    // 2 finding observations + 1 summary = 3 saveObservation calls
-    expect(storage.saveObservation).toHaveBeenCalledTimes(3);
+    // 3 finding observations + 1 summary = 4 saveObservation calls
+    expect(storage.saveObservation).toHaveBeenCalledTimes(4);
   });
 
-  it('does not persist medium, low, or info findings', async () => {
+  it('does not persist low or info findings', async () => {
     const findings = [
-      makeFinding({ severity: 'medium', message: 'Medium' }),
       makeFinding({ severity: 'low', message: 'Low' }),
       makeFinding({ severity: 'info', message: 'Info' }),
     ];
@@ -154,6 +158,39 @@ describe('persistReviewObservations', () => {
     // No significant findings → no session, no observations, no summary
     expect(storage.createSession).not.toHaveBeenCalled();
     expect(storage.saveObservation).not.toHaveBeenCalled();
+  });
+
+  it('persists medium severity findings as significant', async () => {
+    const findings = [
+      makeFinding({ severity: 'medium', message: 'Medium issue' }),
+    ];
+    const result = makeResult(findings);
+    const storage = createMockStorage();
+
+    await persistReviewObservations(storage, 'owner/repo', 1, result);
+
+    // 1 finding observation + 1 summary = 2 saveObservation calls
+    expect(storage.createSession).toHaveBeenCalled();
+    expect(storage.saveObservation).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes severity field in saveObservation calls for findings', async () => {
+    const result = makeResult([makeFinding({ severity: 'critical', category: 'security' })]);
+    const storage = createMockStorage();
+    await persistReviewObservations(storage, 'owner/repo', 1, result);
+
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    expect(findingCall.severity).toBe('critical');
+  });
+
+  it('does not pass severity field in summary observation', async () => {
+    const result = makeResult([makeFinding({ severity: 'high' })]);
+    const storage = createMockStorage();
+    await persistReviewObservations(storage, 'owner/repo', 1, result);
+
+    // Last call is the summary observation
+    const summaryCall = vi.mocked(storage.saveObservation).mock.calls[1]![0];
+    expect(summaryCall.severity).toBeUndefined();
   });
 
   // ── Category → ObservationType mapping ──
@@ -355,8 +392,8 @@ describe('persistReviewObservations', () => {
 
   it('does not save summary observation when no significant findings', async () => {
     const result = makeResult([
-      makeFinding({ severity: 'medium' }),
       makeFinding({ severity: 'low' }),
+      makeFinding({ severity: 'info' }),
     ]);
     const storage = createMockStorage();
 

@@ -1524,6 +1524,45 @@ describe('deleteMemorySession', () => {
 
     expect(mockSelect).toHaveBeenCalled();
   });
+
+  it('should delete orphaned session when project has no matching repository', async () => {
+    // Step 1 (scoped delete) returns empty — no matching repo for this installation.
+    // Step 2 (orphan delete) returns the session — project has no repository at all.
+    const mockReturning = vi.fn()
+      .mockResolvedValueOnce([])        // Step 1: scoped delete finds nothing
+      .mockResolvedValueOnce([{ id: 10 }]); // Step 2: orphan delete succeeds
+    const mockWhere = vi.fn().mockReturnValue({ returning: mockReturning });
+    const mockDelete = vi.fn().mockReturnValue({ where: mockWhere });
+    const subqueryWhere = vi.fn().mockReturnThis();
+    const subqueryFrom = vi.fn().mockReturnValue({ where: subqueryWhere });
+    const mockSelect = vi.fn().mockReturnValue({ from: subqueryFrom });
+    const db = { delete: mockDelete, select: mockSelect } as unknown as Database;
+
+    const result = await deleteMemorySession(db, 100, 10);
+
+    expect(result).toEqual({ deleted: true });
+    expect(mockDelete).toHaveBeenCalledTimes(2);
+  });
+
+  it('should return { deleted: false } when session is not orphaned but belongs to another installation', async () => {
+    // Step 1 (scoped delete) returns empty — wrong installation.
+    // Step 2 (orphan delete) also returns empty — the project DOES have a matching
+    // repository (just under a different installation), so NOT EXISTS fails.
+    const mockReturning = vi.fn()
+      .mockResolvedValueOnce([])  // Step 1: not in this installation
+      .mockResolvedValueOnce([]); // Step 2: not orphaned either
+    const mockWhere = vi.fn().mockReturnValue({ returning: mockReturning });
+    const mockDelete = vi.fn().mockReturnValue({ where: mockWhere });
+    const subqueryWhere = vi.fn().mockReturnThis();
+    const subqueryFrom = vi.fn().mockReturnValue({ where: subqueryWhere });
+    const mockSelect = vi.fn().mockReturnValue({ from: subqueryFrom });
+    const db = { delete: mockDelete, select: mockSelect } as unknown as Database;
+
+    const result = await deleteMemorySession(db, 100, 10);
+
+    expect(result).toEqual({ deleted: false });
+    expect(mockDelete).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('clearEmptyMemorySessions', () => {

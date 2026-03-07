@@ -312,6 +312,7 @@ export interface MemoryStorage {
     content: string;
     topicKey?: string;
     filePaths?: string[];
+    severity?: string;
   }): Promise<MemoryObservationRow>;
 
   createSession(data: {
@@ -352,6 +353,7 @@ export interface MemoryObservationRow {
   title: string;
   content: string;
   filePaths: string[] | null;
+  severity: string | null;
 }
 
 /**
@@ -365,6 +367,7 @@ export interface MemoryObservationDetail {
   title: string;
   content: string;
   filePaths: string[] | null;
+  severity: string | null;
   project: string;
   topicKey: string | null;
   revisionCount: number;

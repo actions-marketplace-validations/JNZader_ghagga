@@ -160,6 +160,7 @@ export const memoryObservations = pgTable(
     type: varchar('type', { length: 30 }).notNull(), // decision | pattern | bugfix | learning | architecture | config | discovery
     title: varchar('title', { length: 500 }).notNull(),
     content: text('content').notNull(),
+    severity: varchar('severity', { length: 10 }),
     topicKey: varchar('topic_key', { length: 255 }),
     filePaths: jsonb('file_paths').$type<string[]>().default([]),
     contentHash: varchar('content_hash', { length: 64 }),

@@ -8,6 +8,13 @@
       "when": 1772474059456,
       "tag": "0000_regular_beyonder",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1772560459456,
+      "tag": "0006_add_severity_column",
+      "breakpoints": true
     }
   ]
 }

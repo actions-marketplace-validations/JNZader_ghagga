@@ -90,6 +90,7 @@ describe('SqliteMemoryStorage', () => {
         title: 'Test observation',
         content: 'Some content about auth patterns.',
         filePaths: expect.any(Array),
+        severity: null,
       });
       expect(row.id).toBeGreaterThan(0);
 
@@ -403,6 +404,7 @@ describe('SqliteMemoryStorage', () => {
         title: 'Middleware auth',
         content: 'Middleware handles auth validation.',
         filePaths: ['src/auth.ts', 'src/middleware.ts'],
+        severity: null,
       });
 
       await storage.close();

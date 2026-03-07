@@ -38,7 +38,7 @@ function findingToObservationType(finding: ReviewFinding): ObservationType {
  * We only save high and critical findings to avoid noise.
  */
 function isSignificantFinding(finding: ReviewFinding): boolean {
-  return finding.severity === 'critical' || finding.severity === 'high';
+  return finding.severity === 'critical' || finding.severity === 'high' || finding.severity === 'medium';
 }
 
 // ─── Main Function ──────────────────────────────────────────────
@@ -93,6 +93,7 @@ export async function persistReviewObservations(
         title: `${finding.category}: ${sanitizedMessage.slice(0, 80)}`,
         content,
         filePaths: [finding.file],
+        severity: finding.severity,
       });
     }
 

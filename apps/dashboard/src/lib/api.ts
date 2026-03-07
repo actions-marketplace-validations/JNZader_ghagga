@@ -53,7 +53,15 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const message = await response.text().catch(() => 'Request failed');
+    let message = 'Request failed';
+    try {
+      const body = await response.text();
+      // Try to parse JSON error response and extract the error field
+      const parsed = JSON.parse(body);
+      message = parsed.error ?? parsed.message ?? body;
+    } catch {
+      // If parsing fails, keep the default message
+    }
     throw new ApiError(response.status, message);
   }
 

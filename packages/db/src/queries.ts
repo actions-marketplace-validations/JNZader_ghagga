@@ -359,6 +359,9 @@ export async function getSessionsByProject(
       summary: memorySessions.summary,
       createdAt: memorySessions.startedAt,
       observationCount: sql<number>`cast(count(${memoryObservations.id}) as int)`,
+      criticalCount: sql<number>`cast(count(case when ${memoryObservations.severity} = 'critical' then 1 end) as int)`,
+      highCount: sql<number>`cast(count(case when ${memoryObservations.severity} = 'high' then 1 end) as int)`,
+      mediumCount: sql<number>`cast(count(case when ${memoryObservations.severity} = 'medium' then 1 end) as int)`,
     })
     .from(memorySessions)
     .leftJoin(memoryObservations, eq(memoryObservations.sessionId, memorySessions.id))
@@ -387,6 +390,7 @@ export async function saveObservation(
     content: string;
     topicKey?: string;
     filePaths?: string[];
+    severity?: string;
   },
 ) {
   const contentHash = computeContentHash(data.content, data.type, data.title);
@@ -439,6 +443,7 @@ export async function saveObservation(
           title: data.title,
           contentHash,
           filePaths: data.filePaths ?? [],
+          severity: data.severity ?? null,
           revisionCount: sql`${memoryObservations.revisionCount} + 1`,
           updatedAt: new Date(),
         })
@@ -866,6 +871,7 @@ export async function deleteMemorySession(
   installationId: number,
   sessionId: number,
 ): Promise<{ deleted: boolean }> {
+  // Step 1: Try scoped delete — session belongs to a repo in this installation
   const result = await db
     .delete(memorySessions)
     .where(
@@ -882,7 +888,28 @@ export async function deleteMemorySession(
     )
     .returning({ id: memorySessions.id });
 
-  return { deleted: result.length > 0 };
+  if (result.length > 0) {
+    return { deleted: true };
+  }
+
+  // Step 2: Handle orphaned sessions — the session exists but its project
+  // has no matching repository (e.g. the repo was uninstalled). These
+  // sessions are visible via GET but impossible to delete with the scoped
+  // query above. Allow deletion when no repository owns the project.
+  const orphanResult = await db
+    .delete(memorySessions)
+    .where(
+      and(
+        eq(memorySessions.id, sessionId),
+        sql`NOT EXISTS (
+          SELECT 1 FROM ${repositories}
+          WHERE ${repositories.fullName} = ${memorySessions.project}
+        )`,
+      ),
+    )
+    .returning({ id: memorySessions.id });
+
+  return { deleted: orphanResult.length > 0 };
 }
 
 /**

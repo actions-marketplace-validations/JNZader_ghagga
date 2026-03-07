@@ -138,6 +138,9 @@ export interface MemorySession {
   summary: string;
   createdAt: string;
   observationCount: number;
+  criticalCount: number;
+  highCount: number;
+  mediumCount: number;
 }
 
 export interface Observation {
@@ -147,7 +150,11 @@ export interface Observation {
   title: string;
   content: string;
   filePaths: string[];
+  severity: string | null;
+  topicKey: string | null;
+  revisionCount: number;
   createdAt: string;
+  updatedAt: string;
 }
 
 // ─── Runner ─────────────────────────────────────────────────────

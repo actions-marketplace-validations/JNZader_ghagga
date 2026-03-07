@@ -80,7 +80,11 @@ const sampleObservations = [
     title: 'OAuth token refresh patterns',
     content: 'Always check token expiry before making API calls.',
     filePaths: ['src/auth.ts'],
+    severity: 'high' as string | null,
+    topicKey: 'auth-token-refresh' as string | null,
+    revisionCount: 1,
     createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
   },
   {
     id: 43,
@@ -89,7 +93,11 @@ const sampleObservations = [
     title: 'Race condition in async handlers',
     content: 'Use mutex pattern for shared resources.',
     filePaths: [],
+    severity: 'critical' as string | null,
+    topicKey: null as string | null,
+    revisionCount: 3,
     createdAt: '2026-01-02T00:00:00Z',
+    updatedAt: '2026-01-03T00:00:00Z',
   },
 ];
 
@@ -101,6 +109,9 @@ const sampleSessions = [
     summary: 'Learned async patterns',
     createdAt: '2026-01-01T00:00:00Z',
     observationCount: 5,
+    criticalCount: 1,
+    highCount: 2,
+    mediumCount: 0,
   },
   {
     id: 2,
@@ -109,6 +120,9 @@ const sampleSessions = [
     summary: 'Bug fix patterns',
     createdAt: '2026-01-02T00:00:00Z',
     observationCount: 3,
+    criticalCount: 0,
+    highCount: 0,
+    mediumCount: 1,
   },
 ];
 
@@ -227,8 +241,9 @@ describe('Memory page — Tier 1 (delete observation)', () => {
 
     fireEvent.click(screen.getByText('PR #42'));
 
+    // Default sort is newest-first, so observation 43 (Race condition) is first, 42 (OAuth) is second
     const deleteButtons = screen.getAllByTitle('Delete observation');
-    fireEvent.click(deleteButtons[0]);
+    fireEvent.click(deleteButtons[1]); // index 1 = OAuth (id 42)
 
     expect(screen.getByText('Delete observation')).toBeInTheDocument();
     expect(
@@ -243,15 +258,16 @@ describe('Memory page — Tier 1 (delete observation)', () => {
 
     fireEvent.click(screen.getByText('PR #42'));
 
+    // Default sort is newest-first, so observation 43 is first (index 0)
     const deleteButtons = screen.getAllByTitle('Delete observation');
-    fireEvent.click(deleteButtons[0]);
+    fireEvent.click(deleteButtons[0]); // index 0 = Race condition (id 43)
 
     // Click the "Delete" button in the dialog
     const confirmBtn = screen.getByRole('dialog').querySelector('button:last-child')!;
     fireEvent.click(confirmBtn);
 
     expect(mockDeleteMutate).toHaveBeenCalledWith(
-      { observationId: 42 },
+      { observationId: 43 },
       expect.objectContaining({
         onSuccess: expect.any(Function),
         onError: expect.any(Function),
@@ -562,6 +578,9 @@ describe('Memory page — empty states', () => {
           summary: 'Empty session',
           createdAt: '2026-01-01T00:00:00Z',
           observationCount: 0,
+          criticalCount: 0,
+          highCount: 0,
+          mediumCount: 0,
         },
       ],
       isLoading: false,
@@ -620,5 +639,398 @@ describe('Memory page — error handling', () => {
     // Dialog should remain open with error message
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText('Network error')).toBeInTheDocument();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 6: ObservationCard enhancements
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Memory page — ObservationCard enhancements', () => {
+  beforeEach(() => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/widgets',
+      setSelectedRepo: vi.fn(),
+    });
+    mockUseMemorySessions.mockReturnValue({
+      data: sampleSessions,
+      isLoading: false,
+    });
+    mockUseObservations.mockReturnValue({
+      data: sampleObservations,
+      isLoading: false,
+    });
+  });
+
+  it('renders severity badge on observation cards with valid severity', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // sampleObservations have 'high' and 'critical' severity
+    // 'High' and 'Critical' also appear as filter dropdown options, so use getAllByText
+    const highElements = screen.getAllByText('High');
+    expect(highElements.length).toBeGreaterThanOrEqual(2); // badge + dropdown option
+    const criticalElements = screen.getAllByText('Critical');
+    expect(criticalElements.length).toBeGreaterThanOrEqual(2); // badge + dropdown option
+  });
+
+  it('does not render severity badge for observations with null severity', () => {
+    const obsWithNullSeverity = [
+      {
+        ...sampleObservations[0],
+        severity: null as string | null,
+      },
+    ];
+    mockUseObservations.mockReturnValue({
+      data: obsWithNullSeverity,
+      isLoading: false,
+    });
+
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // The type badge 'Pattern' appears on the card and may appear in stats bar
+    const patternElements = screen.getAllByText('Pattern');
+    expect(patternElements.length).toBeGreaterThanOrEqual(1);
+    // 'High' should only appear in the dropdown option, not as a severity badge
+    const highElements = screen.getAllByText('High');
+    expect(highElements.length).toBe(1); // only the dropdown option
+  });
+
+  it('renders revision count badge when revisionCount > 1', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // sampleObservations[1] has revisionCount: 3
+    expect(screen.getByText('3 revisions')).toBeInTheDocument();
+  });
+
+  it('does not render revision badge when revisionCount is 1', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // sampleObservations[0] has revisionCount: 1 — no "1 revisions" badge
+    expect(screen.queryByText('1 revisions')).not.toBeInTheDocument();
+    expect(screen.queryByText('1 revision')).not.toBeInTheDocument();
+  });
+
+  it('truncates file paths beyond MAX_FILE_PATHS_SHOWN', () => {
+    const obsWithManyPaths = [
+      {
+        ...sampleObservations[0],
+        filePaths: ['src/a.ts', 'src/b.ts', 'src/c.ts', 'src/d.ts', 'src/e.ts'],
+      },
+    ];
+    mockUseObservations.mockReturnValue({
+      data: obsWithManyPaths,
+      isLoading: false,
+    });
+
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // First 3 paths visible, "+2 more" indicator
+    expect(screen.getByText('src/a.ts')).toBeInTheDocument();
+    expect(screen.getByText('src/b.ts')).toBeInTheDocument();
+    expect(screen.getByText('src/c.ts')).toBeInTheDocument();
+    expect(screen.queryByText('src/d.ts')).not.toBeInTheDocument();
+    expect(screen.getByText('+2 more')).toBeInTheDocument();
+  });
+
+  it('opens detail modal when observation card is clicked', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // Click the observation card content (not the delete button)
+    fireEvent.click(screen.getByText('OAuth token refresh patterns'));
+
+    // Detail modal should be open with aria role dialog
+    const dialogs = screen.getAllByRole('dialog');
+    expect(dialogs.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('auth-token-refresh')).toBeInTheDocument();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 7: SessionItem enhancements
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Memory page — SessionItem enhancements', () => {
+  beforeEach(() => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/widgets',
+      setSelectedRepo: vi.fn(),
+    });
+    mockUseMemorySessions.mockReturnValue({
+      data: sampleSessions,
+      isLoading: false,
+    });
+  });
+
+  it('renders PR link for sessions with prNumber > 0', () => {
+    renderMemory();
+
+    const prLink = screen.getByTitle('Open PR #42 on GitHub');
+    expect(prLink).toBeInTheDocument();
+    expect(prLink).toHaveAttribute(
+      'href',
+      'https://github.com/acme/widgets/pull/42',
+    );
+    expect(prLink).toHaveAttribute('target', '_blank');
+  });
+
+  it('does not render PR link for sessions with prNumber 0', () => {
+    mockUseMemorySessions.mockReturnValue({
+      data: [
+        {
+          ...sampleSessions[0],
+          prNumber: 0,
+        },
+      ],
+      isLoading: false,
+    });
+
+    renderMemory();
+
+    expect(screen.queryByTitle('Open PR #0 on GitHub')).not.toBeInTheDocument();
+  });
+
+  it('renders severity summary chips for sessions with severity counts', () => {
+    renderMemory();
+
+    // Both sessions may have severity summaries visible
+    const summaries = screen.getAllByTestId('session-severity-summary');
+    expect(summaries.length).toBeGreaterThanOrEqual(1);
+    // Session 1: 1 critical, 2 high
+    expect(screen.getByText('1 critical')).toBeInTheDocument();
+    expect(screen.getByText('2 high')).toBeInTheDocument();
+  });
+
+  it('does not render severity summary when all counts are 0', () => {
+    mockUseMemorySessions.mockReturnValue({
+      data: [
+        {
+          ...sampleSessions[0],
+          criticalCount: 0,
+          highCount: 0,
+          mediumCount: 0,
+        },
+      ],
+      isLoading: false,
+    });
+
+    renderMemory();
+
+    expect(screen.queryByTestId('session-severity-summary')).not.toBeInTheDocument();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 9: Stats bar
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Memory page — StatsBar', () => {
+  beforeEach(() => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/widgets',
+      setSelectedRepo: vi.fn(),
+    });
+    mockUseMemorySessions.mockReturnValue({
+      data: sampleSessions,
+      isLoading: false,
+    });
+    mockUseObservations.mockReturnValue({
+      data: sampleObservations,
+      isLoading: false,
+    });
+  });
+
+  it('renders stats bar when observations are present', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    const statsBar = screen.getByTestId('stats-bar');
+    expect(statsBar).toBeInTheDocument();
+    expect(screen.getByText('2 observations')).toBeInTheDocument();
+  });
+
+  it('does not render stats bar when observations list is empty', () => {
+    mockUseObservations.mockReturnValue({
+      data: [],
+      isLoading: false,
+    });
+
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    expect(screen.queryByTestId('stats-bar')).not.toBeInTheDocument();
+  });
+
+  it('shows type breakdown chips in stats bar', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // We have 1 pattern and 1 bugfix — these labels appear on both cards and stats bar
+    const statsBar = screen.getByTestId('stats-bar');
+    expect(statsBar).toBeInTheDocument();
+    // 'Pattern' appears on the card type badge AND in the stats bar — at least 2
+    const patternElements = screen.getAllByText('Pattern');
+    expect(patternElements.length).toBeGreaterThanOrEqual(2);
+    const bugfixElements = screen.getAllByText('Bug Fix');
+    expect(bugfixElements.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 10: Severity filter & sort options
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Memory page — severity filter & sort', () => {
+  beforeEach(() => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/widgets',
+      setSelectedRepo: vi.fn(),
+    });
+    mockUseMemorySessions.mockReturnValue({
+      data: sampleSessions,
+      isLoading: false,
+    });
+    mockUseObservations.mockReturnValue({
+      data: sampleObservations,
+      isLoading: false,
+    });
+  });
+
+  it('shows severity filter dropdown when session is selected', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    expect(screen.getByLabelText('Filter by severity')).toBeInTheDocument();
+  });
+
+  it('does not show severity filter when no session is selected', () => {
+    renderMemory();
+
+    expect(screen.queryByLabelText('Filter by severity')).not.toBeInTheDocument();
+  });
+
+  it('filters observations by severity', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // Filter to 'critical' — only the bugfix (id 43) has severity 'critical'
+    fireEvent.change(screen.getByLabelText('Filter by severity'), {
+      target: { value: 'critical' },
+    });
+
+    expect(screen.getByText('Race condition in async handlers')).toBeInTheDocument();
+    expect(screen.queryByText('OAuth token refresh patterns')).not.toBeInTheDocument();
+  });
+
+  it('shows sort dropdown when session is selected', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    expect(screen.getByLabelText('Sort observations')).toBeInTheDocument();
+  });
+
+  it('sorts observations by severity (most severe first)', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    fireEvent.change(screen.getByLabelText('Sort observations'), {
+      target: { value: 'severity' },
+    });
+
+    // 'critical' (weight 5) should come before 'high' (weight 4)
+    const cards = screen.getAllByTitle('Delete observation');
+    expect(cards.length).toBe(2);
+    // The first delete button should be on the 'critical' card (Race condition)
+    // Verify order by checking which title appears first in the document
+    const titles = screen.getAllByRole('heading', { level: 4 });
+    expect(titles[0].textContent).toBe('Race condition in async handlers');
+    expect(titles[1].textContent).toBe('OAuth token refresh patterns');
+  });
+
+  it('sorts observations by revisions (most revised first)', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    fireEvent.change(screen.getByLabelText('Sort observations'), {
+      target: { value: 'revisions' },
+    });
+
+    // Observation id 43 has revisionCount: 3, id 42 has revisionCount: 1
+    const titles = screen.getAllByRole('heading', { level: 4 });
+    expect(titles[0].textContent).toBe('Race condition in async handlers');
+    expect(titles[1].textContent).toBe('OAuth token refresh patterns');
+  });
+
+  it('sorts observations oldest first', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    fireEvent.change(screen.getByLabelText('Sort observations'), {
+      target: { value: 'oldest' },
+    });
+
+    const titles = screen.getAllByRole('heading', { level: 4 });
+    expect(titles[0].textContent).toBe('OAuth token refresh patterns'); // 2026-01-01
+    expect(titles[1].textContent).toBe('Race condition in async handlers'); // 2026-01-02
+  });
+
+  it('defaults to newest first sort', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // Default sort is 'newest' — 2026-01-02 before 2026-01-01
+    const titles = screen.getAllByRole('heading', { level: 4 });
+    expect(titles[0].textContent).toBe('Race condition in async handlers');
+    expect(titles[1].textContent).toBe('OAuth token refresh patterns');
+  });
+
+  it('combines severity filter and sort together', () => {
+    // Set up 3 observations to test combo
+    const threeObs = [
+      ...sampleObservations,
+      {
+        id: 44,
+        sessionId: 1,
+        type: 'learning' as const,
+        title: 'Logging best practices',
+        content: 'Always use structured logging.',
+        filePaths: [],
+        severity: 'high' as string | null,
+        topicKey: null as string | null,
+        revisionCount: 2,
+        createdAt: '2026-01-03T00:00:00Z',
+        updatedAt: '2026-01-03T00:00:00Z',
+      },
+    ];
+    mockUseObservations.mockReturnValue({
+      data: threeObs,
+      isLoading: false,
+    });
+
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // Filter to 'high' only
+    fireEvent.change(screen.getByLabelText('Filter by severity'), {
+      target: { value: 'high' },
+    });
+
+    // Sort by oldest first
+    fireEvent.change(screen.getByLabelText('Sort observations'), {
+      target: { value: 'oldest' },
+    });
+
+    // Only 'high' severity: OAuth (2026-01-01) and Logging (2026-01-03)
+    // Oldest first: OAuth first, then Logging
+    expect(screen.queryByText('Race condition in async handlers')).not.toBeInTheDocument();
+    const titles = screen.getAllByRole('heading', { level: 4 });
+    expect(titles.length).toBe(2);
+    expect(titles[0].textContent).toBe('OAuth token refresh patterns');
+    expect(titles[1].textContent).toBe('Logging best practices');
   });
 });

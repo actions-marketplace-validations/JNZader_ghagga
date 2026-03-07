@@ -37,6 +37,7 @@ const SCHEMA_SQL = `
     type TEXT NOT NULL,
     title TEXT NOT NULL,
     content TEXT NOT NULL,
+    severity TEXT,
     topic_key TEXT,
     file_paths TEXT DEFAULT '[]',
     content_hash TEXT,
@@ -95,6 +96,13 @@ export class SqliteMemoryStorage implements MemoryStorage {
 
     db.run(SCHEMA_SQL);
 
+    // Migration: add severity column to existing databases
+    try {
+      db.run('ALTER TABLE memory_observations ADD COLUMN severity TEXT');
+    } catch {
+      // Column already exists — idempotent migration
+    }
+
     return new SqliteMemoryStorage(db, filePath);
   }
 
@@ -116,7 +124,7 @@ export class SqliteMemoryStorage implements MemoryStorage {
     if (!ftsQuery) return [];
 
     let sql = `
-      SELECT o.id, o.type, o.title, o.content, o.file_paths
+      SELECT o.id, o.type, o.title, o.content, o.file_paths, o.severity
       FROM memory_observations o
       JOIN memory_observations_fts fts ON fts.rowid = o.id
       WHERE memory_observations_fts MATCH ?
@@ -144,6 +152,7 @@ export class SqliteMemoryStorage implements MemoryStorage {
         title: row['title'] as string,
         content: row['content'] as string,
         filePaths: row['file_paths'] ? JSON.parse(row['file_paths'] as string) : null,
+        severity: (row['severity'] as string) ?? null,
       });
     }
     stmt.free();
@@ -159,6 +168,7 @@ export class SqliteMemoryStorage implements MemoryStorage {
     content: string;
     topicKey?: string;
     filePaths?: string[];
+    severity?: string;
   }): Promise<MemoryObservationRow> {
     const contentHash = createHash('sha256')
       .update(`${data.type}:${data.title}:${data.content}`)
@@ -197,6 +207,7 @@ export class SqliteMemoryStorage implements MemoryStorage {
         title: row[2] as string,
         content: row[3] as string,
         filePaths: row[4] ? JSON.parse(row[4] as string) : null,
+        severity: null,
       };
     }
 
@@ -215,11 +226,12 @@ export class SqliteMemoryStorage implements MemoryStorage {
         const updated = this.db.exec(`
           UPDATE memory_observations
           SET content = ?, title = ?, content_hash = ?, file_paths = ?,
+              severity = ?,
               revision_count = revision_count + 1,
               updated_at = datetime('now')
           WHERE id = ?
-          RETURNING id, type, title, content, file_paths
-        `, [data.content, data.title, contentHash, filePathsJson, existingId]);
+          RETURNING id, type, title, content, file_paths, severity
+        `, [data.content, data.title, contentHash, filePathsJson, data.severity ?? null, existingId]);
 
         const row = updated[0]!.values[0]!;
         return {
@@ -228,6 +240,7 @@ export class SqliteMemoryStorage implements MemoryStorage {
           title: row[2] as string,
           content: row[3] as string,
           filePaths: row[4] ? JSON.parse(row[4] as string) : null,
+          severity: (row[5] as string) ?? null,
         };
       }
     }
@@ -236,15 +249,16 @@ export class SqliteMemoryStorage implements MemoryStorage {
     const filePathsJson = JSON.stringify(data.filePaths ?? []);
     const inserted = this.db.exec(`
       INSERT INTO memory_observations
-        (session_id, project, type, title, content, topic_key, file_paths, content_hash)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      RETURNING id, type, title, content, file_paths
+        (session_id, project, type, title, content, severity, topic_key, file_paths, content_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      RETURNING id, type, title, content, file_paths, severity
     `, [
       data.sessionId ?? null,
       data.project,
       data.type,
       data.title,
       data.content,
+      data.severity ?? null,
       data.topicKey ?? null,
       filePathsJson,
       contentHash,
@@ -257,6 +271,7 @@ export class SqliteMemoryStorage implements MemoryStorage {
       title: row[2] as string,
       content: row[3] as string,
       filePaths: row[4] ? JSON.parse(row[4] as string) : null,
+      severity: (row[5] as string) ?? null,
     };
   }
 
@@ -290,6 +305,7 @@ export class SqliteMemoryStorage implements MemoryStorage {
       title: row['title'] as string,
       content: row['content'] as string,
       filePaths: row['file_paths'] ? JSON.parse(row['file_paths'] as string) : null,
+      severity: (row['severity'] as string) ?? null,
       project: row['project'] as string,
       topicKey: (row['topic_key'] as string) ?? null,
       revisionCount: row['revision_count'] as number,
@@ -302,7 +318,7 @@ export class SqliteMemoryStorage implements MemoryStorage {
     const { project, type, limit = 20, offset = 0 } = options;
 
     let sql = `
-      SELECT id, type, title, content, file_paths, project, topic_key,
+      SELECT id, type, title, content, file_paths, severity, project, topic_key,
              revision_count, created_at, updated_at
       FROM memory_observations
       WHERE 1=1
@@ -335,7 +351,7 @@ export class SqliteMemoryStorage implements MemoryStorage {
 
   async getObservation(id: number): Promise<MemoryObservationDetail | null> {
     const stmt = this.db.prepare(`
-      SELECT id, type, title, content, file_paths, project, topic_key,
+      SELECT id, type, title, content, file_paths, severity, project, topic_key,
              revision_count, created_at, updated_at
       FROM memory_observations
       WHERE id = ?

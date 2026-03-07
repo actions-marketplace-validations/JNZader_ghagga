@@ -1,8 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Card } from '@/components/Card';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { SeverityBadge } from '@/components/SeverityBadge';
+import { ObservationDetailModal } from '@/components/ObservationDetailModal';
 import { useToast } from '@/components/Toast';
 import { cn } from '@/lib/cn';
+import { isValidSeverity, severityWeight, formatRelativeTime } from '@/lib/utils';
 import {
   useRepositories,
   useMemorySessions,
@@ -16,6 +19,20 @@ import {
 } from '@/lib/api';
 import { useSelectedRepo } from '@/lib/repo-context';
 import type { MemorySession, Observation } from '@/lib/types';
+
+// ─── Constants ──────────────────────────────────────────────────
+
+/** Max file path chips shown before "+N more" indicator */
+const MAX_FILE_PATHS_SHOWN = 3;
+
+type SortOption = 'newest' | 'oldest' | 'severity' | 'revisions';
+
+const sortLabels: Record<SortOption, string> = {
+  newest: 'Newest first',
+  oldest: 'Oldest first',
+  severity: 'Severity',
+  revisions: 'Most revised',
+};
 
 // ─── Observation Type Config ────────────────────────────────────
 
@@ -82,6 +99,9 @@ function SessionItem({
   onDelete: (session: MemorySession) => void;
   isMutating: boolean;
 }) {
+  const hasSeverityCounts =
+    session.criticalCount > 0 || session.highCount > 0 || session.mediumCount > 0;
+
   return (
     <button
       onClick={onClick}
@@ -93,9 +113,23 @@ function SessionItem({
       )}
     >
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium text-primary-400">
-          PR #{session.prNumber}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-primary-400">
+            PR #{session.prNumber}
+          </span>
+          {session.prNumber > 0 && (
+            <a
+              href={`https://github.com/${session.project}/pull/${session.prNumber}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-xs text-text-muted underline-offset-2 hover:text-primary-400 hover:underline"
+              title={`Open PR #${session.prNumber} on GitHub`}
+            >
+              <LinkIcon className="h-3 w-3" />
+            </a>
+          )}
+        </div>
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-text-muted">
             {session.observationCount} obs
@@ -124,6 +158,28 @@ function SessionItem({
           </span>
         </div>
       </div>
+
+      {/* Severity summary chips */}
+      {hasSeverityCounts && (
+        <div className="mt-1.5 flex items-center gap-1.5" data-testid="session-severity-summary">
+          {session.criticalCount > 0 && (
+            <span className="rounded-full bg-red-600/20 px-1.5 py-0.5 text-[10px] font-medium text-red-300">
+              {session.criticalCount} critical
+            </span>
+          )}
+          {session.highCount > 0 && (
+            <span className="rounded-full bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-medium text-orange-400">
+              {session.highCount} high
+            </span>
+          )}
+          {session.mediumCount > 0 && (
+            <span className="rounded-full bg-yellow-500/15 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400">
+              {session.mediumCount} medium
+            </span>
+          )}
+        </div>
+      )}
+
       <p className="mt-1 line-clamp-2 text-sm text-text-secondary">
         {session.summary}
       </p>
@@ -152,6 +208,24 @@ function TrashIcon({ className }: { className?: string }) {
   );
 }
 
+function LinkIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={cn('h-4 w-4', className)}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
+      />
+    </svg>
+  );
+}
+
 function WarningIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -173,26 +247,40 @@ function WarningIcon({ className }: { className?: string }) {
 function ObservationCard({
   observation,
   onDelete,
+  onClick,
   isDeleting,
 }: {
   observation: Observation;
   onDelete: (obs: Observation) => void;
+  onClick: (obs: Observation) => void;
   isDeleting: boolean;
 }) {
+  const visiblePaths = observation.filePaths.slice(0, MAX_FILE_PATHS_SHOWN);
+  const extraPathCount = observation.filePaths.length - MAX_FILE_PATHS_SHOWN;
+
   return (
-    <Card>
-      <div className="relative flex items-start gap-3">
-        <TypeBadge type={observation.type} />
+    <Card className="cursor-pointer transition-colors hover:border-primary-500/30">
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+      <div
+        className="relative flex items-start gap-3"
+        onClick={() => onClick(observation)}
+      >
+        <div className="flex flex-col gap-1.5">
+          <TypeBadge type={observation.type} />
+          {isValidSeverity(observation.severity) && (
+            <SeverityBadge severity={observation.severity} />
+          )}
+        </div>
         <div className="flex-1">
           <h4 className="text-sm font-medium text-text-primary">
             {observation.title}
           </h4>
-          <p className="mt-2 whitespace-pre-wrap text-sm text-text-secondary">
+          <p className="mt-2 whitespace-pre-wrap font-mono text-sm text-text-secondary line-clamp-4">
             {observation.content}
           </p>
           {observation.filePaths.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {observation.filePaths.map((path) => (
+              {visiblePaths.map((path) => (
                 <span
                   key={path}
                   className="rounded bg-surface-bg px-2 py-1 font-mono text-xs text-text-secondary"
@@ -200,16 +288,31 @@ function ObservationCard({
                   {path}
                 </span>
               ))}
+              {extraPathCount > 0 && (
+                <span className="rounded bg-surface-bg px-2 py-1 text-xs text-text-muted">
+                  +{extraPathCount} more
+                </span>
+              )}
             </div>
           )}
-          <p className="mt-2 text-xs text-text-muted">
-            {new Date(observation.createdAt).toLocaleString()}
-          </p>
+          <div className="mt-2 flex items-center gap-3 text-xs text-text-muted">
+            <span title={new Date(observation.createdAt).toLocaleString()}>
+              {formatRelativeTime(observation.createdAt)}
+            </span>
+            {observation.revisionCount > 1 && (
+              <span className="rounded-full border border-surface-border bg-surface-bg px-1.5 py-0.5 text-[10px]">
+                {observation.revisionCount} revisions
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Delete button (top-right) */}
         <button
-          onClick={() => onDelete(observation)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(observation);
+          }}
           disabled={isDeleting}
           title="Delete observation"
           aria-label={`Delete observation: ${observation.title}`}
@@ -219,6 +322,90 @@ function ObservationCard({
         </button>
       </div>
     </Card>
+  );
+}
+
+// ─── Stats Bar ──────────────────────────────────────────────────
+
+function StatsBar({ observations }: { observations: Observation[] }) {
+  const stats = useMemo(() => {
+    const total = observations.length;
+    const bySeverity: Record<string, number> = {};
+    const byType: Record<string, number> = {};
+
+    for (const obs of observations) {
+      if (obs.severity) {
+        bySeverity[obs.severity] = (bySeverity[obs.severity] ?? 0) + 1;
+      }
+      byType[obs.type] = (byType[obs.type] ?? 0) + 1;
+    }
+
+    return { total, bySeverity, byType };
+  }, [observations]);
+
+  if (stats.total === 0) return null;
+
+  return (
+    <div
+      className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-surface-border bg-surface-card px-4 py-3"
+      data-testid="stats-bar"
+    >
+      <span className="text-sm font-medium text-text-primary">
+        {stats.total} observation{stats.total !== 1 ? 's' : ''}
+      </span>
+      <span className="text-surface-border">|</span>
+      {/* Severity chips */}
+      {Object.entries(stats.bySeverity)
+        .sort(([a], [b]) => severityWeight(b) - severityWeight(a))
+        .map(([severity, count]) =>
+          isValidSeverity(severity) ? (
+            <SeverityBadge
+              key={severity}
+              severity={severity}
+              className="gap-1"
+            />
+          ) : null,
+        )
+        .filter(Boolean).length > 0 && (
+        <>
+          {Object.entries(stats.bySeverity)
+            .sort(([a], [b]) => severityWeight(b) - severityWeight(a))
+            .map(([severity, count]) =>
+              isValidSeverity(severity) ? (
+                <span
+                  key={severity}
+                  className="inline-flex items-center gap-1 text-xs text-text-muted"
+                >
+                  <SeverityBadge severity={severity} />
+                  <span>{count}</span>
+                </span>
+              ) : null,
+            )}
+          <span className="text-surface-border">|</span>
+        </>
+      )}
+      {/* Type chips */}
+      {Object.entries(stats.byType).map(([type, count]) => {
+        const config = observationTypeConfig[type as Observation['type']];
+        if (!config) return null;
+        return (
+          <span
+            key={type}
+            className="inline-flex items-center gap-1 text-xs text-text-muted"
+          >
+            <span
+              className={cn(
+                'inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium',
+                config.classes,
+              )}
+            >
+              {config.label}
+            </span>
+            <span>{count}</span>
+          </span>
+        );
+      })}
+    </div>
   );
 }
 
@@ -241,7 +428,7 @@ function useDebounce<T>(value: T, delay: number): T {
 function getErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     if (error.status === 404)
-      return 'Observation not found — it may have already been deleted.';
+      return error.message || 'Not found — it may have already been deleted.';
     return error.message || 'An error occurred';
   }
   if (error instanceof Error) {
@@ -260,6 +447,10 @@ export function Memory() {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
   const { addToast } = useToast();
+
+  // ── Filter & sort state ───────────────────────────────────────
+  const [severityFilter, setSeverityFilter] = useState<string>('all');
+  const [sortOption, setSortOption] = useState<SortOption>('newest');
 
   // ── Data queries ──────────────────────────────────────────────
   const { data: repos } = useRepositories();
@@ -290,6 +481,9 @@ export function Memory() {
   const [showCleanupDialog, setShowCleanupDialog] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
 
+  // ── Detail modal state ────────────────────────────────────────
+  const [selectedObservation, setSelectedObservation] = useState<Observation | null>(null);
+
   // Reset session when repo changes
   const prevRepo = useRef(selectedRepo);
   useEffect(() => {
@@ -305,17 +499,46 @@ export function Memory() {
 
   const hasEmptySessions = sessions?.some((s) => s.observationCount === 0) ?? false;
 
-  // Filter observations by search
-  const filteredObservations = observations?.filter((obs) => {
-    if (!debouncedSearch) return true;
-    const q = debouncedSearch.toLowerCase();
-    return (
-      obs.title.toLowerCase().includes(q) ||
-      obs.content.toLowerCase().includes(q) ||
-      obs.type.toLowerCase().includes(q) ||
-      obs.filePaths.some((p) => p.toLowerCase().includes(q))
-    );
-  });
+  // Filter observations by search + severity
+  const filteredObservations = useMemo(() => {
+    let filtered = observations ?? [];
+
+    // Text search filter
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
+      filtered = filtered.filter(
+        (obs) =>
+          obs.title.toLowerCase().includes(q) ||
+          obs.content.toLowerCase().includes(q) ||
+          obs.type.toLowerCase().includes(q) ||
+          obs.filePaths.some((p) => p.toLowerCase().includes(q)),
+      );
+    }
+
+    // Severity filter
+    if (severityFilter !== 'all') {
+      filtered = filtered.filter((obs) => obs.severity === severityFilter);
+    }
+
+    // Sort
+    const sorted = [...filtered];
+    switch (sortOption) {
+      case 'newest':
+        sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        break;
+      case 'oldest':
+        sorted.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        break;
+      case 'severity':
+        sorted.sort((a, b) => severityWeight(b.severity) - severityWeight(a.severity));
+        break;
+      case 'revisions':
+        sorted.sort((a, b) => b.revisionCount - a.revisionCount);
+        break;
+    }
+
+    return sorted;
+  }, [observations, debouncedSearch, severityFilter, sortOption]);
 
   // Filter sessions by search
   const filteredSessions = sessions?.filter((session) => {
@@ -485,8 +708,8 @@ export function Memory() {
         </div>
       ) : (
         <>
-          {/* Search */}
-          <div className="mb-4">
+          {/* Search + Filters */}
+          <div className="mb-4 flex flex-wrap items-center gap-3">
             <input
               type="text"
               placeholder="Search sessions and observations..."
@@ -494,6 +717,37 @@ export function Memory() {
               onChange={(e) => setSearch(e.target.value)}
               className="input-field w-full max-w-md"
             />
+            {selectedSessionId && (
+              <>
+                <select
+                  value={severityFilter}
+                  onChange={(e) => setSeverityFilter(e.target.value)}
+                  className="select-field"
+                  aria-label="Filter by severity"
+                >
+                  <option value="all">All severities</option>
+                  <option value="critical">Critical</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                  <option value="info">Info</option>
+                </select>
+                <select
+                  value={sortOption}
+                  onChange={(e) => setSortOption(e.target.value as SortOption)}
+                  className="select-field"
+                  aria-label="Sort observations"
+                >
+                  {(Object.entries(sortLabels) as [SortOption, string][]).map(
+                    ([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </>
+            )}
           </div>
 
           <div className="flex gap-6">
@@ -549,26 +803,30 @@ export function Memory() {
                 <div className="flex items-center justify-center py-12">
                   <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
                 </div>
-              ) : (filteredObservations?.length ?? 0) === 0 ? (
+              ) : (filteredObservations.length) === 0 ? (
                 <div className="flex items-center justify-center py-20 text-center">
                   <p className="text-text-secondary">
                     No observations in this session.
                   </p>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {filteredObservations?.map((obs) => (
-                    <ObservationCard
-                      key={obs.id}
-                      observation={obs}
-                      onDelete={(o) => {
-                        setDialogError(null);
-                        setDeleteTarget(o);
-                      }}
-                      isDeleting={isMutating}
-                    />
-                  ))}
-                </div>
+                <>
+                  <StatsBar observations={filteredObservations} />
+                  <div className="space-y-4">
+                    {filteredObservations.map((obs) => (
+                      <ObservationCard
+                        key={obs.id}
+                        observation={obs}
+                        onDelete={(o) => {
+                          setDialogError(null);
+                          setDeleteTarget(o);
+                        }}
+                        onClick={(o) => setSelectedObservation(o)}
+                        isDeleting={isMutating}
+                      />
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           </div>
@@ -602,6 +860,12 @@ export function Memory() {
           </div>
         </>
       )}
+
+      {/* ── Observation detail modal ───────────────────────────── */}
+      <ObservationDetailModal
+        observation={selectedObservation}
+        onClose={() => setSelectedObservation(null)}
+      />
 
       {/* ── Tier 1: Delete single observation ──────────────────── */}
       <ConfirmDialog
