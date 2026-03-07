@@ -13,10 +13,11 @@
  * You can override with --provider, --model, --api-key for other providers.
  *
  * Environment variables (override stored config):
- *   GHAGGA_API_KEY     API key for the LLM provider
- *   GHAGGA_PROVIDER    LLM provider: anthropic, openai, google, github, ollama, qwen
- *   GHAGGA_MODEL       Model identifier
- *   GITHUB_TOKEN       GitHub token (fallback for github provider)
+ *   GHAGGA_API_KEY          API key for the LLM provider
+ *   GHAGGA_PROVIDER         LLM provider: anthropic, openai, google, github, ollama, qwen
+ *   GHAGGA_MODEL            Model identifier
+ *   GITHUB_TOKEN            GitHub token (fallback for github provider)
+ *   GHAGGA_MEMORY_BACKEND   Memory backend: sqlite (default) or engram
  */
 
 import 'dotenv/config';
@@ -122,6 +123,7 @@ program
   .option('--commit-msg <file>', 'Validate commit message from file path')
   .option('--exit-on-issues', 'Exit with code 1 if critical/high issues found')
   .option('--quick', 'Static analysis only — skip LLM review')
+  .option('--memory-backend <type>', 'Memory backend: sqlite (default) or engram (env: GHAGGA_MEMORY_BACKEND)', 'sqlite')
   .action(async (path: string, options: ReviewCommandOptions) => {
     // ── Auto-resolve auth from stored config ──────────────────
     const config = loadConfig();
@@ -198,6 +200,7 @@ program
       trivy: options.trivy,
       cpd: options.cpd,
       memory: options.memory,
+      memoryBackend: options.memoryBackend as 'sqlite' | 'engram' | undefined,
       config: options.config,
       verbose: options.verbose ?? false,
       staged: options.staged ?? false,
@@ -229,6 +232,7 @@ interface ReviewCommandOptions {
   trivy: boolean;
   cpd: boolean;
   memory: boolean;
+  memoryBackend?: string;
   config?: string;
   verbose: boolean;
   // Hook-oriented flags (Phase 2: cli-git-hooks)

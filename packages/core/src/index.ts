@@ -76,6 +76,7 @@ export type { FallbackProvider, FallbackOptions, FallbackResult } from './provid
 export { formatMemoryContext } from './memory/context.js';
 export { stripPrivateData } from './memory/privacy.js';
 export { SqliteMemoryStorage } from './memory/sqlite.js';
+export { EngramMemoryStorage } from './memory/engram.js';
 
 // ─── Formatting ─────────────────────────────────────────────────
 

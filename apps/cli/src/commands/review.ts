@@ -13,6 +13,7 @@ import {
   reviewPipeline,
   DEFAULT_SETTINGS,
   SqliteMemoryStorage,
+  EngramMemoryStorage,
 } from 'ghagga-core';
 import type {
   ReviewMode,
@@ -43,6 +44,8 @@ export interface ReviewOptions {
   trivy: boolean;
   cpd: boolean;
   memory: boolean;
+  /** Memory backend: 'sqlite' (default) or 'engram' */
+  memoryBackend?: 'sqlite' | 'engram';
   config?: string;
   verbose: boolean;
   // Hook-oriented flags (Phase 2: cli-git-hooks)
@@ -149,13 +152,48 @@ export async function reviewCommand(
       }
     }
 
-    // Step 4.5: Initialize memory storage (SQLite, file-backed)
+    // Step 4.5: Initialize memory storage
     const repoFullName = resolveProjectId(repoPath);
 
     if (options.memory) {
+      // Determine backend: CLI flag > env var > default ('sqlite')
+      const memoryBackend = options.memoryBackend
+        ?? (process.env['GHAGGA_MEMORY_BACKEND'] as 'sqlite' | 'engram' | undefined)
+        ?? 'sqlite';
+
+      // Validate backend value
+      const validBackends = ['sqlite', 'engram'] as const;
+      if (!validBackends.includes(memoryBackend as typeof validBackends[number])) {
+        tui.log.error(
+          `❌ Invalid memory backend "${memoryBackend}". Choose from: ${validBackends.join(', ')}`,
+        );
+        process.exit(1);
+      }
+
       try {
         const dbPath = join(getConfigDir(), 'memory.db');
-        memoryStorage = await SqliteMemoryStorage.create(dbPath);
+
+        if (memoryBackend === 'engram') {
+          // Try Engram; fall back to SQLite if unavailable
+          const engramHost = process.env['GHAGGA_ENGRAM_HOST'] ?? 'http://localhost:7437';
+          const engramTimeout = process.env['GHAGGA_ENGRAM_TIMEOUT']
+            ? Number(process.env['GHAGGA_ENGRAM_TIMEOUT']) * 1000
+            : undefined;
+
+          const engramStorage = await EngramMemoryStorage.create({
+            host: engramHost,
+            ...(engramTimeout != null ? { timeout: engramTimeout } : {}),
+          });
+
+          if (engramStorage) {
+            memoryStorage = engramStorage;
+          } else {
+            tui.log.warn('⚠️  Engram not available, falling back to SQLite memory');
+            memoryStorage = await SqliteMemoryStorage.create(dbPath);
+          }
+        } else {
+          memoryStorage = await SqliteMemoryStorage.create(dbPath);
+        }
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         tui.log.warn(`⚠️  Failed to initialize memory: ${msg}`);

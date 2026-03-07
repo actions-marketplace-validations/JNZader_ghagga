@@ -18,6 +18,9 @@
     "src/utils/token-budget.ts",
     "src/memory/context.ts",
     "src/memory/privacy.ts",
+    "src/memory/engram-client.ts",
+    "src/memory/engram-mapping.ts",
+    "src/memory/engram.ts",
     "src/providers/fallback.ts",
     "src/pipeline.ts"
   ],
