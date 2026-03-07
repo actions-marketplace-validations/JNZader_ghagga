@@ -55,6 +55,7 @@ function makeRow(overrides: Partial<MemoryObservationRow> = {}): MemoryObservati
     title: 'OAuth token refresh',
     content: 'OAuth token refresh must handle 401 responses',
     filePaths: ['src/auth.ts'],
+    severity: null,
     ...overrides,
   };
 }

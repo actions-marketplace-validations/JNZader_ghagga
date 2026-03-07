@@ -71,6 +71,7 @@ function makeDetail(
     title: 'OAuth token refresh',
     content: 'Some content',
     filePaths: ['src/auth.ts'],
+    severity: null,
     project: 'acme/widgets',
     topicKey: 'auth-refresh',
     revisionCount: 1,

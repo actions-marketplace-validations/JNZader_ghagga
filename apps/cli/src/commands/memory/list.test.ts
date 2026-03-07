@@ -51,6 +51,7 @@ function makeObservation(
     title: 'OAuth token refresh',
     content: 'Some content about OAuth',
     filePaths: ['src/auth.ts'],
+    severity: null,
     project: 'acme/widgets',
     topicKey: 'auth-refresh',
     revisionCount: 1,

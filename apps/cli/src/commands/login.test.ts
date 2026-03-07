@@ -62,11 +62,12 @@ const mockFetchGitHubUser = vi.mocked(fetchGitHubUser);
 
 // ─── Setup ─────────────────────────────────────────────────────
 
-let mockExit: ReturnType<typeof vi.spyOn>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let mockExit: any;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockExit = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+  mockExit = vi.spyOn(process, 'exit').mockImplementation((() => {}) as never);
 });
 
 afterEach(() => {

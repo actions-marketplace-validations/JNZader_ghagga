@@ -202,7 +202,7 @@ describe('pollForAccessToken', () => {
 
     const error = await rejection;
     expect(error).toBeInstanceOf(Error);
-    expect(error.message).toContain('Device code expired');
+    expect((error as Error).message).toContain('Device code expired');
   });
 
   it('throws "Authorization was denied" on access_denied error', async () => {
@@ -216,7 +216,7 @@ describe('pollForAccessToken', () => {
 
     const error = await rejection;
     expect(error).toBeInstanceOf(Error);
-    expect(error.message).toContain('Authorization was denied');
+    expect((error as Error).message).toContain('Authorization was denied');
   });
 
   it('throws "OAuth error" with description on unknown error', async () => {
@@ -233,7 +233,7 @@ describe('pollForAccessToken', () => {
 
     const error = await rejection;
     expect(error).toBeInstanceOf(Error);
-    expect(error.message).toContain('OAuth error: server_error — Something went wrong');
+    expect((error as Error).message).toContain('OAuth error: server_error — Something went wrong');
   });
 
   it('throws "OAuth error" without description when none provided', async () => {
@@ -247,7 +247,7 @@ describe('pollForAccessToken', () => {
 
     const error = await rejection;
     expect(error).toBeInstanceOf(Error);
-    expect(error.message).toContain('OAuth error: unknown_error');
+    expect((error as Error).message).toContain('OAuth error: unknown_error');
   });
 
   it('throws timeout error when deadline is exceeded', async () => {
@@ -266,7 +266,7 @@ describe('pollForAccessToken', () => {
 
     const error = await rejection;
     expect(error).toBeInstanceOf(Error);
-    expect(error.message).toContain('Device code expired (timeout)');
+    expect((error as Error).message).toContain('Device code expired (timeout)');
   });
 });
 

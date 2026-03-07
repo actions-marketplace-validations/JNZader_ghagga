@@ -59,6 +59,7 @@ function makeDetail(
     title: 'OAuth token refresh patterns',
     content: 'OAuth token refresh must handle 401 responses.',
     filePaths: ['src/auth.ts', 'lib/token.ts'],
+    severity: null,
     project: 'acme/widgets',
     topicKey: 'auth-token-refresh',
     revisionCount: 3,
