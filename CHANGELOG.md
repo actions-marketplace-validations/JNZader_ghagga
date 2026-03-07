@@ -1,5 +1,53 @@
 # Changelog
 
+## [2.3.0] - 2026-03-07
+
+### Security
+- **Stack trace leak removed** — Error handler no longer exposes `err.message` or `err.stack` in non-production environments. Only generic error returned to client; full error logged server-side.
+- **Memory session auth** — `GET /api/memory/sessions/:id/observations` now verifies session ownership against the authenticated user's installations, preventing cross-team data access.
+- **CORS, rate limiting, security headers** — Server hardened with strict CORS origins, per-IP rate limiting, and security headers (X-Content-Type-Options, X-Frame-Options, etc.).
+- **Body size limits** — Request body limits enforced to prevent DoS via oversized payloads.
+- **Token expiration fix** — Corrected edge case where expired tokens were not properly invalidated.
+- **23 GitHub Actions pinned to SHAs** — All `uses:` entries in CI/CD workflows pinned to commit SHAs for supply chain hardening.
+- **Docker FROM annotated** — Base images annotated with digest comments for reproducibility.
+
+### Performance
+- **N+1→Promise.all** — Sequential per-installation queries replaced with parallel `Promise.all()`, reducing API latency by ~90% for multi-installation users.
+- **Auth token cache (5min TTL)** — GitHub API user validation cached in-memory with 5-minute TTL, eliminating redundant `GET /user` calls on every request.
+- **Virtual scrolling** — Memory page uses `@tanstack/react-virtual` for observation/session lists, handling 1000+ items without DOM bloat.
+- **createdAt index on memoryObservations** — Added database index for efficient time-range queries at scale.
+
+### Architecture
+- **api.ts split into 6 domain modules** — Monolithic 912-line route file refactored into `reviews.ts`, `repositories.ts`, `installations.ts`, `memory.ts`, `runner.ts`, and `settings.ts`.
+- **@ghagga/types shared types package** — 24 API types extracted into `packages/types`, replacing duplicated type definitions between dashboard and server.
+- **Provider chain DRY** — Extracted `buildProviderChainView()` helper, eliminating 3× duplicated `maskApiKey()` + mapping logic.
+- **Zod settings validation** — Replaced 20+ manual `typeof` ternaries with Zod schema for repo and global settings endpoints.
+- **SimpleCircuitBreaker** — Lightweight circuit breaker for GitHub API calls with configurable error threshold and reset timeout. Fast-fail when GitHub is degraded.
+- **Graceful shutdown** — Server handles SIGTERM with connection draining (30s timeout), preventing data loss during redeploys.
+- **Dynamic callback TTL** — Runner callback secret TTL configurable via `CALLBACK_TTL_MINUTES` env var (default: 11 min), supporting slow LLM providers.
+
+### Added
+- **Biome linting** — Replaced ESLint + Prettier with Biome. Fixed 450 linting errors across the monorepo.
+- **Reviews-by-day stub** — `GET /api/stats/reviews-by-day` query endpoint for daily review statistics.
+- **Provider chain documentation** — Added inline docs and README section explaining provider chain configuration and fallback behavior.
+- **Dependabot config** — `.github/dependabot.yml` for automated dependency updates across npm and GitHub Actions.
+- **`/health/detailed` endpoint** — Reports database and GitHub API connectivity status with per-dependency health checks.
+- **Dashboard ErrorBoundary** — React class component wraps all routes; renders recovery UI on render crashes instead of blank screen.
+- **QueryCache/MutationCache error handling** — Global error handlers on TanStack Query client surface network errors via toast notifications.
+- **Dashboard typecheck fixes** — Added `jest-dom` types, resolved implicit `any` errors, and corrected `@ghagga/types` exports for clean CI builds.
+
+### Accessibility
+- **useFocusTrap hook** — Custom hook traps keyboard focus inside modals (ObservationDetailModal, ConfirmDialog) per WCAG 2.4.3.
+- **7 axe a11y tests** — Automated accessibility tests with `jest-axe` across dashboard pages and modal components.
+
+### Testing
+- **~2,640 total tests** — Up from 1,940 in v2.2.0 (+700 tests). Per-package: db:136, core:782, cli:310, server:524, action:228, dashboard:374, types:24, e2e:14, security:14+.
+- **E2E integration tests** — 3 suites, 14 tests covering webhook→pipeline→comment, CLI review flow, and Action review flow.
+- **CI hardening** — Security scanning (CodeQL), coverage reporting, and mutation testing integrated into CI pipeline.
+- **Stryker expanded 17→23 files** — Mutation testing coverage extended to include `workflow.ts`, `consensus-review.ts`, `format.ts`, `search.ts`, `sqlite.ts`, and `providers/index.ts`.
+- **Dedup window fix** — Corrected deduplication window boundary condition that could miss duplicate observations at exact 15-minute marks.
+- **Search query improvements** — Better file name extraction and configurable ignore list in memory search query builder.
+
 ## [2.2.0] - 2026-03-07
 
 ### Added

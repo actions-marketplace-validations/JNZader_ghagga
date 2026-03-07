@@ -692,6 +692,7 @@ ghagga/
 | `GHAGGA_MEMORY_BACKEND` | CLI only | Memory backend: `sqlite` (default) or `engram` |
 | `GHAGGA_ENGRAM_HOST` | CLI only | Engram server URL (default: `http://localhost:7437`) |
 | `GHAGGA_ENGRAM_TIMEOUT` | CLI only | Engram connection timeout in seconds (default: `5`) |
+| `CALLBACK_TTL_MINUTES` | No | Runner callback secret TTL in minutes (default: `11`) |
 | `PORT` | No | Server port (default: `3000`) |
 | `NODE_ENV` | No | `development` or `production` |
 
@@ -755,21 +756,23 @@ pnpm --filter @ghagga/dashboard dev
 ```bash
 pnpm exec turbo typecheck    # Typecheck all packages
 pnpm exec turbo build         # Build all packages
-pnpm exec turbo test          # Run all 1,940 tests
+pnpm exec turbo test          # Run all ~2,640 tests
 ```
 
 ### Test Suite
 
-1,940 tests across 6 packages. All passing.
+~2,640 tests across 8 packages. All passing.
 
 | Package | Tests | What's Covered |
 |---------|------:|----------------|
-| `@ghagga/core` | 675 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), static analysis tools (semgrep, trivy, cpd), parsers, security audit, review calibration, Engram memory adapter |
-| `@ghagga/db` | 118 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto (roundtrip, tamper, edge cases) |
-| `@ghagga/server` | 413 | API routes, webhook handlers, auth middleware, provider validation, Inngest review function, GitHub client, runner dispatch, callback verification |
-| `ghagga` (CLI) | 272 | Config resolution, review command — input validation, output formatting, exit codes, git hooks (install, uninstall, status) |
-| `@ghagga/action` | 195 | Input parsing, output setting, comment formatting, error handling, tool installation, cache management |
-| `@ghagga/dashboard` | 267 | Component rendering |
+| `@ghagga/core` | 782 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), static analysis tools (semgrep, trivy, cpd), parsers, security audit, review calibration, Engram memory adapter, circuit breaker |
+| `@ghagga/db` | 136 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto (roundtrip, tamper, edge cases), index verification |
+| `@ghagga/server` | 524 | API routes (6 domain modules), webhook handlers, auth middleware + token cache, provider validation, Inngest review function, GitHub client, runner dispatch, callback verification, graceful shutdown, health checks |
+| `ghagga` (CLI) | 310 | Config resolution, review command — input validation, output formatting, exit codes, git hooks (install, uninstall, status) |
+| `@ghagga/action` | 228 | Input parsing, output setting, comment formatting, error handling, tool installation, cache management |
+| `@ghagga/dashboard` | 374 | Component rendering, ErrorBoundary, a11y (7 axe tests), focus trap, virtual scrolling |
+| `@ghagga/types` | 24 | Shared API type exports and contract validation |
+| E2E | 14 | Webhook→pipeline→comment, CLI review flow, Action review flow |
 
 ---
 
@@ -835,7 +838,7 @@ GHAGGA v2 is a **complete rewrite** from scratch. The v1 codebase (~11,000 lines
 | Runtime | Deno + Node.js + Python | Node.js only |
 | Database | Supabase (hosted PostgreSQL) | Any PostgreSQL (self-hosted or cloud) |
 | Deploy steps | 10+ manual steps | 3 env vars + `docker compose up` |
-| Test suite | 0 tests | 1,940 tests |
+| Test suite | 0 tests | ~2,640 tests |
 | Distribution modes | 1 (webhook only) | 3 (SaaS, Action, CLI) |
 | Static analysis | Semgrep only (via microservice) | Semgrep + Trivy + CPD (direct binary execution) |
 | Memory | Partial (stored but never consumed) | Full pipeline (search → inject → review → extract → persist) |
