@@ -1346,3 +1346,1491 @@ Then storage.close() MUST still be called (via finally block)
 31. No new npm dependencies added
 32. All new methods have unit tests (101 memory-specific tests)
 33. Existing commands (`review`, `login`, `logout`, `status`) unaffected
+
+---
+
+## Extension: Dashboard Memory Management (Full-Stack Delete/Clear/Purge)
+
+> **Origin**: Archived from `dashboard-memory-management` change (2026-03-07)
+> **Depends on**: Memory Management extension above (which added MemoryStorage management methods + CLI commands)
+
+This section defines the full-stack implementation of memory management for SaaS Dashboard users. It replaces the 5 stub methods in `PostgresMemoryStorage` (which threw `Error('Not implemented')`) with real implementations, adds 3 DELETE API endpoints, adds 3 PostgreSQL query functions to `packages/db`, and builds the Dashboard UI with a **3-tier confirmation system** proportional to the blast radius of each destructive action.
+
+The 3-tier confirmation system:
+- **Tier 1** (delete 1 observation): Simple modal with "Cancel" / "Delete" buttons
+- **Tier 2** (clear 1 repo's memory): Modal + text input requiring the exact repo name to enable confirm
+- **Tier 3** (purge ALL memory): Modal + text input requiring "DELETE ALL" + confirm button disabled for 5 seconds with visible countdown
+
+All operations are scoped to the authenticated user's GitHub installation(s) — no cross-tenant access is possible.
+
+---
+
+### R26: Database Query — Delete Single Observation
+
+A function `deleteMemoryObservation(db, installationId, observationId)` MUST be added to `packages/db/src/queries.ts`.
+
+The function MUST:
+- Delete the observation with the given `observationId` WHERE the observation's project belongs to a repository with the given `installationId`
+- Return `true` if a row was deleted, `false` if the observation was not found or did not belong to the installation
+- Use a single SQL statement that joins `memory_observations.project` to `repositories.full_name` and filters by `repositories.installation_id = installationId`
+
+The function MUST NOT delete observations belonging to other installations, even if the `observationId` matches.
+
+#### Scenario: S67 — Delete existing observation owned by user
+
+- GIVEN an observation with id=42 exists for project "acme/widgets"
+- AND "acme/widgets" belongs to installation 100
+- WHEN `deleteMemoryObservation(db, 100, 42)` is called
+- THEN the observation MUST be deleted from the database
+- AND the function MUST return `true`
+
+#### Scenario: S68 — Delete observation not found
+
+- GIVEN no observation with id=999 exists
+- WHEN `deleteMemoryObservation(db, 100, 999)` is called
+- THEN no rows MUST be deleted
+- AND the function MUST return `false`
+
+#### Scenario: S69 — IDOR prevention — observation belongs to different installation
+
+- GIVEN an observation with id=42 exists for project "evil/repo"
+- AND "evil/repo" belongs to installation 200 (not the caller's)
+- WHEN `deleteMemoryObservation(db, 100, 42)` is called
+- THEN no rows MUST be deleted
+- AND the function MUST return `false`
+
+---
+
+### R27: Database Query — Clear Observations by Project
+
+A function `clearMemoryObservationsByProject(db, installationId, project)` MUST be added to `packages/db/src/queries.ts`.
+
+The function MUST:
+- Delete all observations WHERE `project` matches AND the project's repository belongs to the given `installationId`
+- Return the count of deleted rows (integer >= 0)
+
+The function MUST NOT delete observations for projects belonging to other installations.
+
+#### Scenario: S70 — Clear all observations for a repo
+
+- GIVEN 15 observations exist for project "acme/widgets"
+- AND "acme/widgets" belongs to installation 100
+- WHEN `clearMemoryObservationsByProject(db, 100, "acme/widgets")` is called
+- THEN all 15 observations MUST be deleted
+- AND the function MUST return `15`
+
+#### Scenario: S71 — Clear repo with no observations (no-op)
+
+- GIVEN 0 observations exist for project "acme/empty-repo"
+- AND "acme/empty-repo" belongs to installation 100
+- WHEN `clearMemoryObservationsByProject(db, 100, "acme/empty-repo")` is called
+- THEN no rows MUST be deleted
+- AND the function MUST return `0`
+
+#### Scenario: S72 — Clear repo belonging to different installation
+
+- GIVEN observations exist for project "evil/repo" belonging to installation 200
+- WHEN `clearMemoryObservationsByProject(db, 100, "evil/repo")` is called
+- THEN no rows MUST be deleted
+- AND the function MUST return `0`
+
+---
+
+### R28: Database Query — Clear All Observations for Installation
+
+A function `clearAllMemoryObservations(db, installationId)` MUST be added to `packages/db/src/queries.ts`.
+
+The function MUST:
+- Delete all observations WHERE the observation's project belongs to a repository with the given `installationId`
+- Return the count of deleted rows (integer >= 0)
+
+The function MUST NOT delete observations for projects belonging to other installations.
+
+#### Scenario: S73 — Purge all observations for an installation
+
+- GIVEN 50 observations exist across projects "acme/widgets" (30) and "acme/gadgets" (20)
+- AND both projects belong to installation 100
+- AND 10 observations exist for "other/repo" belonging to installation 200
+- WHEN `clearAllMemoryObservations(db, 100)` is called
+- THEN 50 observations MUST be deleted (30 + 20)
+- AND the function MUST return `50`
+- AND the 10 observations for "other/repo" MUST NOT be deleted
+
+#### Scenario: S74 — Purge when nothing to purge
+
+- GIVEN 0 observations exist for any project belonging to installation 100
+- WHEN `clearAllMemoryObservations(db, 100)` is called
+- THEN no rows MUST be deleted
+- AND the function MUST return `0`
+
+---
+
+### R29: Server API — DELETE /api/memory/observations/:id
+
+A `DELETE /api/memory/observations/:id` route MUST be added to `createApiRouter` in `apps/server/src/routes/api.ts`.
+
+The route MUST:
+- Require authentication (existing `authMiddleware`)
+- Parse `:id` as an integer; return 400 if not a valid number
+- Look up the observation's project, then verify the project's repository belongs to one of `user.installationIds`; return 403 if not authorized
+- Call `deleteMemoryObservation(db, installationId, observationId)`
+- Return `200 { data: { deleted: true } }` on success
+- Return `404 { error: "Observation not found" }` if the observation does not exist or is not accessible
+
+#### Scenario: S75 — Delete observation via API (happy path)
+
+- GIVEN the user is authenticated with installationIds [100]
+- AND observation id=42 exists for project "acme/widgets" (installation 100)
+- WHEN `DELETE /api/memory/observations/42` is sent
+- THEN the response MUST be `200 { data: { deleted: true } }`
+- AND the observation MUST be deleted from the database
+
+#### Scenario: S76 — Delete observation — not authenticated
+
+- GIVEN the request has no valid auth token
+- WHEN `DELETE /api/memory/observations/42` is sent
+- THEN the response MUST be `401`
+
+#### Scenario: S77 — Delete observation — not found
+
+- GIVEN the user is authenticated with installationIds [100]
+- AND no observation with id=999 exists (or it belongs to another installation)
+- WHEN `DELETE /api/memory/observations/999` is sent
+- THEN the response MUST be `404 { error: "Observation not found" }`
+
+#### Scenario: S78 — Delete observation — invalid ID format
+
+- GIVEN the user is authenticated
+- WHEN `DELETE /api/memory/observations/abc` is sent
+- THEN the response MUST be `400 { error: "Invalid observation ID" }`
+
+---
+
+### R30: Server API — DELETE /api/memory/projects/:project/observations
+
+A `DELETE /api/memory/projects/:project/observations` route MUST be added to `createApiRouter`.
+
+The `:project` parameter MUST be URL-decoded to handle `owner/repo` format (e.g., `acme%2Fwidgets` decodes to `acme/widgets`).
+
+The route MUST:
+- Require authentication
+- Look up the repository by `project` (decoded); return 404 if not found
+- Verify `repo.installationId` is in `user.installationIds`; return 403 if not authorized
+- Call `clearMemoryObservationsByProject(db, repo.installationId, project)`
+- Return `200 { data: { cleared: N } }` where N is the count of deleted rows
+
+#### Scenario: S79 — Clear repo observations via API (happy path)
+
+- GIVEN the user is authenticated with installationIds [100]
+- AND "acme/widgets" has 15 observations and belongs to installation 100
+- WHEN `DELETE /api/memory/projects/acme%2Fwidgets/observations` is sent
+- THEN the response MUST be `200 { data: { cleared: 15 } }`
+- AND all 15 observations MUST be deleted
+
+#### Scenario: S80 — Clear repo — not authenticated
+
+- GIVEN the request has no valid auth token
+- WHEN `DELETE /api/memory/projects/acme%2Fwidgets/observations` is sent
+- THEN the response MUST be `401`
+
+#### Scenario: S81 — Clear repo — repo not found
+
+- GIVEN the user is authenticated
+- AND no repository "nonexistent/repo" exists in the database
+- WHEN `DELETE /api/memory/projects/nonexistent%2Frepo/observations` is sent
+- THEN the response MUST be `404 { error: "Repository not found" }`
+
+#### Scenario: S82 — Clear repo — forbidden (different installation)
+
+- GIVEN the user is authenticated with installationIds [100]
+- AND "evil/repo" belongs to installation 200
+- WHEN `DELETE /api/memory/projects/evil%2Frepo/observations` is sent
+- THEN the response MUST be `403 { error: "Forbidden" }`
+
+#### Scenario: S83 — Clear repo — zero observations (no-op success)
+
+- GIVEN the user is authenticated with installationIds [100]
+- AND "acme/widgets" belongs to installation 100 but has 0 observations
+- WHEN `DELETE /api/memory/projects/acme%2Fwidgets/observations` is sent
+- THEN the response MUST be `200 { data: { cleared: 0 } }`
+
+---
+
+### R31: Server API — DELETE /api/memory/observations
+
+A `DELETE /api/memory/observations` route MUST be added to `createApiRouter`.
+
+The route MUST:
+- Require authentication
+- Determine the user's primary installation ID from `user.installationIds`
+- Call `clearAllMemoryObservations(db, installationId)` for each installation ID, summing the results
+- Return `200 { data: { cleared: N } }` where N is the total count of deleted rows
+
+The route MUST NOT conflict with the `DELETE /api/memory/observations/:id` route. The Hono router MUST resolve the parameterized route for numeric paths and the bare route for the no-param case.
+
+#### Scenario: S84 — Purge all observations via API (happy path)
+
+- GIVEN the user is authenticated with installationIds [100]
+- AND 50 observations exist across all repos belonging to installation 100
+- WHEN `DELETE /api/memory/observations` is sent (no path params)
+- THEN the response MUST be `200 { data: { cleared: 50 } }`
+- AND all 50 observations MUST be deleted
+
+#### Scenario: S85 — Purge all — not authenticated
+
+- GIVEN the request has no valid auth token
+- WHEN `DELETE /api/memory/observations` is sent
+- THEN the response MUST be `401`
+
+#### Scenario: S86 — Purge all — nothing to purge
+
+- GIVEN the user is authenticated with installationIds [100]
+- AND 0 observations exist for installation 100
+- WHEN `DELETE /api/memory/observations` is sent
+- THEN the response MUST be `200 { data: { cleared: 0 } }`
+
+#### Scenario: S87 — Purge all — multiple installations
+
+- GIVEN the user is authenticated with installationIds [100, 200]
+- AND installation 100 has 30 observations and installation 200 has 20 observations
+- WHEN `DELETE /api/memory/observations` is sent
+- THEN the response MUST be `200 { data: { cleared: 50 } }`
+- AND all observations for both installations MUST be deleted
+
+---
+
+### R32: PostgresMemoryStorage — Implement Stub Methods
+
+The 5 stub methods in `apps/server/src/memory/postgres.ts` that currently throw `Error('Not implemented')` MUST be replaced with real implementations.
+
+Each method MUST delegate to the appropriate `ghagga-db` query function:
+
+| Method | Delegates To |
+|--------|-------------|
+| `listObservations(options?)` | New `listMemoryObservations(db, installationId, options)` query |
+| `getObservation(id)` | New `getMemoryObservation(db, installationId, id)` query |
+| `deleteObservation(id)` | `deleteMemoryObservation(db, installationId, id)` (R26) |
+| `getStats()` | New `getMemoryStats(db, installationId)` query |
+| `clearObservations(options?)` | `clearMemoryObservationsByProject` (R27) or `clearAllMemoryObservations` (R28) depending on `options.project` |
+
+The `PostgresMemoryStorage` constructor MUST be extended to accept an `installationId: number` parameter (or the adapter must receive it per-call via the API route context).
+
+Note: The `listMemoryObservations`, `getMemoryObservation`, and `getMemoryStats` query functions are additional read queries needed to support the existing Dashboard memory page. They are additive and MUST be scoped by `installationId`.
+
+#### Scenario: S88 — listObservations returns observations for installation
+
+- GIVEN a `PostgresMemoryStorage` instance for installation 100
+- AND observations exist for projects belonging to installation 100
+- WHEN `listObservations({ project: "acme/widgets", limit: 10 })` is called
+- THEN it MUST return `MemoryObservationDetail[]` filtered by project and installation
+- AND no observations from other installations MUST be returned
+
+#### Scenario: S89 — getObservation returns detail or null
+
+- GIVEN a `PostgresMemoryStorage` instance for installation 100
+- AND observation id=42 exists for a project belonging to installation 100
+- WHEN `getObservation(42)` is called
+- THEN it MUST return a `MemoryObservationDetail` object with all fields
+
+#### Scenario: S90 — getObservation returns null for non-existent
+
+- GIVEN no observation with id=999 exists (or it belongs to another installation)
+- WHEN `getObservation(999)` is called
+- THEN it MUST return `null`
+
+#### Scenario: S91 — deleteObservation delegates to DB query
+
+- GIVEN observation id=42 exists for installation 100
+- WHEN `deleteObservation(42)` is called
+- THEN `deleteMemoryObservation(db, 100, 42)` MUST be called
+- AND the method MUST return `true`
+
+#### Scenario: S92 — getStats returns aggregate data
+
+- GIVEN observations exist for installation 100
+- WHEN `getStats()` is called
+- THEN it MUST return a `MemoryStats` object with `totalObservations`, `byType`, `byProject`, `oldestObservation`, `newestObservation`
+- AND only observations for installation 100 MUST be counted
+
+#### Scenario: S93 — clearObservations with project
+
+- GIVEN observations exist for "acme/widgets" belonging to installation 100
+- WHEN `clearObservations({ project: "acme/widgets" })` is called
+- THEN `clearMemoryObservationsByProject(db, 100, "acme/widgets")` MUST be called
+- AND it MUST return the count of deleted rows
+
+#### Scenario: S94 — clearObservations without project (purge all)
+
+- GIVEN observations exist for installation 100
+- WHEN `clearObservations()` is called (no project filter)
+- THEN `clearAllMemoryObservations(db, 100)` MUST be called
+- AND it MUST return the count of deleted rows
+
+---
+
+### R33: Dashboard UI — Tier 1 Confirmation (Delete Single Observation)
+
+Each `ObservationCard` in `apps/dashboard/src/pages/Memory.tsx` MUST display a delete button (trash icon) in the top-right corner.
+
+When the user clicks the delete button, a simple confirmation modal MUST appear with:
+- Title: "Delete observation"
+- Body: The observation's title and type
+- Two buttons: "Cancel" (secondary) and "Delete" (destructive/red)
+
+Clicking "Cancel" or pressing Escape MUST close the modal without any action.
+Clicking "Delete" MUST:
+- Call the `useDeleteObservation` mutation
+- Show a loading state on the button while the request is in flight
+- On success: close the modal, remove the observation from the UI, and show a success toast/notification
+- On error: show an error message in the modal without closing it
+
+#### Scenario: S95 — Delete single observation via UI (happy path)
+
+- GIVEN the user is viewing the Memory page with observations loaded
+- AND observation "OAuth token refresh patterns" is visible
+- WHEN the user clicks the trash icon on that observation
+- THEN a confirmation modal MUST appear with the title "Delete observation"
+- AND the modal MUST show the observation title
+- WHEN the user clicks "Delete"
+- THEN the observation MUST be removed from the UI
+- AND a success message MUST be shown
+
+#### Scenario: S96 — Cancel single delete
+
+- GIVEN the Tier 1 confirmation modal is open
+- WHEN the user clicks "Cancel"
+- THEN the modal MUST close
+- AND no API request MUST be made
+- AND the observation MUST remain visible
+
+#### Scenario: S97 — Dismiss modal with Escape key
+
+- GIVEN the Tier 1 confirmation modal is open
+- WHEN the user presses the Escape key
+- THEN the modal MUST close
+- AND no API request MUST be made
+
+---
+
+### R34: Dashboard UI — Tier 2 Confirmation (Clear Repo Memory)
+
+A "Clear Memory" button MUST be displayed in the session header area when a repository is selected.
+
+When clicked, a confirmation modal MUST appear with:
+- Title: "Clear all memory for {repoName}"
+- Body: "This will delete all {count} observations for this repository. This action cannot be undone."
+- A text input with placeholder: "Type {repoName} to confirm" (where `{repoName}` is e.g., "acme/widgets")
+- Two buttons: "Cancel" (secondary) and "Clear Memory" (destructive/red)
+
+The "Clear Memory" button MUST be **disabled** until the text input value matches the exact repo name (case-sensitive).
+
+Clicking "Cancel" or pressing Escape MUST close the modal without any action.
+Clicking "Clear Memory" (when enabled) MUST:
+- Call the `useClearRepoMemory` mutation
+- Show a loading state on the button
+- On success: close the modal, update the UI to reflect the cleared state, show success toast
+- On error: show error message in the modal
+
+#### Scenario: S98 — Clear repo memory via UI (happy path)
+
+- GIVEN the user is viewing memory for "acme/widgets" which has 15 observations
+- WHEN the user clicks "Clear Memory"
+- THEN a confirmation modal MUST appear showing "This will delete all 15 observations"
+- AND the "Clear Memory" button in the modal MUST be disabled
+- WHEN the user types "acme/widgets" in the text input
+- THEN the "Clear Memory" button MUST become enabled
+- WHEN the user clicks "Clear Memory"
+- THEN all observations for "acme/widgets" MUST be deleted
+- AND the session list MUST update to reflect the empty state
+- AND a success message MUST be shown
+
+#### Scenario: S99 — Confirmation text doesn't match (button stays disabled)
+
+- GIVEN the Tier 2 confirmation modal is open for "acme/widgets"
+- WHEN the user types "acme/widget" (missing 's')
+- THEN the "Clear Memory" button MUST remain disabled
+- WHEN the user types "ACME/WIDGETS" (wrong case)
+- THEN the "Clear Memory" button MUST remain disabled
+- WHEN the user corrects to "acme/widgets"
+- THEN the "Clear Memory" button MUST become enabled
+
+#### Scenario: S100 — Cancel clear repo
+
+- GIVEN the Tier 2 confirmation modal is open
+- WHEN the user clicks "Cancel"
+- THEN the modal MUST close
+- AND no API request MUST be made
+- AND no observations MUST be deleted
+
+---
+
+### R35: Dashboard UI — Tier 3 Confirmation (Purge All Memory)
+
+A "Purge All Memory" button MUST be displayed in the page header or a danger zone area of the Memory page.
+
+When clicked, a confirmation modal MUST appear with:
+- Title: "Purge all memory"
+- Body: "This will permanently delete ALL {totalCount} observations across ALL your repositories. This action cannot be undone."
+- A text input with placeholder: 'Type "DELETE ALL" to confirm'
+- Two buttons: "Cancel" (secondary) and "Purge All" (destructive/red)
+
+The "Purge All" button MUST be **disabled** until BOTH conditions are met:
+1. The text input value is exactly "DELETE ALL" (case-sensitive)
+2. A 5-second countdown timer has expired
+
+The countdown timer:
+- MUST start when the modal opens
+- MUST display the remaining seconds on the button (e.g., "Purge All (5s)", "Purge All (4s)", ..., "Purge All (1s)")
+- After the countdown reaches 0, the button text MUST change to "Purge All" (no countdown suffix)
+- The button MUST remain disabled if the countdown has expired but the text input doesn't match
+- The button MUST remain disabled if the text input matches but the countdown has not expired
+
+Clicking "Cancel" or pressing Escape MUST close the modal and reset the countdown.
+If the modal is re-opened, the countdown MUST restart from 5 seconds.
+
+Clicking "Purge All" (when both conditions are met) MUST:
+- Call the `usePurgeAllMemory` mutation
+- Show a loading state on the button
+- On success: close the modal, navigate to/show the empty memory state, show success toast
+- On error: show error message in the modal
+
+#### Scenario: S101 — Purge all memory via UI (happy path)
+
+- GIVEN the user has 50 observations across all repos
+- WHEN the user clicks "Purge All Memory"
+- THEN a confirmation modal MUST appear showing "This will permanently delete ALL 50 observations"
+- AND the "Purge All" button MUST show "Purge All (5s)"
+- AND the text input MUST be empty
+- WHEN 5 seconds elapse
+- THEN the button text MUST change to "Purge All" (no countdown)
+- AND the button MUST still be disabled (text not entered)
+- WHEN the user types "DELETE ALL"
+- THEN the "Purge All" button MUST become enabled
+- WHEN the user clicks "Purge All"
+- THEN all observations MUST be deleted
+- AND a success message MUST be shown
+
+#### Scenario: S102 — Countdown timer behavior
+
+- GIVEN the Tier 3 confirmation modal just opened
+- THEN the "Purge All" button MUST display "Purge All (5s)"
+- AND after 1 second it MUST display "Purge All (4s)"
+- AND after 2 seconds it MUST display "Purge All (3s)"
+- AND after 3 seconds it MUST display "Purge All (2s)"
+- AND after 4 seconds it MUST display "Purge All (1s)"
+- AND after 5 seconds it MUST display "Purge All"
+
+#### Scenario: S103 — Text correct but countdown not expired
+
+- GIVEN the Tier 3 modal opened 2 seconds ago (3 seconds remaining)
+- AND the user has typed "DELETE ALL"
+- THEN the "Purge All" button MUST still be disabled
+- AND the button MUST still show the countdown (e.g., "Purge All (3s)")
+
+#### Scenario: S104 — Countdown expired but text doesn't match
+
+- GIVEN the Tier 3 modal opened more than 5 seconds ago
+- AND the user has typed "delete all" (wrong case)
+- THEN the "Purge All" button MUST remain disabled
+
+#### Scenario: S105 — Cancel purge and re-open resets countdown
+
+- GIVEN the Tier 3 confirmation modal has been open for 4 seconds
+- WHEN the user clicks "Cancel"
+- THEN the modal MUST close
+- WHEN the user clicks "Purge All Memory" again
+- THEN a new modal MUST appear with the countdown restarted at 5 seconds
+
+#### Scenario: S106 — Dismiss with Escape resets countdown
+
+- GIVEN the Tier 3 confirmation modal is open
+- WHEN the user presses Escape
+- THEN the modal MUST close
+- AND the countdown MUST reset for next open
+
+---
+
+### R36: Dashboard API Client — Mutation Hooks
+
+Three new mutation hooks MUST be added to `apps/dashboard/src/lib/api.ts`:
+
+#### R36.1: useDeleteObservation
+
+```typescript
+export function useDeleteObservation()
+```
+
+MUST:
+- Send `DELETE /api/memory/observations/:id`
+- Accept `{ observationId: number }` as the mutation variable
+- On success: invalidate query keys `['memory', 'observations', *]` and `['memory', 'sessions', *]`
+- Return the standard `useMutation` result
+
+#### R36.2: useClearRepoMemory
+
+```typescript
+export function useClearRepoMemory()
+```
+
+MUST:
+- Send `DELETE /api/memory/projects/:project/observations` (URL-encode the project)
+- Accept `{ project: string }` as the mutation variable
+- On success: invalidate query keys `['memory', 'observations', *]` and `['memory', 'sessions', *]`
+- Return the standard `useMutation` result
+
+#### R36.3: usePurgeAllMemory
+
+```typescript
+export function usePurgeAllMemory()
+```
+
+MUST:
+- Send `DELETE /api/memory/observations`
+- Accept no variables (or empty object)
+- On success: invalidate ALL query keys starting with `['memory']`
+- Return the standard `useMutation` result
+
+#### Scenario: S107 — Cache invalidation after single delete
+
+- GIVEN the user is viewing observations for session 5
+- WHEN `useDeleteObservation` succeeds for observation 42
+- THEN the query `['memory', 'observations', 5]` MUST be invalidated
+- AND the observation list MUST refetch and no longer include observation 42
+
+#### Scenario: S108 — Cache invalidation after clear repo
+
+- GIVEN the user is viewing sessions for "acme/widgets"
+- WHEN `useClearRepoMemory` succeeds for "acme/widgets"
+- THEN all `['memory', 'sessions', 'acme/widgets']` queries MUST be invalidated
+- AND all `['memory', 'observations', *]` queries MUST be invalidated
+- AND the session list MUST refetch and show updated observation counts
+
+#### Scenario: S109 — Cache invalidation after purge all
+
+- GIVEN the user has data loaded for multiple repos
+- WHEN `usePurgeAllMemory` succeeds
+- THEN ALL `['memory']` queries MUST be invalidated
+
+---
+
+### R37: Dashboard UI — Loading States and Error Handling
+
+All three destructive operations MUST display appropriate loading and error states.
+
+During a mutation request:
+- The confirm button MUST show a loading indicator (spinner or "Deleting..." text)
+- The confirm button MUST be disabled to prevent double-submission
+- The "Cancel" button SHOULD remain clickable (to allow aborting, though the request will still complete server-side)
+
+On error:
+- The modal MUST remain open
+- An error message MUST be displayed within the modal
+- The confirm button MUST return to its normal state (re-enabled)
+
+On network error:
+- The error message SHOULD indicate a connectivity issue (e.g., "Network error. Please check your connection and try again.")
+
+#### Scenario: S110 — Loading state during delete
+
+- GIVEN the user clicked "Delete" in the Tier 1 modal
+- WHEN the API request is in flight
+- THEN the "Delete" button MUST show a loading indicator
+- AND the "Delete" button MUST be disabled
+
+#### Scenario: S111 — Network error during delete
+
+- GIVEN the user clicked "Delete" in the Tier 1 modal
+- AND the network request fails (timeout, connection refused, etc.)
+- THEN the modal MUST remain open
+- AND an error message MUST be displayed
+- AND the "Delete" button MUST return to its enabled state
+
+#### Scenario: S112 — API error (404) during delete
+
+- GIVEN the user clicked "Delete" for an observation that was already deleted (e.g., in another tab)
+- AND the API returns 404
+- THEN the modal MUST show an appropriate error message (e.g., "Observation not found — it may have already been deleted")
+- AND after dismissing, the observation list SHOULD refetch
+
+---
+
+### R38: Dashboard UI — Responsive Design and Consistency
+
+All new UI elements (delete buttons, modals, confirmation inputs) MUST:
+- Be consistent with the existing dashboard design language (colors, typography, spacing, border-radius)
+- Use the existing `Card` component pattern for modal containers
+- Use the existing `cn()` utility for conditional class composition
+- Work responsively on screens from 320px width up to 4K
+- Support dark mode (the dashboard is dark-mode only currently)
+
+The confirmation modals MUST:
+- Be rendered via a portal or overlay pattern that covers the full viewport
+- Have a semi-transparent backdrop
+- Be vertically and horizontally centered
+- Be closeable by clicking the backdrop (equivalent to "Cancel")
+
+#### Scenario: S113 — Modal renders centered with backdrop
+
+- GIVEN the user clicks any delete/clear/purge button
+- WHEN the confirmation modal appears
+- THEN it MUST be centered on screen
+- AND a semi-transparent backdrop MUST cover the rest of the page
+- AND clicking the backdrop MUST close the modal
+
+---
+
+### R39: Dashboard UI — Success Feedback
+
+After a successful destructive operation, the UI MUST provide clear feedback:
+
+- **Single delete**: A brief toast/notification saying "Observation deleted" (auto-dismiss after 3-5 seconds)
+- **Clear repo**: A toast saying "Cleared {N} observations from {repoName}" (auto-dismiss after 3-5 seconds)
+- **Purge all**: A toast saying "Purged {N} observations from all repositories" (auto-dismiss after 5 seconds)
+
+The toast MUST NOT block interaction with the page.
+
+#### Scenario: S114 — Toast after successful single delete
+
+- GIVEN the user confirmed deletion of an observation
+- AND the API returned success
+- THEN a toast MUST appear saying "Observation deleted"
+- AND the toast MUST auto-dismiss after 3-5 seconds
+
+#### Scenario: S115 — Toast after successful purge all
+
+- GIVEN the user confirmed purging all memory
+- AND the API returned `{ cleared: 50 }`
+- THEN a toast MUST appear saying "Purged 50 observations from all repositories"
+
+---
+
+### R40: Security — Installation Scoping
+
+ALL delete/clear/purge operations MUST be scoped to the authenticated user's GitHub installation(s) at both the API and database layers.
+
+The API layer MUST:
+- Extract `user.installationIds` from the auth middleware context
+- For single delete and clear-repo: look up the repository, verify `repo.installationId in user.installationIds`
+- For purge-all: pass `user.installationIds` to the DB query
+
+The DB layer MUST:
+- Accept `installationId` as a parameter in all delete/clear query functions
+- Use SQL JOINs or WHERE clauses to ensure only observations for repos belonging to that installation are affected
+
+No user MUST be able to delete another user's memory, even by guessing observation IDs or project names.
+
+#### Scenario: S116 — Cross-tenant isolation at API layer
+
+- GIVEN user A is authenticated with installationIds [100]
+- AND user B has observation id=42 belonging to installation 200
+- WHEN user A sends `DELETE /api/memory/observations/42`
+- THEN the API MUST return 404 (observation not found for this user)
+- AND observation 42 MUST NOT be deleted
+
+#### Scenario: S117 — Cross-tenant isolation at DB layer
+
+- GIVEN `deleteMemoryObservation(db, 100, 42)` is called
+- AND observation 42 belongs to installation 200
+- THEN the SQL query MUST return 0 affected rows
+- AND the function MUST return `false`
+
+---
+
+### Cross-Cutting Concerns (Dashboard Memory Management)
+
+#### CC9: URL Encoding for Project Parameter
+
+The `DELETE /api/memory/projects/:project/observations` endpoint uses the project name (e.g., "owner/repo") as a URL path parameter. Since this contains a slash, the client MUST URL-encode it (e.g., `acme%2Fwidgets`). The Hono router MUST decode it back to `acme/widgets`.
+
+Special characters in organization or repository names (e.g., hyphens, dots, underscores) MUST be handled correctly. The only character requiring encoding is the forward slash separating owner and repo.
+
+#### CC10: Concurrent Deletion
+
+If the same observation/repo is deleted simultaneously from two browser tabs:
+- The first request to arrive MUST succeed
+- The second request MUST either succeed as a no-op (return `deleted: true` if idempotent, or `cleared: 0`) or return 404 for single observation deletes
+- No server error (500) MUST be thrown
+
+The TanStack Query `refetchOnWindowFocus` behavior SHOULD handle stale data when the user switches back to a tab where a deleted observation is still displayed.
+
+#### CC11: Empty States
+
+After clearing all observations for a repo or purging all memory, the UI MUST display an appropriate empty state rather than showing stale data or a blank page.
+
+- After clearing a repo: the session list for that repo SHOULD show an empty message (e.g., "No memory sessions for this repository")
+- After purging all: the Memory page SHOULD show a global empty state (e.g., "No memory yet. Memory builds as GHAGGA reviews your pull requests.")
+
+#### CC12: PostgreSQL Triggers
+
+Unlike SQLite (which requires explicit FTS5 delete triggers), PostgreSQL's `tsvector` search column is maintained by a database trigger (`tsvector_update_trigger`). Deleting rows from `memory_observations` MUST automatically clean up the search index. No manual FTS cleanup is needed.
+
+#### CC13: No New Dependencies (Dashboard Memory Management)
+
+This extension MUST NOT add any new npm dependencies to any package. All functionality uses:
+- `drizzle-orm` (already in `packages/db`) for PostgreSQL queries
+- `hono` (already in `apps/server`) for API routes
+- `@tanstack/react-query` (already in `apps/dashboard`) for mutation hooks
+- React (already in `apps/dashboard`) for UI components
+
+---
+
+### Edge Cases (Dashboard Memory Management)
+
+#### E6: Deleting the last observation in a session
+
+- GIVEN a session has exactly 1 observation
+- WHEN that observation is deleted
+- THEN the session MUST still exist in the database (sessions are not auto-deleted)
+- AND the session MUST show 0 observations in the UI
+- AND the session list MUST update the observation count
+
+##### Scenario: S118
+
+- GIVEN session 5 has 1 observation (id=42)
+- WHEN the user deletes observation 42
+- THEN the session list MUST still show session 5
+- AND session 5 MUST display "0 observations"
+
+#### E7: Clearing a repo that has no observations
+
+- GIVEN a repository exists but has 0 observations
+- WHEN the user clicks "Clear Memory" for that repo
+- THEN the Tier 2 modal MAY show "This will delete all 0 observations"
+- OR the "Clear Memory" button MAY be hidden/disabled when count is 0
+- AND if the API is called, it MUST return `{ cleared: 0 }` without error
+
+##### Scenario: S119
+
+- GIVEN "acme/widgets" has 0 observations
+- WHEN `DELETE /api/memory/projects/acme%2Fwidgets/observations` is sent
+- THEN the response MUST be `200 { data: { cleared: 0 } }`
+
+#### E8: Purging when there's nothing to purge
+
+- GIVEN the user has no observations across any repo
+- WHEN the user triggers "Purge All Memory"
+- THEN the API MUST return `{ cleared: 0 }` without error
+- AND the UI MUST show a toast like "Purged 0 observations from all repositories" or a gentler message
+
+##### Scenario: S120
+
+- GIVEN the user has 0 total observations
+- WHEN `DELETE /api/memory/observations` is sent
+- THEN the response MUST be `200 { data: { cleared: 0 } }`
+
+#### E9: Concurrent deletion (two tabs)
+
+- GIVEN the user has the Memory page open in two tabs
+- AND both tabs show observation 42
+- WHEN the user deletes observation 42 in Tab 1 (succeeds)
+- AND then tries to delete observation 42 in Tab 2
+- THEN Tab 2's API request MUST return 404
+- AND Tab 2 MUST show an appropriate error message
+- AND when Tab 2 refocuses or refetches, observation 42 MUST no longer appear
+
+##### Scenario: S121
+
+- GIVEN observation 42 was deleted in another tab
+- WHEN `DELETE /api/memory/observations/42` is sent
+- THEN the response MUST be `404 { error: "Observation not found" }`
+
+#### E10: Project param with special characters in URL
+
+- GIVEN a project name contains characters that need URL encoding (e.g., "my-org/my.repo-name")
+- WHEN the client sends `DELETE /api/memory/projects/my-org%2Fmy.repo-name/observations`
+- THEN the server MUST correctly decode the project parameter to "my-org/my.repo-name"
+- AND the query MUST match the correct repository
+
+##### Scenario: S122
+
+- GIVEN "my-org/my.repo-name" belongs to the user's installation
+- WHEN `DELETE /api/memory/projects/my-org%2Fmy.repo-name/observations` is sent
+- THEN the server MUST find the repository "my-org/my.repo-name"
+- AND the clear operation MUST succeed
+
+---
+
+### Acceptance Criteria (Dashboard Memory Management)
+
+34. `deleteMemoryObservation(db, installationId, observationId)` in `packages/db/src/queries.ts` deletes a single observation scoped by installation, returns `boolean`
+35. `clearMemoryObservationsByProject(db, installationId, project)` in `packages/db/src/queries.ts` clears all observations for a repo scoped by installation, returns count
+36. `clearAllMemoryObservations(db, installationId)` in `packages/db/src/queries.ts` clears all observations for an installation, returns count
+37. `DELETE /api/memory/observations/:id` returns 200/404/400/401/403 as specified
+38. `DELETE /api/memory/projects/:project/observations` returns 200/404/401/403 as specified, handles URL-encoded project names
+39. `DELETE /api/memory/observations` returns 200/401 as specified
+40. All API endpoints enforce installation-scoped authorization (no IDOR)
+41. `PostgresMemoryStorage.deleteObservation()` returns `boolean` (no longer throws)
+42. `PostgresMemoryStorage.clearObservations()` returns count (no longer throws)
+43. `PostgresMemoryStorage.listObservations()` returns `MemoryObservationDetail[]` (no longer throws)
+44. `PostgresMemoryStorage.getObservation()` returns detail or null (no longer throws)
+45. `PostgresMemoryStorage.getStats()` returns `MemoryStats` (no longer throws)
+46. **Tier 1**: Trash icon on each `ObservationCard`, simple modal with "Cancel"/"Delete"
+47. **Tier 2**: "Clear Memory" button, modal with text input matching exact repo name to enable confirm
+48. **Tier 3**: "Purge All Memory" button, modal with "DELETE ALL" text input + 5-second countdown timer on confirm button; both conditions required
+49. Countdown timer displays remaining seconds on the button, resets on modal close/reopen
+50. TanStack Query mutations with proper cache invalidation for all 3 operations
+51. Loading states during API requests (disabled buttons, spinners)
+52. Error handling in modals (remain open on error, show message)
+53. Success toast/notification after each operation
+54. Empty state displayed after clearing/purging all observations
+55. Responsive design consistent with existing dashboard (dark mode, existing component patterns)
+56. No new npm dependencies added
+57. All new DB queries, API endpoints, and UI components have tests
+58. Existing tests continue passing
+
+---
+
+## Extension: Memory Detail View — Severity Expansion + Dashboard UI Enhancements
+
+> **Origin**: Archived from `memory-detail-view` change (2026-03-07)
+> **Depends on**: Dashboard Memory Management extension above (which implemented delete/clear/purge + ConfirmDialog + Toast)
+
+This section defines two areas of change:
+
+1. **Backend**: Expand the memory significance filter to include `medium` severity findings, add a `severity` column to the observation data model (both PostgreSQL and SQLite), and propagate severity through the persistence and query pipeline.
+
+2. **Dashboard**: Enhance the Memory page with severity badges, PR links, an observation detail modal, stats bar, severity filter, and sort options — transforming the page from a basic observation browser into a comprehensive memory management interface.
+
+All observations with `NULL` severity (pre-existing data) MUST be handled gracefully throughout.
+
+---
+
+### R41: Expand Significance Filter to Include Medium Severity
+
+The `isSignificantFinding()` function in `packages/core/src/memory/persist.ts` MUST be updated to return `true` for `medium` severity findings in addition to `critical` and `high`.
+
+The function MUST continue to return `false` for `low` and `info` severity findings.
+
+#### Scenario: S123 — Medium severity finding is persisted
+
+- GIVEN a review result contains a finding with `severity: 'medium'` and `category: 'performance'`
+- WHEN `persistReviewObservations()` is called
+- THEN the finding MUST be saved as a memory observation via `saveObservation()`
+- AND the observation's content MUST include `[MEDIUM] performance`
+
+#### Scenario: S124 — Low severity finding is still excluded
+
+- GIVEN a review result contains only a finding with `severity: 'low'`
+- WHEN `persistReviewObservations()` is called
+- THEN no observations MUST be saved (aside from no session being created)
+- AND `saveObservation()` MUST NOT be called
+
+#### Scenario: S125 — Mixed severities: all three significant levels captured
+
+- GIVEN a review result contains 3 findings: one `critical`, one `high`, one `medium`
+- WHEN `persistReviewObservations()` is called
+- THEN 3 finding observations MUST be saved (plus 1 summary observation)
+- AND all 3 findings MUST pass the significance filter
+
+---
+
+### R42: Add `severity` Column to PostgreSQL Schema
+
+A `severity` column MUST be added to the `memoryObservations` table in `packages/db/src/schema.ts`.
+
+The column MUST:
+- Be of type `varchar('severity', { length: 10 })`
+- Be nullable (no `.notNull()`) for backward compatibility with existing observations
+- Accept values: `'critical'`, `'high'`, `'medium'`, `'low'`, `'info'`, or `NULL`
+
+A corresponding migration file `packages/db/drizzle/0006_add_severity_column.sql` MUST be created containing:
+```sql
+ALTER TABLE "memory_observations" ADD COLUMN "severity" varchar(10);
+```
+
+#### Scenario: S126 — New observation stored with severity
+
+- GIVEN the `severity` column exists in `memory_observations`
+- WHEN a new observation is inserted with `severity: 'medium'`
+- THEN the `severity` column MUST contain `'medium'`
+
+#### Scenario: S127 — Existing observations have NULL severity
+
+- GIVEN the migration has been applied to a database with existing observations
+- WHEN a SELECT query reads existing observations
+- THEN the `severity` column MUST be `NULL` for pre-existing rows
+- AND no error MUST occur
+
+---
+
+### R43: Add `severity` Column to SQLite Schema
+
+The SQLite schema in `packages/core/src/memory/sqlite.ts` MUST be updated to include `severity TEXT` in the `CREATE TABLE IF NOT EXISTS memory_observations` statement.
+
+For existing SQLite databases, an `ALTER TABLE memory_observations ADD COLUMN severity TEXT` statement MUST be executed during initialization. The implementation MUST handle the case where the column already exists (e.g., by catching the "duplicate column name" error or checking the schema first).
+
+#### Scenario: S128 — New SQLite database includes severity column
+
+- GIVEN a fresh SQLite database is created
+- WHEN the schema initialization runs
+- THEN the `memory_observations` table MUST include a `severity` column of type TEXT
+
+#### Scenario: S129 — Existing SQLite database gets severity column via migration
+
+- GIVEN an existing SQLite database WITHOUT a `severity` column
+- WHEN the application initializes the database
+- THEN an `ALTER TABLE` MUST add the `severity` column
+- AND existing observations MUST NOT be modified
+
+#### Scenario: S130 — Migration is idempotent for SQLite
+
+- GIVEN the `severity` column already exists in the SQLite database
+- WHEN the application initializes the database
+- THEN no error MUST occur
+- AND the schema MUST remain unchanged
+
+---
+
+### R44: Update `saveObservation` Interface and Implementations
+
+The `saveObservation` method in the `MemoryStorage` interface (`packages/core/src/types.ts`) MUST accept an optional `severity` field:
+
+```typescript
+saveObservation(data: {
+  sessionId?: number;
+  project: string;
+  type: string;
+  title: string;
+  content: string;
+  topicKey?: string;
+  filePaths?: string[];
+  severity?: string;  // NEW
+}): Promise<MemoryObservationRow>;
+```
+
+The PostgreSQL implementation in `packages/db/src/queries.ts` MUST:
+- Include `severity` in the INSERT statement when provided
+- Preserve existing `severity` value during topic-key upsert (update to new severity if provided)
+- Include `severity` in the returned row
+
+The SQLite implementation in `packages/core/src/memory/sqlite.ts` MUST:
+- Include `severity` in the INSERT statement when provided
+- Store `NULL` when severity is not provided
+
+The `persistReviewObservations()` function in `packages/core/src/memory/persist.ts` MUST pass `finding.severity` to `saveObservation()` for each finding observation. The summary observation (PR review) MAY omit severity or use `null`.
+
+#### Scenario: S131 — Severity persisted through pipeline
+
+- GIVEN a review finding with `severity: 'high'`
+- WHEN `persistReviewObservations()` calls `saveObservation()`
+- THEN the `data` argument MUST include `severity: 'high'`
+- AND the stored observation MUST have `severity: 'high'`
+
+#### Scenario: S132 — Summary observation has no severity
+
+- GIVEN a review with significant findings
+- WHEN `persistReviewObservations()` saves the summary observation ("PR #N review: status")
+- THEN the `data` argument SHOULD NOT include `severity` or SHOULD include `severity: undefined`
+- AND the stored observation MUST have `severity: NULL`
+
+#### Scenario: S133 — Topic-key upsert preserves/updates severity
+
+- GIVEN an existing observation with `topicKey: 'auth-pattern'` and `severity: 'high'`
+- WHEN a new observation with `topicKey: 'auth-pattern'` and `severity: 'medium'` is saved
+- THEN the existing observation MUST be updated with `severity: 'medium'`
+
+---
+
+### R45: Update Type Definitions
+
+The `MemoryObservationRow` interface in `packages/core/src/types.ts` MUST be extended with:
+```typescript
+severity: string | null;
+```
+
+The `MemoryObservationDetail` interface in `packages/core/src/types.ts` MUST be extended with:
+```typescript
+severity: string | null;
+```
+
+The `Observation` interface in `apps/dashboard/src/lib/types.ts` MUST be extended with:
+```typescript
+severity: string | null;
+topicKey: string | null;
+revisionCount: number;
+updatedAt: string;
+```
+
+The `MemorySession` interface in `apps/dashboard/src/lib/types.ts` SHOULD be extended with:
+```typescript
+severityCounts?: Record<string, number>;  // e.g., { critical: 2, high: 5, medium: 3 }
+```
+
+#### Scenario: S134 — Dashboard receives severity in observation data
+
+- GIVEN the API returns observations with the `severity` field
+- WHEN the Dashboard renders observation cards
+- THEN each observation object MUST have a `severity` property (string or null)
+
+---
+
+### R46: Update Queries to Include Severity
+
+The `getObservationsBySession` function in `packages/db/src/queries.ts` MUST include the `severity` column in its SELECT results.
+
+The `searchObservations` function in `packages/db/src/queries.ts` MUST include the `severity` column in its returned `MemoryObservationRow[]`.
+
+The `getSessionsByProject` function in `packages/db/src/queries.ts` SHOULD be enhanced to return severity distribution per session. This MAY be implemented as:
+- A subquery that counts observations by severity for each session
+- A JSON aggregate column: `severityCounts`
+
+The `mapToDetail` function in `packages/core/src/memory/sqlite.ts` MUST map the `severity` column to the `MemoryObservationDetail.severity` field.
+
+#### Scenario: S135 — Observations returned with severity
+
+- GIVEN a session has observations with severities: `critical`, `high`, `medium`, and `NULL`
+- WHEN `getObservationsBySession(db, sessionId)` is called
+- THEN each returned observation MUST include a `severity` field
+- AND observations with severity MUST return the severity string
+- AND observations without severity MUST return `null`
+
+#### Scenario: S136 — Session severity distribution
+
+- GIVEN a session has 2 `critical`, 3 `high`, and 1 `medium` observation
+- WHEN `getSessionsByProject(db, project)` is called
+- THEN the session entry SHOULD include severity counts: `{ critical: 2, high: 3, medium: 1 }`
+
+#### Scenario: S137 — SQLite mapToDetail includes severity
+
+- GIVEN a SQLite observation row with `severity: 'medium'`
+- WHEN `mapToDetail()` is called
+- THEN the returned `MemoryObservationDetail` MUST have `severity: 'medium'`
+
+#### Scenario: S138 — SQLite mapToDetail handles NULL severity
+
+- GIVEN a SQLite observation row with no `severity` column value (NULL)
+- WHEN `mapToDetail()` is called
+- THEN the returned `MemoryObservationDetail` MUST have `severity: null`
+
+---
+
+### R47: Dashboard — Severity Badge on ObservationCard
+
+Each `ObservationCard` in `apps/dashboard/src/pages/Memory.tsx` MUST display a severity badge when the observation has a non-null severity.
+
+The badge MUST:
+- Use the existing `SeverityBadge` component from `apps/dashboard/src/components/SeverityBadge.tsx`
+- Be positioned in the card header area, next to the observation type badge
+- NOT be rendered when severity is `null`
+
+#### Scenario: S139 — Severity badge displayed for observation with severity
+
+- GIVEN an observation with `severity: 'high'`
+- WHEN the `ObservationCard` renders
+- THEN a severity badge with text "High" and orange styling MUST be visible
+- AND the badge MUST use the `SeverityBadge` component
+
+#### Scenario: S140 — No severity badge for NULL severity
+
+- GIVEN an observation with `severity: null`
+- WHEN the `ObservationCard` renders
+- THEN no severity badge MUST be shown
+- AND the card MUST still render correctly with the type badge only
+
+---
+
+### R48: Dashboard — PR Link on ObservationCard and SessionItem
+
+Each `ObservationCard` SHOULD display a PR link badge (e.g., "PR #42") when the observation's session has a `prNumber`.
+
+Each `SessionItem` MUST display a PR link (e.g., "PR #42") linking to `https://github.com/{project}/pull/{prNumber}` when `prNumber` is available.
+
+#### Scenario: S141 — PR link displayed on SessionItem
+
+- GIVEN a session with `project: 'acme/widgets'` and `prNumber: 42`
+- WHEN the `SessionItem` renders
+- THEN a clickable "PR #42" link MUST be visible
+- AND clicking it MUST open `https://github.com/acme/widgets/pull/42` in a new tab
+
+#### Scenario: S142 — No PR link when prNumber is absent
+
+- GIVEN a session with `prNumber: null` or `prNumber: 0`
+- WHEN the `SessionItem` renders
+- THEN no PR link MUST be shown
+
+---
+
+### R49: Dashboard — Enhanced ObservationCard Display
+
+Each `ObservationCard` MUST be enhanced with the following display improvements:
+
+1. **Revision count badge**: When `revisionCount > 1`, display a badge like "3 revisions"
+2. **File path chips**: Display file paths as styled chips/tags (not plain text)
+3. **Content styling**: Observation content MUST use `font-mono` for code-like formatting with `whitespace-pre-wrap`
+4. **Relative timestamps**: Display `createdAt` as relative time (e.g., "2 hours ago", "3 days ago") using `Intl.RelativeTimeFormat`
+
+The card MUST remain clickable to open the observation detail modal (R50).
+
+#### Scenario: S143 — Revision count badge shown for revised observations
+
+- GIVEN an observation with `revisionCount: 5`
+- WHEN the `ObservationCard` renders
+- THEN a "5 revisions" badge MUST be visible
+
+#### Scenario: S144 — No revision badge for single-revision observations
+
+- GIVEN an observation with `revisionCount: 1`
+- WHEN the `ObservationCard` renders
+- THEN no revision count badge MUST be shown
+
+#### Scenario: S145 — Relative timestamp display
+
+- GIVEN an observation created 3 hours ago
+- WHEN the `ObservationCard` renders
+- THEN the timestamp MUST display as "3 hours ago" (or similar relative format)
+- AND the full ISO timestamp SHOULD be available as a tooltip (via `title` attribute)
+
+#### Scenario: S146 — File paths displayed as chips
+
+- GIVEN an observation with `filePaths: ['src/auth.ts', 'src/middleware.ts']`
+- WHEN the `ObservationCard` renders
+- THEN "src/auth.ts" and "src/middleware.ts" MUST be displayed as styled chip elements
+- AND the chips MUST use `font-mono` styling
+
+---
+
+### R50: Dashboard — Observation Detail Modal
+
+A new observation detail modal MUST be created at `apps/dashboard/src/components/ObservationDetailModal.tsx`.
+
+The modal MUST open when the user clicks on an `ObservationCard`.
+
+The modal MUST display:
+- Observation title (large heading)
+- Severity badge (using `SeverityBadge` component, if severity is non-null)
+- Type badge
+- Full content with code-like formatting (`font-mono`, `whitespace-pre-wrap`)
+- All file paths (each as a styled element)
+- Topic key (if non-null), displayed with a label: "Topic: {topicKey}"
+- Revision count (e.g., "Revision 3 of this topic")
+- Created at timestamp (both relative and absolute)
+- Updated at timestamp (both relative and absolute, if different from createdAt)
+
+The modal MUST:
+- Be rendered via a portal/overlay pattern (consistent with existing `ConfirmDialog`)
+- Have a semi-transparent backdrop
+- Be closeable by clicking the backdrop, pressing Escape, or clicking an X button
+- Be vertically scrollable if content overflows
+- Follow the dark theme design of the dashboard
+
+#### Scenario: S147 — Detail modal opens on card click
+
+- GIVEN the user is viewing observations for a session
+- WHEN the user clicks on an `ObservationCard`
+- THEN a detail modal MUST open with the full observation details
+- AND the modal MUST be centered on screen with a backdrop
+
+#### Scenario: S148 — Detail modal displays all fields
+
+- GIVEN an observation with:
+  - `severity: 'critical'`
+  - `type: 'bugfix'`
+  - `title: 'Null pointer in auth middleware'`
+  - `content: '[CRITICAL] bug\nFile: src/auth.ts:42\nIssue: Null pointer...'`
+  - `filePaths: ['src/auth.ts']`
+  - `topicKey: 'auth-null-check'`
+  - `revisionCount: 3`
+  - `createdAt: '2026-03-01T10:00:00Z'`
+  - `updatedAt: '2026-03-05T14:30:00Z'`
+- WHEN the detail modal is open for this observation
+- THEN all fields MUST be visible with appropriate formatting
+- AND the severity badge MUST be red ("Critical")
+- AND the topic key MUST be displayed as "Topic: auth-null-check"
+- AND the revision count MUST be displayed as "Revision 3 of this topic"
+
+#### Scenario: S149 — Detail modal handles NULL fields gracefully
+
+- GIVEN an observation with `severity: null`, `topicKey: null`, `revisionCount: 1`
+- WHEN the detail modal is open for this observation
+- THEN no severity badge MUST be shown
+- AND no topic key section MUST be shown
+- AND no revision information MUST be shown (or it SHOULD show "1 revision")
+
+#### Scenario: S150 — Close detail modal with Escape
+
+- GIVEN the observation detail modal is open
+- WHEN the user presses the Escape key
+- THEN the modal MUST close
+- AND the observations list MUST be visible again
+
+#### Scenario: S151 — Close detail modal with backdrop click
+
+- GIVEN the observation detail modal is open
+- WHEN the user clicks on the backdrop (outside the modal content)
+- THEN the modal MUST close
+
+---
+
+### R51: Dashboard — Stats Bar
+
+A stats bar MUST be displayed at the top of the observations area in the Memory page.
+
+The stats bar MUST show:
+- **Total count**: "N observations" where N is the total count of observations in the current view
+- **Severity breakdown**: Color-coded count chips for each severity level present (e.g., red "3 critical", orange "5 high", yellow "2 medium")
+- **Type breakdown**: Count chips for each observation type present (e.g., "4 pattern", "2 bugfix", "1 learning")
+
+The stats bar MUST update dynamically when filters (severity filter, type filter) change — it SHOULD reflect the filtered subset, not the total.
+
+#### Scenario: S152 — Stats bar displays counts
+
+- GIVEN the current view has 10 observations: 2 critical, 3 high, 5 medium; 4 pattern, 3 bugfix, 3 learning
+- WHEN the stats bar renders
+- THEN it MUST display "10 observations"
+- AND severity chips: "2 critical" (red), "3 high" (orange), "5 medium" (yellow)
+- AND type chips: "4 pattern", "3 bugfix", "3 learning"
+
+#### Scenario: S153 — Stats bar updates with filters
+
+- GIVEN the severity filter is set to "Critical"
+- AND 2 of 10 observations are critical
+- WHEN the stats bar renders
+- THEN it MUST display "2 observations"
+- AND only the "2 critical" severity chip MUST be shown
+
+---
+
+### R52: Dashboard — Severity Filter
+
+A severity filter dropdown MUST be added to the Memory page alongside the existing type filter.
+
+The filter MUST:
+- Display options: "All severities" (default), "Critical", "High", "Medium", "Low", "Info"
+- Filter the observation list client-side
+- Persist the selected value while the page is active (reset on navigation away)
+- Work independently of and in combination with the existing type filter
+
+#### Scenario: S154 — Filter by single severity
+
+- GIVEN the observations list contains observations with critical, high, and medium severities
+- WHEN the user selects "High" from the severity filter
+- THEN only observations with `severity: 'high'` MUST be displayed
+- AND the stats bar MUST update to reflect the filtered subset
+
+#### Scenario: S155 — Filter shows observations with NULL severity
+
+- GIVEN some observations have `severity: null`
+- WHEN the "All severities" filter is selected (default)
+- THEN all observations MUST be shown, including those with NULL severity
+
+#### Scenario: S156 — Combined severity + type filter
+
+- GIVEN observations exist with various severities and types
+- WHEN the user selects severity "Critical" AND type "bugfix"
+- THEN only observations matching BOTH criteria MUST be displayed
+
+---
+
+### R53: Dashboard — Sort Options
+
+Sort options MUST be provided for the observation list in the Memory page.
+
+The available sort options MUST be:
+- **Newest first** (default): Sort by `createdAt` descending
+- **Oldest first**: Sort by `createdAt` ascending
+- **Severity**: Sort by severity level descending (critical > high > medium > low > info > null)
+- **Most revised**: Sort by `revisionCount` descending
+
+The sort MUST be applied client-side after filtering.
+
+#### Scenario: S157 — Sort by severity
+
+- GIVEN observations with severities: medium, critical, null, high
+- WHEN the user selects "Severity" sort
+- THEN the observations MUST be ordered: critical, high, medium, null
+
+#### Scenario: S158 — Sort by most revised
+
+- GIVEN observations with revision counts: 1, 5, 3, 2
+- WHEN the user selects "Most revised" sort
+- THEN the observations MUST be ordered: 5, 3, 2, 1
+
+#### Scenario: S159 — Default sort is newest first
+
+- GIVEN the user has not changed the sort option
+- THEN observations MUST be sorted by `createdAt` descending (newest first)
+
+---
+
+### R54: Dashboard — SessionItem Enhancements
+
+Each `SessionItem` in the Memory page MUST be enhanced with:
+
+1. **PR link**: Clickable link to the GitHub PR (R48)
+2. **Severity summary**: Small colored dots or count text showing the distribution of severities in that session (e.g., "2● 3● 1●" with critical=red, high=orange, medium=yellow dots)
+
+#### Scenario: S160 — Session shows severity summary
+
+- GIVEN a session with observations: 1 critical, 2 high, 3 medium
+- WHEN the `SessionItem` renders
+- THEN severity summary indicators MUST be visible
+- AND they MUST use the correct colors (red for critical, orange for high, yellow for medium)
+
+#### Scenario: S161 — Session with no severity data
+
+- GIVEN a session where all observations have `severity: null` (pre-existing data)
+- WHEN the `SessionItem` renders
+- THEN no severity summary MUST be shown (or a neutral "no severity data" indicator)
+
+---
+
+### R55: Dashboard — Relative Time Formatting
+
+Relative time formatting MUST be implemented using the browser's built-in `Intl.RelativeTimeFormat` API.
+
+A utility function MUST be created (e.g., `formatRelativeTime(date: string): string`) that:
+- Accepts an ISO 8601 date string
+- Returns a human-readable relative time string (e.g., "2 hours ago", "3 days ago", "just now")
+- Handles edge cases: future dates, very old dates (> 1 year)
+
+No external date libraries (moment.js, dayjs, date-fns) MUST be added.
+
+#### Scenario: S162 — Recent timestamp
+
+- GIVEN a timestamp from 45 minutes ago
+- WHEN `formatRelativeTime()` is called
+- THEN it MUST return "45 minutes ago" (or similar)
+
+#### Scenario: S163 — Old timestamp
+
+- GIVEN a timestamp from 30 days ago
+- WHEN `formatRelativeTime()` is called
+- THEN it MUST return "30 days ago" or "1 month ago" (either is acceptable)
+
+---
+
+### Cross-Cutting Concerns (Memory Detail View)
+
+#### CC14: Backward Compatibility with NULL Severity
+
+All code paths that read observations MUST handle `severity: null` gracefully:
+- Dashboard components: conditional rendering (show badge only if severity is non-null)
+- Sort by severity: NULL values sort last
+- Filter by severity: "All severities" includes NULL severity observations
+- Stats bar: observations with NULL severity are counted but not included in severity breakdown chips
+
+#### CC15: Severity Type Safety
+
+The `SeverityBadge` component accepts `Finding['severity']` (typed as `'critical' | 'high' | 'medium' | 'low' | 'info'`), but observation severity is `string | null`. A type guard MUST be used before passing severity to `SeverityBadge`:
+
+```typescript
+const validSeverities = ['critical', 'high', 'medium', 'low', 'info'] as const;
+function isValidSeverity(s: string | null): s is Finding['severity'] {
+  return s != null && validSeverities.includes(s as any);
+}
+```
+
+#### CC16: No New Dependencies
+
+This change MUST NOT add any new npm dependencies. All functionality uses existing packages and browser APIs:
+- `Intl.RelativeTimeFormat` for relative time formatting
+- Existing `SeverityBadge` component for severity display
+- Existing Tailwind CSS for all styling
+- Existing `cn()` utility for conditional classes
+
+#### CC17: Dark Theme Consistency
+
+All new UI elements MUST follow the existing dark theme design:
+- Background: `bg-gray-900`, `bg-gray-800` for cards
+- Text: `text-gray-100`, `text-gray-400` for secondary
+- Borders: `border-gray-700`
+- Severity colors from existing `SeverityBadge` (red/orange/yellow/blue/gray with opacity)
+
+#### CC18: Modal Pattern Consistency
+
+The observation detail modal MUST follow the same portal/overlay pattern established by the existing `ConfirmDialog` component:
+- Portal rendering to `document.body`
+- Backdrop with `bg-black/50` (or similar)
+- Centered with `flex items-center justify-center`
+- Escape key and backdrop click to close
+- Scroll handling for long content
+
+---
+
+### Edge Cases (Memory Detail View)
+
+#### E11: Observation with very long content
+
+- GIVEN an observation with content exceeding 5000 characters
+- WHEN the detail modal is open
+- THEN the modal MUST be scrollable
+- AND the content MUST NOT overflow the viewport
+
+##### Scenario: S164
+
+- GIVEN an observation with 10,000 character content
+- WHEN the detail modal is rendered
+- THEN vertical scrolling MUST be available within the modal
+
+#### E12: Observation with many file paths
+
+- GIVEN an observation with 20+ file paths
+- WHEN the ObservationCard renders
+- THEN file paths SHOULD be truncated (e.g., show first 3 + "and 17 more")
+- AND the detail modal MUST show all file paths
+
+##### Scenario: S165
+
+- GIVEN an observation with 25 file paths
+- WHEN the ObservationCard renders
+- THEN it SHOULD display at most 5 file paths with a "+20 more" indicator
+
+#### E13: Session with 0 observations (after deletion)
+
+- GIVEN a session where all observations have been deleted
+- WHEN the SessionItem renders
+- THEN it MUST show "0 observations" and no severity summary
+
+##### Scenario: S166
+
+- GIVEN a session with 0 observations
+- WHEN the stats bar renders for that session's view
+- THEN it MUST show "0 observations" with no severity or type chips
+
+#### E14: All observations have NULL severity
+
+- GIVEN a project where all observations pre-date the severity feature
+- WHEN the Memory page renders
+- THEN no severity badges MUST be shown on any cards
+- AND the severity filter SHOULD still be available but filtering to any specific severity yields empty results
+- AND the stats bar MUST NOT show any severity chips
+
+##### Scenario: S167
+
+- GIVEN 10 observations all with `severity: null`
+- WHEN the severity filter is set to "Critical"
+- THEN 0 observations MUST be displayed
+- AND the stats bar MUST show "0 observations"
+
+---
+
+### Acceptance Criteria (Memory Detail View)
+
+59. `isSignificantFinding()` returns `true` for `'medium'` severity
+60. `severity` varchar(10) nullable column exists in PostgreSQL `memory_observations` table
+61. `severity` TEXT nullable column exists in SQLite `memory_observations` table
+62. Migration `0006_add_severity_column.sql` applies cleanly and is idempotent
+63. SQLite migration adds `severity` column to existing databases without error
+64. `saveObservation()` accepts and persists optional `severity` field
+65. `persistReviewObservations()` passes `finding.severity` to `saveObservation()` for each finding
+66. `MemoryObservationRow` and `MemoryObservationDetail` include `severity: string | null`
+67. Dashboard `Observation` type includes `severity`, `topicKey`, `revisionCount`, `updatedAt`
+68. `getObservationsBySession` returns observations with `severity` field
+69. `getSessionsByProject` returns severity distribution per session
+70. `SeverityBadge` displayed on `ObservationCard` when severity is non-null
+71. No severity badge shown when severity is `null`
+72. PR link displayed on `SessionItem` when `prNumber` is available
+73. Revision count badge shown when `revisionCount > 1`
+74. File paths displayed as styled chips on `ObservationCard`
+75. Content uses `font-mono` formatting
+76. Relative timestamps using `Intl.RelativeTimeFormat` (no external date library)
+77. Observation detail modal opens on card click with all fields
+78. Detail modal closes with Escape, backdrop click, or X button
+79. Stats bar displays total count, severity breakdown, and type breakdown
+80. Severity filter dropdown works independently and with type filter
+81. Sort options: newest first, oldest first, severity, most revised
+82. NULL severity handled gracefully throughout (no badge, sorts last, "All" filter includes it)
+83. Dark theme consistency maintained
+84. No new npm dependencies
+85. All new code has tests
+86. Existing tests continue passing
