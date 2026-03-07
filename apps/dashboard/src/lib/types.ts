@@ -143,7 +143,7 @@ export interface MemorySession {
 export interface Observation {
   id: number;
   sessionId: number;
-  type: 'pattern' | 'preference' | 'convention' | 'issue' | 'decision';
+  type: 'decision' | 'pattern' | 'bugfix' | 'learning' | 'architecture' | 'config' | 'discovery';
   title: string;
   content: string;
   filePaths: string[];
