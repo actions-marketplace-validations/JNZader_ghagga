@@ -6,7 +6,7 @@
  * Mocks @clack/prompts and console.log/error.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mock @clack/prompts ────────────────────────────────────────
 
@@ -72,17 +72,17 @@ describe('TUI facade', () => {
     });
 
     it('detects CI environment as plain', async () => {
-      const originalCI = process.env['CI'];
-      process.env['CI'] = 'true';
+      const originalCI = process.env.CI;
+      process.env.CI = 'true';
 
       const tui = await freshTui();
       tui.init();
       expect(tui.isPlain()).toBe(true);
 
       if (originalCI === undefined) {
-        delete process.env['CI'];
+        delete process.env.CI;
       } else {
-        process.env['CI'] = originalCI;
+        process.env.CI = originalCI;
       }
     });
   });
@@ -194,16 +194,16 @@ describe('TUI facade', () => {
     // For styled mode we need isTTY=true and no CI
     async function styledTui() {
       const originalTTY = process.stdout.isTTY;
-      const originalCI = process.env['CI'];
+      const originalCI = process.env.CI;
       Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
-      delete process.env['CI'];
+      delete process.env.CI;
 
       const tui = await freshTui();
       tui.init(); // should detect TTY, no CI → styled
 
       // Restore immediately after init
       Object.defineProperty(process.stdout, 'isTTY', { value: originalTTY, configurable: true });
-      if (originalCI !== undefined) process.env['CI'] = originalCI;
+      if (originalCI !== undefined) process.env.CI = originalCI;
 
       return tui;
     }

@@ -5,9 +5,9 @@
  * and rendering of provider entries.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
 import { QueryClientProvider } from '@tanstack/react-query';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestQueryClient } from '@/test/test-utils';
 import { ProviderChainEditor } from './ProviderChainEditor';
 import type { ProviderEntryState } from './ProviderEntry';
@@ -24,9 +24,7 @@ vi.stubGlobal('fetch', mockFetch);
 
 function renderWithQuery(ui: React.ReactElement) {
   const client = createTestQueryClient();
-  return render(
-    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
-  );
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
 function createEntry(overrides: Partial<ProviderEntryState> = {}): ProviderEntryState {
@@ -65,17 +63,14 @@ describe('ProviderChainEditor', () => {
     fireEvent.click(screen.getByText(/add provider/i));
 
     expect(onChange).toHaveBeenCalledOnce();
-    const newChain = onChange.mock.calls[0]![0];
+    const newChain = onChange.mock.calls[0]?.[0];
     expect(newChain).toHaveLength(1);
     expect(newChain[0].provider).toBeDefined();
   });
 
   it('renders provider entries when chain has items', () => {
     const onChange = vi.fn();
-    const chain = [
-      createEntry({ provider: 'anthropic' }),
-      createEntry({ provider: 'openai' }),
-    ];
+    const chain = [createEntry({ provider: 'anthropic' }), createEntry({ provider: 'openai' })];
 
     renderWithQuery(<ProviderChainEditor chain={chain} onChange={onChange} />);
 

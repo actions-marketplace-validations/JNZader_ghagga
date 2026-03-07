@@ -8,9 +8,9 @@
  * @see T7.4, S13–S16
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { MemoryObservationDetail } from 'ghagga-core';
 import { Command } from 'commander';
+import type { MemoryObservationDetail } from 'ghagga-core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -50,9 +50,7 @@ class ProcessExitError extends Error {
   }
 }
 
-function makeDetail(
-  overrides: Partial<MemoryObservationDetail> = {},
-): MemoryObservationDetail {
+function makeDetail(overrides: Partial<MemoryObservationDetail> = {}): MemoryObservationDetail {
   return {
     id: 42,
     type: 'pattern',
@@ -89,11 +87,9 @@ let exitSpy: any;
 beforeEach(() => {
   vi.clearAllMocks();
   logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-  exitSpy = vi
-    .spyOn(process, 'exit')
-    .mockImplementation(((code?: number) => {
-      throw new ProcessExitError(code);
-    }) as never);
+  exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+    throw new ProcessExitError(code);
+  }) as never);
   mockExistsSync.mockReturnValue(true);
 });
 
@@ -171,9 +167,7 @@ describe('ghagga memory show', () => {
   it('prints error and exits 1 for invalid ID "abc"', async () => {
     await runShowCommand(['abc']);
 
-    expect(logSpy).toHaveBeenCalledWith(
-      'Invalid observation ID: "abc". Expected a number.',
-    );
+    expect(logSpy).toHaveBeenCalledWith('Invalid observation ID: "abc". Expected a number.');
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
@@ -182,9 +176,7 @@ describe('ghagga memory show', () => {
 
     await runShowCommand(['42']);
 
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('No memory database found'),
-    );
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('No memory database found'));
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 

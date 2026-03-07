@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { MemoryStorage, MemoryObservationRow } from '../types.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MemoryStorage } from '../types.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -7,9 +7,9 @@ vi.mock('./privacy.js', () => ({
   stripPrivateData: vi.fn((text: string) => `[STRIPPED]${text}`),
 }));
 
-import { stripPrivateData } from './privacy.js';
+import type { ReviewFinding, ReviewResult } from '../types.js';
 import { persistReviewObservations } from './persist.js';
-import type { ReviewResult, ReviewFinding } from '../types.js';
+import { stripPrivateData } from './privacy.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -19,7 +19,12 @@ function createMockStorage(overrides: Partial<MemoryStorage> = {}): MemoryStorag
   return {
     searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockResolvedValue([]),
     saveObservation: vi.fn<MemoryStorage['saveObservation']>().mockResolvedValue({
-      id: 1, type: 'pattern', title: 'test', content: 'test', filePaths: null, severity: null,
+      id: 1,
+      type: 'pattern',
+      title: 'test',
+      content: 'test',
+      filePaths: null,
+      severity: null,
     }),
     createSession: vi.fn<MemoryStorage['createSession']>().mockResolvedValue({ id: 1 }),
     endSession: vi.fn<MemoryStorage['endSession']>().mockResolvedValue(undefined),
@@ -27,7 +32,13 @@ function createMockStorage(overrides: Partial<MemoryStorage> = {}): MemoryStorag
     listObservations: vi.fn().mockResolvedValue([]),
     getObservation: vi.fn().mockResolvedValue(null),
     deleteObservation: vi.fn().mockResolvedValue(false),
-    getStats: vi.fn().mockResolvedValue({ totalObservations: 0, byType: {}, byProject: {}, oldestObservation: null, newestObservation: null }),
+    getStats: vi.fn().mockResolvedValue({
+      totalObservations: 0,
+      byType: {},
+      byProject: {},
+      oldestObservation: null,
+      newestObservation: null,
+    }),
     clearObservations: vi.fn().mockResolvedValue(0),
     ...overrides,
   };
@@ -46,7 +57,10 @@ function makeFinding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   };
 }
 
-function makeResult(findings: ReviewFinding[] = [], overrides: Partial<ReviewResult> = {}): ReviewResult {
+function makeResult(
+  findings: ReviewFinding[] = [],
+  overrides: Partial<ReviewResult> = {},
+): ReviewResult {
   return {
     status: 'PASSED',
     summary: 'Review completed successfully.',
@@ -102,7 +116,12 @@ describe('persistReviewObservations', () => {
 
   it('creates a memory session with project and prNumber', async () => {
     const storage = createMockStorage();
-    await persistReviewObservations(storage, 'owner/repo', 42, makeResult([makeFinding({ severity: 'critical' })]));
+    await persistReviewObservations(
+      storage,
+      'owner/repo',
+      42,
+      makeResult([makeFinding({ severity: 'critical' })]),
+    );
 
     expect(storage.createSession).toHaveBeenCalledWith({
       project: 'owner/repo',
@@ -116,10 +135,7 @@ describe('persistReviewObservations', () => {
 
     await persistReviewObservations(storage, 'owner/repo', 7, result);
 
-    expect(storage.endSession).toHaveBeenCalledWith(
-      1,
-      expect.stringContaining('PR #7'),
-    );
+    expect(storage.endSession).toHaveBeenCalledWith(1, expect.stringContaining('PR #7'));
     expect(storage.endSession).toHaveBeenCalledWith(
       1,
       expect.stringContaining('1 significant findings'),
@@ -161,9 +177,7 @@ describe('persistReviewObservations', () => {
   });
 
   it('persists medium severity findings as significant', async () => {
-    const findings = [
-      makeFinding({ severity: 'medium', message: 'Medium issue' }),
-    ];
+    const findings = [makeFinding({ severity: 'medium', message: 'Medium issue' })];
     const result = makeResult(findings);
     const storage = createMockStorage();
 
@@ -179,7 +193,7 @@ describe('persistReviewObservations', () => {
     const storage = createMockStorage();
     await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]?.[0];
     expect(findingCall.severity).toBe('critical');
   });
 
@@ -189,7 +203,7 @@ describe('persistReviewObservations', () => {
     await persistReviewObservations(storage, 'owner/repo', 1, result);
 
     // Last call is the summary observation
-    const summaryCall = vi.mocked(storage.saveObservation).mock.calls[1]![0];
+    const summaryCall = vi.mocked(storage.saveObservation).mock.calls[1]?.[0];
     expect(summaryCall.severity).toBeUndefined();
   });
 
@@ -200,7 +214,7 @@ describe('persistReviewObservations', () => {
     const storage = createMockStorage();
     await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]?.[0];
     expect(findingCall).toEqual(expect.objectContaining({ type: 'discovery' }));
   });
 
@@ -209,7 +223,7 @@ describe('persistReviewObservations', () => {
     const storage = createMockStorage();
     await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]?.[0];
     expect(findingCall).toEqual(expect.objectContaining({ type: 'bugfix' }));
   });
 
@@ -218,7 +232,7 @@ describe('persistReviewObservations', () => {
     const storage = createMockStorage();
     await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]?.[0];
     expect(findingCall).toEqual(expect.objectContaining({ type: 'pattern' }));
   });
 
@@ -227,7 +241,7 @@ describe('persistReviewObservations', () => {
     const storage = createMockStorage();
     await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]?.[0];
     expect(findingCall).toEqual(expect.objectContaining({ type: 'pattern' }));
   });
 
@@ -236,7 +250,7 @@ describe('persistReviewObservations', () => {
     const storage = createMockStorage();
     await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]?.[0];
     expect(findingCall).toEqual(expect.objectContaining({ type: 'pattern' }));
   });
 
@@ -245,7 +259,7 @@ describe('persistReviewObservations', () => {
     const storage = createMockStorage();
     await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]?.[0];
     expect(findingCall).toEqual(expect.objectContaining({ type: 'learning' }));
   });
 
@@ -254,7 +268,7 @@ describe('persistReviewObservations', () => {
     const storage = createMockStorage();
     await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]?.[0];
     expect(findingCall).toEqual(expect.objectContaining({ type: 'learning' }));
   });
 
@@ -277,15 +291,13 @@ describe('persistReviewObservations', () => {
   });
 
   it('does not strip suggestion when it is undefined', async () => {
-    const result = makeResult([
-      makeFinding({ severity: 'critical', suggestion: undefined }),
-    ]);
+    const result = makeResult([makeFinding({ severity: 'critical', suggestion: undefined })]);
     const storage = createMockStorage();
 
     await persistReviewObservations(storage, 'owner/repo', 1, result);
 
     // stripPrivateData called for message and summary, but NOT for suggestion
-    const calls = mockStripPrivateData.mock.calls.map(c => c[0]);
+    const calls = mockStripPrivateData.mock.calls.map((c) => c[0]);
     // Should be called for message, and for summary (in summary observation)
     // but not for undefined suggestion
     expect(calls).not.toContain(undefined);
@@ -307,7 +319,7 @@ describe('persistReviewObservations', () => {
 
     await persistReviewObservations(storage, 'project', 1, result);
 
-    const savedObs = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    const savedObs = vi.mocked(storage.saveObservation).mock.calls[0]?.[0];
     expect(savedObs.content).toContain('[CRITICAL]');
     expect(savedObs.content).toContain('security');
     expect(savedObs.content).toContain('src/db.ts:99');
@@ -326,7 +338,7 @@ describe('persistReviewObservations', () => {
 
     await persistReviewObservations(storage, 'project', 1, result);
 
-    const savedObs = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    const savedObs = vi.mocked(storage.saveObservation).mock.calls[0]?.[0];
     expect(savedObs.content).toContain('File: package.json');
     expect(savedObs.content).not.toContain('package.json:');
   });
@@ -338,7 +350,7 @@ describe('persistReviewObservations', () => {
 
     await persistReviewObservations(storage, 'org/repo', 5, result);
 
-    const savedObs = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    const savedObs = vi.mocked(storage.saveObservation).mock.calls[0]?.[0];
     expect(savedObs.sessionId).toBe(1);
     expect(savedObs.project).toBe('org/repo');
     expect(savedObs.filePaths).toEqual(['src/core.ts']);
@@ -353,10 +365,10 @@ describe('persistReviewObservations', () => {
 
     await persistReviewObservations(storage, 'project', 1, result);
 
-    const savedObs = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    const savedObs = vi.mocked(storage.saveObservation).mock.calls[0]?.[0];
     // Title format: "category: sanitized_message.slice(0, 80)"
     // The sanitized message is [STRIPPED] + longMessage
-    expect(savedObs.title!.length).toBeLessThanOrEqual('bug: '.length + 80);
+    expect(savedObs.title?.length).toBeLessThanOrEqual('bug: '.length + 80);
   });
 
   // ── Summary observation ──
@@ -371,7 +383,7 @@ describe('persistReviewObservations', () => {
     await persistReviewObservations(storage, 'org/repo', 10, result);
 
     // 2 finding observations + 1 summary = 3 calls
-    const lastCall = vi.mocked(storage.saveObservation).mock.calls[2]![0];
+    const lastCall = vi.mocked(storage.saveObservation).mock.calls[2]?.[0];
     expect(lastCall.type).toBe('decision');
     expect(lastCall.title).toBe('PR #10 review: FAILED');
     expect(lastCall.topicKey).toBe('pr-10-review');
@@ -379,10 +391,9 @@ describe('persistReviewObservations', () => {
   });
 
   it('strips private data from summary content', async () => {
-    const result = makeResult(
-      [makeFinding({ severity: 'critical' })],
-      { summary: 'Found key: sk-test-123' },
-    );
+    const result = makeResult([makeFinding({ severity: 'critical' })], {
+      summary: 'Found key: sk-test-123',
+    });
     const storage = createMockStorage();
 
     await persistReviewObservations(storage, 'project', 1, result);
@@ -417,41 +428,69 @@ describe('persistReviewObservations', () => {
 
   it('catches errors from createSession and does not throw', async () => {
     const storage = createMockStorage({
-      createSession: vi.fn<MemoryStorage['createSession']>().mockRejectedValue(new Error('DB connection failed')),
+      createSession: vi
+        .fn<MemoryStorage['createSession']>()
+        .mockRejectedValue(new Error('DB connection failed')),
     });
 
     await expect(
-      persistReviewObservations(storage, 'project', 1, makeResult([makeFinding({ severity: 'critical' })]))
+      persistReviewObservations(
+        storage,
+        'project',
+        1,
+        makeResult([makeFinding({ severity: 'critical' })]),
+      ),
     ).resolves.toBeUndefined();
   });
 
   it('catches errors from saveObservation and does not throw', async () => {
     const storage = createMockStorage({
-      saveObservation: vi.fn<MemoryStorage['saveObservation']>().mockRejectedValue(new Error('Write failed')),
+      saveObservation: vi
+        .fn<MemoryStorage['saveObservation']>()
+        .mockRejectedValue(new Error('Write failed')),
     });
 
     await expect(
-      persistReviewObservations(storage, 'project', 1, makeResult([makeFinding({ severity: 'critical' })]))
+      persistReviewObservations(
+        storage,
+        'project',
+        1,
+        makeResult([makeFinding({ severity: 'critical' })]),
+      ),
     ).resolves.toBeUndefined();
   });
 
   it('catches errors from endSession and does not throw', async () => {
     const storage = createMockStorage({
-      endSession: vi.fn<MemoryStorage['endSession']>().mockRejectedValue(new Error('Session end failed')),
+      endSession: vi
+        .fn<MemoryStorage['endSession']>()
+        .mockRejectedValue(new Error('Session end failed')),
     });
 
     await expect(
-      persistReviewObservations(storage, 'project', 1, makeResult([makeFinding({ severity: 'critical' })]))
+      persistReviewObservations(
+        storage,
+        'project',
+        1,
+        makeResult([makeFinding({ severity: 'critical' })]),
+      ),
     ).resolves.toBeUndefined();
   });
 
   it('logs a warning when an error occurs', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const storage = createMockStorage({
-      createSession: vi.fn<MemoryStorage['createSession']>().mockRejectedValue(new Error('DB down')),
+      createSession: vi
+        .fn<MemoryStorage['createSession']>()
+        .mockRejectedValue(new Error('DB down')),
     });
 
-    await persistReviewObservations(storage, 'project', 1, makeResult([makeFinding({ severity: 'critical' })]));
+    await persistReviewObservations(
+      storage,
+      'project',
+      1,
+      makeResult([makeFinding({ severity: 'critical' })]),
+    );
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('[ghagga]'),
@@ -467,12 +506,14 @@ describe('persistReviewObservations', () => {
       createSession: vi.fn<MemoryStorage['createSession']>().mockRejectedValue('string error'),
     });
 
-    await persistReviewObservations(storage, 'project', 1, makeResult([makeFinding({ severity: 'critical' })]));
-
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('[ghagga]'),
-      'string error',
+    await persistReviewObservations(
+      storage,
+      'project',
+      1,
+      makeResult([makeFinding({ severity: 'critical' })]),
     );
+
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[ghagga]'), 'string error');
 
     warnSpy.mockRestore();
   });

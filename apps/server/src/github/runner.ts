@@ -10,8 +10,7 @@
  * `ghagga-analysis.yml` workflow via `workflow_dispatch`.
  */
 
-import { randomUUID } from 'node:crypto';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { logger as rootLogger } from '../lib/logger.js';
 
@@ -147,7 +146,7 @@ export function verifyCallbackSignature(
 
   const ts = callbackId.slice(dotIndex + 1);
   const timestamp = parseInt(ts, 36);
-  if (isNaN(timestamp)) {
+  if (Number.isNaN(timestamp)) {
     logger.warn({ callbackId }, 'Invalid callbackId format — unparseable timestamp');
     return false;
   }
@@ -284,9 +283,7 @@ export async function setRunnerSecret(
   });
 
   if (!response.ok) {
-    throw new Error(
-      `GitHub API error setting secret: ${response.status} ${response.statusText}`,
-    );
+    throw new Error(`GitHub API error setting secret: ${response.status} ${response.statusText}`);
   }
 }
 
@@ -361,10 +358,7 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
     );
   }
 
-  logger.info(
-    { callbackId, runnerRepo, repoFullName, prNumber },
-    'Dispatched runner workflow',
-  );
+  logger.info({ callbackId, runnerRepo, repoFullName, prNumber }, 'Dispatched runner workflow');
 
   return callbackId;
 }
@@ -417,8 +411,7 @@ export async function createRunnerRepo(
     body: JSON.stringify({
       owner: ownerLogin,
       name: 'ghagga-runner',
-      description:
-        'GHAGGA static analysis runner — auto-created by the GHAGGA Dashboard',
+      description: 'GHAGGA static analysis runner — auto-created by the GHAGGA Dashboard',
       include_all_branches: false,
       private: false,
     }),
@@ -444,16 +437,9 @@ export async function createRunnerRepo(
       if (remaining === '0') {
         const resetHeader = generateResponse.headers.get('X-RateLimit-Reset');
         const retryAfter = resetHeader
-          ? Math.max(
-              0,
-              parseInt(resetHeader, 10) - Math.floor(Date.now() / 1000),
-            )
+          ? Math.max(0, parseInt(resetHeader, 10) - Math.floor(Date.now() / 1000))
           : 60;
-        throw new RunnerCreationError(
-          'rate_limited',
-          'GitHub API rate limit exceeded',
-          retryAfter,
-        );
+        throw new RunnerCreationError('rate_limited', 'GitHub API rate limit exceeded', retryAfter);
       }
 
       // Check if this is an org permission issue
@@ -479,10 +465,7 @@ export async function createRunnerRepo(
     }
 
     const body = await generateResponse.text();
-    throw new RunnerCreationError(
-      'github_error',
-      `GitHub API error: ${status} — ${body}`,
-    );
+    throw new RunnerCreationError('github_error', `GitHub API error: ${status} — ${body}`);
   }
 
   const createData = (await generateResponse.json()) as {
@@ -518,17 +501,9 @@ export async function createRunnerRepo(
   // Step 4: Set GHAGGA_CALLBACK_SECRET
   let secretConfigured = true;
   try {
-    await setRunnerSecret(
-      repoFullName,
-      'GHAGGA_CALLBACK_SECRET',
-      callbackSecretValue,
-      token,
-    );
+    await setRunnerSecret(repoFullName, 'GHAGGA_CALLBACK_SECRET', callbackSecretValue, token);
   } catch (err) {
-    creationLogger.error(
-      { err, repoFullName },
-      'Failed to set runner secret after repo creation',
-    );
+    creationLogger.error({ err, repoFullName }, 'Failed to set runner secret after repo creation');
     secretConfigured = false;
   }
 

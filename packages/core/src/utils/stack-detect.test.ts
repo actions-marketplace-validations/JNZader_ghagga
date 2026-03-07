@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { detectStacks } from './stack-detect.js';
 
 describe('detectStacks', () => {
@@ -14,12 +14,7 @@ describe('detectStacks', () => {
   });
 
   it('detects multiple stacks from mixed file list', () => {
-    const stacks = detectStacks([
-      'src/index.ts',
-      'lib/utils.py',
-      'cmd/main.go',
-      'src/App.tsx',
-    ]);
+    const stacks = detectStacks(['src/index.ts', 'lib/utils.py', 'cmd/main.go', 'src/App.tsx']);
     expect(stacks).toContain('typescript');
     expect(stacks).toContain('python');
     expect(stacks).toContain('go');

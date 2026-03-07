@@ -2,8 +2,8 @@
  * Tests for Dashboard OAuth helpers: isServerAvailable and fetchGitHubUser.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { isServerAvailable, fetchGitHubUser, GITHUB_CLIENT_ID } from './oauth';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fetchGitHubUser, GITHUB_CLIENT_ID, isServerAvailable } from './oauth';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -54,9 +54,7 @@ describe('isServerAvailable', () => {
   });
 
   it('returns false when response is not ok (500)', async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response('Internal Server Error', { status: 500 }),
-    );
+    mockFetch.mockResolvedValueOnce(new Response('Internal Server Error', { status: 500 }));
 
     const result = await isServerAvailable();
 
@@ -96,12 +94,8 @@ describe('fetchGitHubUser', () => {
   });
 
   it('throws "Invalid or expired token" on non-ok response', async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response('Unauthorized', { status: 401 }),
-    );
+    mockFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
 
-    await expect(fetchGitHubUser('bad-token')).rejects.toThrow(
-      'Invalid or expired token',
-    );
+    await expect(fetchGitHubUser('bad-token')).rejects.toThrow('Invalid or expired token');
   });
 });

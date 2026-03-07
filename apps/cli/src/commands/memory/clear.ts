@@ -7,9 +7,9 @@
  * @see R12, S28–S35, S49
  */
 
-import { Command } from 'commander';
-import { openMemoryOrExit, confirmOrExit } from './utils.js';
+import type { Command } from 'commander';
 import * as tui from '../../ui/tui.js';
+import { confirmOrExit, openMemoryOrExit } from './utils.js';
 
 export function registerClearCommand(parent: Command): void {
   parent

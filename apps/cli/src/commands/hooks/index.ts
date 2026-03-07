@@ -7,11 +7,12 @@
 
 import { Command } from 'commander';
 import { registerInstallCommand } from './install.js';
-import { registerUninstallCommand } from './uninstall.js';
 import { registerStatusCommand } from './status.js';
+import { registerUninstallCommand } from './uninstall.js';
 
-export const hooksCommand = new Command('hooks')
-  .description('Manage git hooks for automated code review');
+export const hooksCommand = new Command('hooks').description(
+  'Manage git hooks for automated code review',
+);
 
 registerInstallCommand(hooksCommand);
 registerUninstallCommand(hooksCommand);

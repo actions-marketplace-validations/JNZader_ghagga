@@ -5,7 +5,7 @@
  * pg.Pool and drizzle-orm to verify connection configuration.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks (using vi.hoisted for mock variables) ───────────────
 
@@ -28,7 +28,7 @@ import { createDatabase, createDatabaseFromEnv } from './client.js';
 
 // ─── Setup ─────────────────────────────────────────────────────
 
-const savedDatabaseUrl = process.env['DATABASE_URL'];
+const savedDatabaseUrl = process.env.DATABASE_URL;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -37,9 +37,9 @@ beforeEach(() => {
 afterEach(() => {
   // Restore DATABASE_URL
   if (savedDatabaseUrl !== undefined) {
-    process.env['DATABASE_URL'] = savedDatabaseUrl;
+    process.env.DATABASE_URL = savedDatabaseUrl;
   } else {
-    delete process.env['DATABASE_URL'];
+    delete process.env.DATABASE_URL;
   }
 });
 
@@ -69,13 +69,13 @@ describe('createDatabase', () => {
   it('returns the drizzle instance', () => {
     const result = createDatabase('postgres://localhost:5432/testdb');
 
-    expect(result).toBe(mocks.mockDrizzle.mock.results[0]!.value);
+    expect(result).toBe(mocks.mockDrizzle.mock.results[0]?.value);
   });
 });
 
 describe('createDatabaseFromEnv', () => {
   it('reads DATABASE_URL and creates database', () => {
-    process.env['DATABASE_URL'] = 'postgres://env-host:5432/envdb';
+    process.env.DATABASE_URL = 'postgres://env-host:5432/envdb';
 
     createDatabaseFromEnv();
 
@@ -87,10 +87,8 @@ describe('createDatabaseFromEnv', () => {
   });
 
   it('throws when DATABASE_URL is not set', () => {
-    delete process.env['DATABASE_URL'];
+    delete process.env.DATABASE_URL;
 
-    expect(() => createDatabaseFromEnv()).toThrow(
-      'DATABASE_URL environment variable is not set',
-    );
+    expect(() => createDatabaseFromEnv()).toThrow('DATABASE_URL environment variable is not set');
   });
 });

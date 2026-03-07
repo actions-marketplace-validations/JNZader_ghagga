@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { generateWithFallback } from './fallback.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FallbackOptions } from './fallback.js';
+import { generateWithFallback } from './fallback.js';
 
 // Mock the AI SDK
 vi.mock('ai', () => ({
@@ -14,6 +14,7 @@ vi.mock('./index.js', () => ({
 
 // Import the mocked generateText so we can control its behavior
 import { generateText } from 'ai';
+
 const mockGenerateText = vi.mocked(generateText);
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -48,9 +49,7 @@ describe('generateWithFallback', () => {
   it('throws "No providers configured" for empty providers array', async () => {
     const options = makeOptions({ providers: [] });
 
-    await expect(generateWithFallback(options)).rejects.toThrow(
-      'No providers configured',
-    );
+    await expect(generateWithFallback(options)).rejects.toThrow('No providers configured');
   });
 
   it('returns result from first provider when it succeeds', async () => {
@@ -67,9 +66,7 @@ describe('generateWithFallback', () => {
   });
 
   it('falls back to second provider on 5xx error from first', async () => {
-    mockGenerateText.mockRejectedValueOnce(
-      new Error('status: 500 Internal Server Error'),
-    );
+    mockGenerateText.mockRejectedValueOnce(new Error('status: 500 Internal Server Error'));
     mockGenerateText.mockResolvedValueOnce(successResult('fallback result'));
 
     const options = makeOptions();
@@ -94,9 +91,7 @@ describe('generateWithFallback', () => {
   });
 
   it('falls back to second provider on rate limit (429) from first', async () => {
-    mockGenerateText.mockRejectedValueOnce(
-      new Error('429 rate limit exceeded'),
-    );
+    mockGenerateText.mockRejectedValueOnce(new Error('429 rate limit exceeded'));
     mockGenerateText.mockResolvedValueOnce(successResult('rate limit fallback'));
 
     const options = makeOptions();
@@ -135,9 +130,7 @@ describe('generateWithFallback', () => {
 
     const options = makeOptions();
 
-    await expect(generateWithFallback(options)).rejects.toThrow(
-      'status: 401 Unauthorized',
-    );
+    await expect(generateWithFallback(options)).rejects.toThrow('status: 401 Unauthorized');
     // Should NOT have tried the second provider
     expect(mockGenerateText).toHaveBeenCalledTimes(1);
   });
@@ -148,25 +141,17 @@ describe('generateWithFallback', () => {
 
     const options = makeOptions();
 
-    await expect(generateWithFallback(options)).rejects.toThrow(
-      'status: 400 Bad Request',
-    );
+    await expect(generateWithFallback(options)).rejects.toThrow('status: 400 Bad Request');
     expect(mockGenerateText).toHaveBeenCalledTimes(1);
   });
 
   it('throws the last error when all providers fail with retryable errors', async () => {
-    mockGenerateText.mockRejectedValueOnce(
-      new Error('status: 500 Internal Server Error'),
-    );
-    mockGenerateText.mockRejectedValueOnce(
-      new Error('status: 503 Service Unavailable'),
-    );
+    mockGenerateText.mockRejectedValueOnce(new Error('status: 500 Internal Server Error'));
+    mockGenerateText.mockRejectedValueOnce(new Error('status: 503 Service Unavailable'));
 
     const options = makeOptions();
 
-    await expect(generateWithFallback(options)).rejects.toThrow(
-      'status: 503 Service Unavailable',
-    );
+    await expect(generateWithFallback(options)).rejects.toThrow('status: 503 Service Unavailable');
     expect(mockGenerateText).toHaveBeenCalledTimes(2);
   });
 
@@ -198,9 +183,7 @@ describe('generateWithFallback', () => {
     mockGenerateText.mockResolvedValueOnce(successResult('single provider'));
 
     const options = makeOptions({
-      providers: [
-        { provider: 'google', model: 'gemini-2.0-flash', apiKey: 'key-g' },
-      ],
+      providers: [{ provider: 'google', model: 'gemini-2.0-flash', apiKey: 'key-g' }],
     });
     const result = await generateWithFallback(options);
 

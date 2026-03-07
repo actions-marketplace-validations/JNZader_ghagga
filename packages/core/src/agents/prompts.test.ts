@@ -1,13 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  buildStaticAnalysisContext,
   buildMemoryContext,
-  buildStackHints,
   buildReviewLevelInstruction,
-  SIMPLE_REVIEW_SYSTEM,
-  REVIEW_CALIBRATION,
-  WORKFLOW_SCOPE_SYSTEM,
+  buildStackHints,
+  buildStaticAnalysisContext,
   CONSENSUS_FOR_SYSTEM,
+  REVIEW_CALIBRATION,
+  SIMPLE_REVIEW_SYSTEM,
+  WORKFLOW_SCOPE_SYSTEM,
 } from './prompts.js';
 
 // ─── buildStaticAnalysisContext ─────────────────────────────────
@@ -203,15 +203,21 @@ describe('REVIEW_CALIBRATION', () => {
   });
 
   it('prohibits flagging stylistic preferences without explicit rules', () => {
-    expect(REVIEW_CALIBRATION).toContain('Do NOT flag stylistic preferences unless they violate an explicitly provided rule');
+    expect(REVIEW_CALIBRATION).toContain(
+      'Do NOT flag stylistic preferences unless they violate an explicitly provided rule',
+    );
   });
 
   it('prohibits inventing or assuming coding standards', () => {
-    expect(REVIEW_CALIBRATION).toContain('Do NOT invent or assume coding standards that are not provided');
+    expect(REVIEW_CALIBRATION).toContain(
+      'Do NOT invent or assume coding standards that are not provided',
+    );
   });
 
   it('prohibits flagging hypothetical edge cases', () => {
-    expect(REVIEW_CALIBRATION).toContain('Do NOT flag hypothetical edge cases that are unlikely in practice');
+    expect(REVIEW_CALIBRATION).toContain(
+      'Do NOT flag hypothetical edge cases that are unlikely in practice',
+    );
   });
 
   it('permits STATUS: PASSED with zero findings', () => {

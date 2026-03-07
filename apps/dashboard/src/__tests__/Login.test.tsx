@@ -5,10 +5,9 @@
  * PAT fallback form, and sessionStorage redirect destination.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { type ReactNode } from 'react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Login } from '../pages/Login';
 
 // ─── Mocks ──────────────────────────────────────────────────────
@@ -65,16 +64,24 @@ beforeEach(() => {
   Object.defineProperty(window, 'location', {
     value: {
       href: '',
-      get pathname() { return '/'; },
-      get search() { return ''; },
-      get hash() { return ''; },
+      get pathname() {
+        return '/';
+      },
+      get search() {
+        return '';
+      },
+      get hash() {
+        return '';
+      },
     },
     writable: true,
     configurable: true,
   });
   Object.defineProperty(window.location, 'href', {
     get: () => locationHref,
-    set: (val: string) => { locationHref = val; },
+    set: (val: string) => {
+      locationHref = val;
+    },
     configurable: true,
   });
 });

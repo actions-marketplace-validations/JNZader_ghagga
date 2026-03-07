@@ -7,9 +7,9 @@
  * @see T7.2, S1–S7
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { MemoryObservationDetail } from 'ghagga-core';
 import { Command } from 'commander';
+import type { MemoryObservationDetail } from 'ghagga-core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -92,8 +92,20 @@ afterEach(() => {
 describe('ghagga memory list', () => {
   it('displays table with correct headers and formatted rows', async () => {
     const obs = [
-      makeObservation({ id: 42, type: 'pattern', title: 'OAuth token refresh', project: 'acme/widgets', createdAt: '2025-03-01T14:22:05Z' }),
-      makeObservation({ id: 99, type: 'bugfix', title: 'Pool leak fix', project: 'acme/gadgets', createdAt: '2025-02-28T10:00:00Z' }),
+      makeObservation({
+        id: 42,
+        type: 'pattern',
+        title: 'OAuth token refresh',
+        project: 'acme/widgets',
+        createdAt: '2025-03-01T14:22:05Z',
+      }),
+      makeObservation({
+        id: 99,
+        type: 'bugfix',
+        title: 'Pool leak fix',
+        project: 'acme/gadgets',
+        createdAt: '2025-02-28T10:00:00Z',
+      }),
     ];
     mockListObservations.mockResolvedValue(obs);
 
@@ -133,9 +145,7 @@ describe('ghagga memory list', () => {
 
     await runListCommand(['--type', 'pattern']);
 
-    expect(mockListObservations).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'pattern' }),
-    );
+    expect(mockListObservations).toHaveBeenCalledWith(expect.objectContaining({ type: 'pattern' }));
   });
 
   it('passes --limit as a number to listObservations', async () => {
@@ -143,9 +153,7 @@ describe('ghagga memory list', () => {
 
     await runListCommand(['--limit', '5']);
 
-    expect(mockListObservations).toHaveBeenCalledWith(
-      expect.objectContaining({ limit: 5 }),
-    );
+    expect(mockListObservations).toHaveBeenCalledWith(expect.objectContaining({ limit: 5 }));
   });
 
   it('uses default limit of 20', async () => {
@@ -153,9 +161,7 @@ describe('ghagga memory list', () => {
 
     await runListCommand();
 
-    expect(mockListObservations).toHaveBeenCalledWith(
-      expect.objectContaining({ limit: 20 }),
-    );
+    expect(mockListObservations).toHaveBeenCalledWith(expect.objectContaining({ limit: 20 }));
   });
 
   it('prints "No observations found." when results are empty', async () => {
@@ -171,9 +177,7 @@ describe('ghagga memory list', () => {
 
     await runListCommand();
 
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('No memory database found'),
-    );
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('No memory database found'));
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 

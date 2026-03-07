@@ -7,8 +7,8 @@
  * @see T7.1
  */
 
-import { describe, it, expect } from 'vitest';
-import { formatTable, formatSize, formatId, truncate } from './utils.js';
+import { describe, expect, it } from 'vitest';
+import { formatId, formatSize, formatTable, truncate } from './utils.js';
 
 // ─── formatTable ────────────────────────────────────────────────
 

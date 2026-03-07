@@ -5,7 +5,7 @@
  * with mocked global fetch.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -22,7 +22,7 @@ vi.mock('./logger.js', () => ({
 
 // ─── Import after mocks ─────────────────────────────────────────
 
-import { validateProviderKey, CURATED_MODELS } from './provider-models.js';
+import { CURATED_MODELS, validateProviderKey } from './provider-models.js';
 
 // ─── Setup ──────────────────────────────────────────────────────
 
@@ -163,7 +163,9 @@ describe('validateProviderKey — openai', () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 500,
-      text: async () => { throw new Error('text failed'); },
+      text: async () => {
+        throw new Error('text failed');
+      },
     });
 
     const result = await validateProviderKey('openai', 'sk-key');
@@ -176,11 +178,7 @@ describe('validateProviderKey — openai', () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        data: [
-          { id: 'gpt-4o-mini' },
-          { id: 'gpt-4' },
-          { id: 'gpt-4o' },
-        ],
+        data: [{ id: 'gpt-4o-mini' }, { id: 'gpt-4' }, { id: 'gpt-4o' }],
       }),
     });
 
@@ -215,11 +213,7 @@ describe('validateProviderKey — github', () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
-        data: [
-          { id: 'gpt-4o' },
-          { id: 'Phi-4' },
-          { id: 'DeepSeek-R1' },
-        ],
+        data: [{ id: 'gpt-4o' }, { id: 'Phi-4' }, { id: 'DeepSeek-R1' }],
       }),
     });
 
@@ -380,7 +374,9 @@ describe('validateProviderKey — google', () => {
   it('handles json() failure on 400/403 gracefully', async () => {
     mockFetch.mockResolvedValueOnce({
       status: 403,
-      json: async () => { throw new Error('json failed'); },
+      json: async () => {
+        throw new Error('json failed');
+      },
     });
 
     const result = await validateProviderKey('google', 'AIza-key');

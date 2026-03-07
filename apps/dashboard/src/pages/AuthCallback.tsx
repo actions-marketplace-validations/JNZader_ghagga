@@ -11,8 +11,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { useAuth, REDIRECT_KEY } from '@/lib/auth';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { REDIRECT_KEY, useAuth } from '@/lib/auth';
 import { fetchGitHubUser } from '@/lib/oauth';
 
 // ─── Error Messages ─────────────────────────────────────────────
@@ -24,7 +24,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   access_denied: 'You cancelled the authorization. Want to try again?',
   missing_code: 'Error in the GitHub response. Please try again.',
   missing_state: 'Security parameter missing. Please try again.',
-  github_unavailable: 'GitHub is not available right now. Please try later or use a Personal Access Token.',
+  github_unavailable:
+    'GitHub is not available right now. Please try later or use a Personal Access Token.',
   server_error: 'Server error. Please try again or use a Personal Access Token.',
 };
 
@@ -46,7 +47,7 @@ export function AuthCallback() {
     window.history.replaceState(
       null,
       '',
-      window.location.pathname + window.location.search + '#/auth/callback',
+      `${window.location.pathname + window.location.search}#/auth/callback`,
     );
 
     if (token) {
@@ -82,7 +83,11 @@ export function AuthCallback() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [
+    loginFromCallback, // No token, no error — redirect to login
+    navigate,
+    searchParams.get,
+  ]);
 
   // ─── Loading State ────────────────────────────────────────────
 
@@ -120,10 +125,7 @@ export function AuthCallback() {
           </div>
 
           <div className="space-y-3">
-            <Link
-              to="/login"
-              className="btn-primary flex w-full items-center justify-center gap-2"
-            >
+            <Link to="/login" className="btn-primary flex w-full items-center justify-center gap-2">
               Try Again
             </Link>
 

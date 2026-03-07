@@ -19,13 +19,7 @@ export const logger = pino({
   },
   // Redact sensitive fields from logs
   redact: {
-    paths: [
-      'req.headers.authorization',
-      'apiKey',
-      'encryptedApiKey',
-      'token',
-      'privateKey',
-    ],
+    paths: ['req.headers.authorization', 'apiKey', 'encryptedApiKey', 'token', 'privateKey'],
     censor: '[REDACTED]',
   },
 });

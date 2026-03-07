@@ -7,9 +7,9 @@
  * @see R10, S17–S24, S48
  */
 
-import { Command } from 'commander';
-import { openMemoryOrExit, confirmOrExit } from './utils.js';
+import type { Command } from 'commander';
 import * as tui from '../../ui/tui.js';
+import { confirmOrExit, openMemoryOrExit } from './utils.js';
 
 export function registerDeleteCommand(parent: Command): void {
   parent
@@ -18,7 +18,7 @@ export function registerDeleteCommand(parent: Command): void {
     .option('--force', 'Skip confirmation prompt')
     .action(async (idArg: string, opts: { force?: boolean }) => {
       const id = parseInt(idArg, 10);
-      if (isNaN(id)) {
+      if (Number.isNaN(id)) {
         tui.log.info(`Invalid observation ID: "${idArg}". Expected a number.`);
         process.exit(1);
       }
@@ -31,10 +31,7 @@ export function registerDeleteCommand(parent: Command): void {
           process.exit(1);
         }
 
-        await confirmOrExit(
-          `Delete observation ${id} "${obs.title}"? (y/N) `,
-          opts.force ?? false,
-        );
+        await confirmOrExit(`Delete observation ${id} "${obs.title}"? (y/N) `, opts.force ?? false);
 
         await storage.deleteObservation(id);
         tui.log.success(`Deleted observation ${id}.`);

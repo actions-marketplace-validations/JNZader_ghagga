@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type KeyboardEvent } from 'react';
+import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/cn';
 
@@ -111,10 +111,7 @@ export function ConfirmDialog({
 
   return createPortal(
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      onKeyDown={handleKeyDown}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center" onKeyDown={handleKeyDown}>
       {/* Backdrop */}
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div
@@ -132,10 +129,7 @@ export function ConfirmDialog({
         tabIndex={-1}
         className="relative z-10 w-full max-w-md rounded-lg border border-surface-border bg-surface-card p-6 shadow-xl focus:outline-none"
       >
-        <h2
-          id="confirm-dialog-title"
-          className="text-lg font-semibold text-text-primary"
-        >
+        <h2 id="confirm-dialog-title" className="text-lg font-semibold text-text-primary">
           {title}
         </h2>
 

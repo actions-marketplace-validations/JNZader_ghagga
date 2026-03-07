@@ -5,8 +5,8 @@
  * and error handling of the webhook router using mocked dependencies.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'node:crypto';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWebhookRouter } from './webhook.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
@@ -27,7 +27,8 @@ vi.mock('ghagga-db', () => ({
   getRepoByGithubId: (...args: unknown[]) => mockGetRepoByGithubId(...args),
   getEffectiveRepoSettings: (...args: unknown[]) => mockGetEffectiveRepoSettings(...args),
   getInstallationByGitHubId: (...args: unknown[]) => mockGetInstallationByGitHubId(...args),
-  deleteMappingsByInstallationId: (...args: unknown[]) => mockDeleteMappingsByInstallationId(...args),
+  deleteMappingsByInstallationId: (...args: unknown[]) =>
+    mockDeleteMappingsByInstallationId(...args),
 }));
 
 // Mock inngest client
@@ -55,7 +56,7 @@ vi.mock('../github/client.js', async (importOriginal) => {
 const WEBHOOK_SECRET = 'test-secret-key';
 
 function sign(body: string): string {
-  return 'sha256=' + createHmac('sha256', WEBHOOK_SECRET).update(body).digest('hex');
+  return `sha256=${createHmac('sha256', WEBHOOK_SECRET).update(body).digest('hex')}`;
 }
 
 function makeRequest(
@@ -259,7 +260,7 @@ describe('pull_request event handling', () => {
     expect(json).toHaveProperty('repo', 'owner/repo');
 
     expect(mockInngestSend).toHaveBeenCalledOnce();
-    const sendArg = mockInngestSend.mock.calls[0]![0];
+    const sendArg = mockInngestSend.mock.calls[0]?.[0];
     expect(sendArg.name).toBe('ghagga/review.requested');
     expect(sendArg.data.installationId).toBe(999);
     expect(sendArg.data.repoFullName).toBe('owner/repo');
@@ -323,7 +324,7 @@ describe('pull_request event handling', () => {
     const req = makeRequest(body, 'pull_request');
     await router.fetch(req);
 
-    const sendArg = mockInngestSend.mock.calls[0]![0];
+    const sendArg = mockInngestSend.mock.calls[0]?.[0];
     expect(sendArg.data.settings.enableSemgrep).toBe(true);
     expect(sendArg.data.settings.enableTrivy).toBe(true);
     expect(sendArg.data.settings.enableCpd).toBe(false);
@@ -359,7 +360,7 @@ describe('installation event handling', () => {
     expect(json).toHaveProperty('message', 'Installation tracked');
 
     expect(mockUpsertInstallation).toHaveBeenCalledOnce();
-    expect(mockUpsertInstallation.mock.calls[0]![1]).toMatchObject({
+    expect(mockUpsertInstallation.mock.calls[0]?.[1]).toMatchObject({
       githubInstallationId: 555,
       accountLogin: 'my-org',
       accountType: 'Organization',
@@ -404,9 +405,7 @@ describe('installation_repositories event handling', () => {
       id: 555,
       account: { login: 'my-org', type: 'Organization' },
     },
-    repositories_added: [
-      { id: 300, full_name: 'my-org/repo-c' },
-    ],
+    repositories_added: [{ id: 300, full_name: 'my-org/repo-c' }],
     repositories_removed: [],
   };
 
@@ -422,7 +421,7 @@ describe('installation_repositories event handling', () => {
     // Ensures installation is upserted first
     expect(mockUpsertInstallation).toHaveBeenCalledOnce();
     expect(mockUpsertRepository).toHaveBeenCalledOnce();
-    expect(mockUpsertRepository.mock.calls[0]![1]).toMatchObject({
+    expect(mockUpsertRepository.mock.calls[0]?.[1]).toMatchObject({
       githubRepoId: 300,
       fullName: 'my-org/repo-c',
     });
@@ -475,7 +474,7 @@ describe('issue_comment event handling', () => {
     expect(json).toHaveProperty('triggeredBy', 'contributor-user');
 
     expect(mockInngestSend).toHaveBeenCalledOnce();
-    const sendArg = mockInngestSend.mock.calls[0]![0];
+    const sendArg = mockInngestSend.mock.calls[0]?.[0];
     expect(sendArg.name).toBe('ghagga/review.requested');
     expect(sendArg.data.prNumber).toBe(42);
     expect(sendArg.data.triggerCommentId).toBe(777);
@@ -490,10 +489,8 @@ describe('issue_comment event handling', () => {
     const req = makeRequest(body, 'issue_comment');
     await router.fetch(req);
 
-    expect(mockFetchPRDetails).toHaveBeenCalledWith(
-      'owner', 'repo', 42, 'fake-installation-token',
-    );
-    const sendArg = mockInngestSend.mock.calls[0]![0];
+    expect(mockFetchPRDetails).toHaveBeenCalledWith('owner', 'repo', 42, 'fake-installation-token');
+    const sendArg = mockInngestSend.mock.calls[0]?.[0];
     expect(sendArg.data.headSha).toBe('def456');
     expect(sendArg.data.baseBranch).toBe('develop');
   });
@@ -508,7 +505,7 @@ describe('issue_comment event handling', () => {
     // Should still dispatch the review without headSha/baseBranch
     expect(res.status).toBe(202);
     expect(mockInngestSend).toHaveBeenCalledOnce();
-    const sendArg = mockInngestSend.mock.calls[0]![0];
+    const sendArg = mockInngestSend.mock.calls[0]?.[0];
     expect(sendArg.data.headSha).toBeUndefined();
     expect(sendArg.data.baseBranch).toBeUndefined();
   });
@@ -521,7 +518,11 @@ describe('issue_comment event handling', () => {
 
     expect(mockGetInstallationToken).toHaveBeenCalledOnce();
     expect(mockAddCommentReaction).toHaveBeenCalledWith(
-      'owner', 'repo', 777, 'eyes', 'fake-installation-token',
+      'owner',
+      'repo',
+      777,
+      'eyes',
+      'fake-installation-token',
     );
   });
 
@@ -541,7 +542,10 @@ describe('issue_comment event handling', () => {
     mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
     const body = JSON.stringify({
       ...commentPayload,
-      comment: { ...commentPayload.comment, body: 'Hey can you do a ghagga review on this? Thanks!' },
+      comment: {
+        ...commentPayload.comment,
+        body: 'Hey can you do a ghagga review on this? Thanks!',
+      },
     });
     const req = makeRequest(body, 'issue_comment');
     const res = await router.fetch(req);

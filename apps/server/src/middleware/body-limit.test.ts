@@ -6,9 +6,9 @@
  * - 5MB override for /webhook
  */
 
-import { describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import { describe, expect, it } from 'vitest';
 
 function createApp() {
   const app = new Hono();

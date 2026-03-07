@@ -4,8 +4,8 @@
  * Pure constants — no mocking needed.
  */
 
-import { describe, it, expect } from 'vitest';
-import { DEFAULT_SETTINGS, DEFAULT_MODELS } from './types.js';
+import { describe, expect, it } from 'vitest';
+import { DEFAULT_MODELS, DEFAULT_SETTINGS } from './types.js';
 
 // ─── DEFAULT_SETTINGS ───────────────────────────────────────────
 

@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  toEngramContent,
   fromEngramContent,
-  toMemoryObservationRow,
-  toMemoryObservationDetail,
+  toEngramContent,
   toEngramSaveData,
+  toMemoryObservationDetail,
+  toMemoryObservationRow,
 } from './engram-mapping.js';
 import type { EngramObservation } from './engram-types.js';
 
@@ -46,9 +46,7 @@ describe('toEngramContent()', () => {
       filePaths: ['src/auth.ts', 'src/login.ts'],
     });
 
-    expect(result).toBe(
-      'Auth issue\n---\nFiles: src/auth.ts, src/login.ts\n---\nSource: ghagga',
-    );
+    expect(result).toBe('Auth issue\n---\nFiles: src/auth.ts, src/login.ts\n---\nSource: ghagga');
   });
 
   it('includes both severity and filePaths', () => {
@@ -121,18 +119,14 @@ describe('fromEngramContent()', () => {
   });
 
   it('extracts severity from [severity:high] marker', () => {
-    const result = fromEngramContent(
-      '[severity:high]\nSome content\n---\nSource: ghagga',
-    );
+    const result = fromEngramContent('[severity:high]\nSome content\n---\nSource: ghagga');
 
     expect(result.severity).toBe('high');
     expect(result.content).toBe('Some content');
   });
 
   it('extracts filePaths from Files footer', () => {
-    const result = fromEngramContent(
-      'Content here\n---\nFiles: a.ts, b.ts\n---\nSource: ghagga',
-    );
+    const result = fromEngramContent('Content here\n---\nFiles: a.ts, b.ts\n---\nSource: ghagga');
 
     expect(result.filePaths).toEqual(['a.ts', 'b.ts']);
     expect(result.content).toBe('Content here');
@@ -199,27 +193,21 @@ describe('fromEngramContent()', () => {
   });
 
   it('filters out empty file entries from Files footer', () => {
-    const result = fromEngramContent(
-      'Content\n---\nFiles: a.ts, , b.ts, \n---\nSource: ghagga',
-    );
+    const result = fromEngramContent('Content\n---\nFiles: a.ts, , b.ts, \n---\nSource: ghagga');
 
     // Empty entries should be filtered out by .filter(f => f.length > 0)
     expect(result.filePaths).toEqual(['a.ts', 'b.ts']);
   });
 
   it('handles Files footer with only whitespace entries', () => {
-    const result = fromEngramContent(
-      'Content\n---\nFiles:  ,  ,  \n---\nSource: ghagga',
-    );
+    const result = fromEngramContent('Content\n---\nFiles:  ,  ,  \n---\nSource: ghagga');
 
     // After trim + filter(f => f.length > 0), no entries remain
     expect(result.filePaths).toEqual([]);
   });
 
   it('handles content with --- separator inside the body', () => {
-    const result = fromEngramContent(
-      'Line 1\n---\nLine 2\n---\nSource: ghagga',
-    );
+    const result = fromEngramContent('Line 1\n---\nLine 2\n---\nSource: ghagga');
 
     // The lastIndexOf for Source: ghagga finds the last one.
     // The content before Source footer is "Line 1\n---\nLine 2"
@@ -229,9 +217,7 @@ describe('fromEngramContent()', () => {
   });
 
   it('trims whitespace from file paths', () => {
-    const result = fromEngramContent(
-      'Content\n---\nFiles:  a.ts ,  b.ts \n---\nSource: ghagga',
-    );
+    const result = fromEngramContent('Content\n---\nFiles:  a.ts ,  b.ts \n---\nSource: ghagga');
 
     expect(result.filePaths).toEqual(['a.ts', 'b.ts']);
   });
@@ -349,7 +335,8 @@ describe('toMemoryObservationDetail()', () => {
       id: 99,
       type: 'bugfix',
       title: 'Fix SQL injection',
-      content: '[severity:critical]\nUse parameterized queries\n---\nFiles: src/db.ts\n---\nSource: ghagga',
+      content:
+        '[severity:critical]\nUse parameterized queries\n---\nFiles: src/db.ts\n---\nSource: ghagga',
       project: 'acme/widgets',
       topic_key: 'sql-injection',
       revision_count: 3,

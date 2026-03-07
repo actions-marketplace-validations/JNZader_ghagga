@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -11,7 +11,7 @@ vi.mock('node:util', () => ({
 }));
 
 import { execFile } from 'node:child_process';
-import { runCpd, parseCpdXml } from './cpd.js';
+import { parseCpdXml, runCpd } from './cpd.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -63,9 +63,17 @@ describe('runCpd', () => {
     await runCpd('/project');
 
     // First: cpd --help
-    expect(mockExecFile).toHaveBeenCalledWith('cpd', ['--help'], expect.objectContaining({ timeout: 5_000 }));
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'cpd',
+      ['--help'],
+      expect.objectContaining({ timeout: 5_000 }),
+    );
     // Second: pmd cpd --help
-    expect(mockExecFile).toHaveBeenCalledWith('pmd', ['cpd', '--help'], expect.objectContaining({ timeout: 5_000 }));
+    expect(mockExecFile).toHaveBeenCalledWith(
+      'pmd',
+      ['cpd', '--help'],
+      expect.objectContaining({ timeout: 5_000 }),
+    );
   });
 
   it('uses standalone cpd when available', async () => {
@@ -123,9 +131,9 @@ describe('runCpd', () => {
 
     expect(result.status).toBe('success');
     expect(result.findings).toHaveLength(1);
-    expect(result.findings[0]!.category).toBe('duplication');
-    expect(result.findings[0]!.message).toContain('15 lines');
-    expect(result.findings[0]!.message).toContain('120 tokens');
+    expect(result.findings[0]?.category).toBe('duplication');
+    expect(result.findings[0]?.message).toContain('15 lines');
+    expect(result.findings[0]?.message).toContain('120 tokens');
   });
 
   it('returns success with empty findings when no duplications', async () => {
@@ -194,17 +202,15 @@ describe('runCpd', () => {
 
     expect(result.status).toBe('success');
     expect(result.findings).toHaveLength(1);
-    expect(result.findings[0]!.message).toContain('20 lines');
+    expect(result.findings[0]?.message).toContain('20 lines');
   });
 
   it('handles exit code 4 with pmd-cpd tag in stdout', async () => {
     const xmlWithDup = makeCpdXml([
-      makeDuplication(
-        [
-          { path: '/project/src/a.ts', line: 1 },
-          { path: '/project/src/b.ts', line: 1 },
-        ],
-      ),
+      makeDuplication([
+        { path: '/project/src/a.ts', line: 1 },
+        { path: '/project/src/b.ts', line: 1 },
+      ]),
     ]);
 
     mockExecFile
@@ -311,11 +317,11 @@ describe('parseCpdXml', () => {
     const findings = parseCpdXml(xml, '/project');
 
     expect(findings).toHaveLength(1);
-    expect(findings[0]!.severity).toBe('medium');
-    expect(findings[0]!.category).toBe('duplication');
-    expect(findings[0]!.file).toBe('src/a.ts');
-    expect(findings[0]!.line).toBe(10);
-    expect(findings[0]!.source).toBe('cpd');
+    expect(findings[0]?.severity).toBe('medium');
+    expect(findings[0]?.category).toBe('duplication');
+    expect(findings[0]?.file).toBe('src/a.ts');
+    expect(findings[0]?.line).toBe(10);
+    expect(findings[0]?.source).toBe('cpd');
   });
 
   it('skips duplications with fewer than 2 files', () => {

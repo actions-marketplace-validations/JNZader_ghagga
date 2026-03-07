@@ -1,14 +1,14 @@
 import {
-  AreaChart,
   Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
 } from 'recharts';
 import { Card } from '@/components/Card';
-import { useStats, useRepositories } from '@/lib/api';
+import { useRepositories, useStats } from '@/lib/api';
 import { useSelectedRepo } from '@/lib/repo-context';
 import type { Stats } from '@/lib/types';
 
@@ -33,12 +33,10 @@ function EmptyState() {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
       <div className="mb-4 text-5xl">📊</div>
-      <h2 className="mb-2 text-xl font-semibold text-text-primary">
-        No Data Yet
-      </h2>
+      <h2 className="mb-2 text-xl font-semibold text-text-primary">No Data Yet</h2>
       <p className="max-w-md text-text-secondary">
-        Select a repository above to view review statistics, or install GHAGGA
-        on a repository to start reviewing PRs.
+        Select a repository above to view review statistics, or install GHAGGA on a repository to
+        start reviewing PRs.
       </p>
     </div>
   );
@@ -49,26 +47,10 @@ function StatsOverview({ stats }: { stats: Stats }) {
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <StatCard
-        label="Total Reviews"
-        value={stats.totalReviews ?? 0}
-        color="text-text-primary"
-      />
-      <StatCard
-        label="Passed"
-        value={stats.passed ?? 0}
-        color="text-green-400"
-      />
-      <StatCard
-        label="Failed"
-        value={stats.failed ?? 0}
-        color="text-red-400"
-      />
-      <StatCard
-        label="Pass Rate"
-        value={`${passRate.toFixed(1)}%`}
-        color="text-primary-400"
-      />
+      <StatCard label="Total Reviews" value={stats.totalReviews ?? 0} color="text-text-primary" />
+      <StatCard label="Passed" value={stats.passed ?? 0} color="text-green-400" />
+      <StatCard label="Failed" value={stats.failed ?? 0} color="text-red-400" />
+      <StatCard label="Pass Rate" value={`${passRate.toFixed(1)}%`} color="text-primary-400" />
     </div>
   );
 }
@@ -78,9 +60,7 @@ function ReviewChart({ data }: { data: Stats['reviewsByDay'] }) {
 
   return (
     <Card className="mt-6">
-      <h3 className="mb-4 text-lg font-semibold text-text-primary">
-        Reviews Over Time
-      </h3>
+      <h3 className="mb-4 text-lg font-semibold text-text-primary">Reviews Over Time</h3>
       <div className="h-80">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data}>
@@ -151,9 +131,7 @@ export function Dashboard() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">Dashboard</h1>
-          <p className="mt-1 text-text-secondary">
-            Overview of your code review activity
-          </p>
+          <p className="mt-1 text-text-secondary">Overview of your code review activity</p>
         </div>
 
         <select

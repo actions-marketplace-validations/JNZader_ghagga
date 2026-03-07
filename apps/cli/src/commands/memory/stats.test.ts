@@ -7,9 +7,9 @@
  * @see T7.6, S25–S27
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { MemoryStats } from 'ghagga-core';
 import { Command } from 'commander';
+import type { MemoryStats } from 'ghagga-core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -138,9 +138,7 @@ describe('ghagga memory stats', () => {
 
     await runStatsCommand();
 
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('No memory database found'),
-    );
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('No memory database found'));
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 

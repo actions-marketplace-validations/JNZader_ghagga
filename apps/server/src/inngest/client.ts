@@ -5,8 +5,8 @@
  * used across all durable functions.
  */
 
-import { EventSchemas, Inngest } from 'inngest';
 import type { StaticAnalysisResult } from 'ghagga-core';
+import { EventSchemas, Inngest } from 'inngest';
 
 // ─── Event Types ────────────────────────────────────────────────
 

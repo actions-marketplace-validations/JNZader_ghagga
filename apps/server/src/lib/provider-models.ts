@@ -26,13 +26,7 @@ export const CURATED_MODELS: Record<SaaSProvider, string[]> = {
     'claude-3-5-haiku-20241022',
     'claude-3-5-sonnet-20241022',
   ],
-  openai: [
-    'gpt-4o',
-    'gpt-4o-mini',
-    'gpt-4-turbo',
-    'gpt-4',
-    'o3-mini',
-  ],
+  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-4', 'o3-mini'],
   google: [
     'gemini-2.5-flash',
     'gemini-2.5-flash-lite',
@@ -41,22 +35,8 @@ export const CURATED_MODELS: Record<SaaSProvider, string[]> = {
     'gemini-2.0-flash',
     'gemini-2.0-flash-lite',
   ],
-  github: [
-    'gpt-4o-mini',
-    'gpt-4o',
-    'o3-mini',
-    'Phi-4',
-    'Mistral-Large-2411',
-    'DeepSeek-R1',
-  ],
-  qwen: [
-    'qwen-coder-plus',
-    'qwen-plus',
-    'qwen-max',
-    'qwen-turbo',
-    'qwen-coder-turbo',
-    'qwen-long',
-  ],
+  github: ['gpt-4o-mini', 'gpt-4o', 'o3-mini', 'Phi-4', 'Mistral-Large-2411', 'DeepSeek-R1'],
+  qwen: ['qwen-coder-plus', 'qwen-plus', 'qwen-max', 'qwen-turbo', 'qwen-coder-turbo', 'qwen-long'],
 };
 
 // ─── Validation ─────────────────────────────────────────────────
@@ -119,14 +99,26 @@ async function validateOpenAI(apiKey: string, baseUrl: string): Promise<Validati
     if (response.status === 401 || response.status === 403) {
       return { valid: false, models: [], error: 'Invalid API key' };
     }
-    return { valid: false, models: [], error: `API error ${response.status}: ${text.substring(0, 200)}` };
+    return {
+      valid: false,
+      models: [],
+      error: `API error ${response.status}: ${text.substring(0, 200)}`,
+    };
   }
 
   const data = (await response.json()) as { data?: Array<{ id: string; owned_by?: string }> };
   const allModels = data.data ?? [];
 
   // Filter out non-chat models (embeddings, tts, dall-e, whisper, etc.)
-  const excludePatterns = ['embedding', 'tts', 'dall-e', 'whisper', 'davinci', 'babbage', 'moderation'];
+  const excludePatterns = [
+    'embedding',
+    'tts',
+    'dall-e',
+    'whisper',
+    'davinci',
+    'babbage',
+    'moderation',
+  ];
   const chatModels = allModels
     .map((m) => m.id)
     .filter((id) => !excludePatterns.some((p) => id.toLowerCase().includes(p)))

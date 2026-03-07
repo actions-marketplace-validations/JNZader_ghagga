@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -7,7 +7,7 @@ vi.mock('node:child_process', () => ({
 }));
 
 import { execSync } from 'node:child_process';
-import { resolveProjectId, normalizeRemoteUrl } from './git.js';
+import { normalizeRemoteUrl, resolveProjectId } from './git.js';
 
 const mockExecSync = vi.mocked(execSync);
 
@@ -73,7 +73,9 @@ describe('resolveProjectId', () => {
   });
 
   it('falls back to local/unknown when no remote is configured', () => {
-    mockExecSync.mockImplementation(() => { throw new Error('fatal: No such remote'); });
+    mockExecSync.mockImplementation(() => {
+      throw new Error('fatal: No such remote');
+    });
 
     expect(resolveProjectId('/path/to/repo')).toBe('local/unknown');
   });

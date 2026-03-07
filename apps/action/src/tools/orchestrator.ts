@@ -9,9 +9,9 @@
  */
 
 import * as core from '@actions/core';
+import { executeCpd } from './cpd.js';
 import { executeSemgrep } from './semgrep.js';
 import { executeTrivy } from './trivy.js';
-import { executeCpd } from './cpd.js';
 import type { StaticAnalysisResult, ToolResult } from './types.js';
 
 /** Sentinel value for disabled/skipped tools */
@@ -37,26 +37,18 @@ export async function runLocalAnalysis(options: {
   core.info('Starting local static analysis...');
 
   // Sequential execution — memory safety
-  const semgrep = options.enableSemgrep
-    ? await executeSemgrep(options.repoDir)
-    : SKIPPED;
+  const semgrep = options.enableSemgrep ? await executeSemgrep(options.repoDir) : SKIPPED;
   core.info(
     `Semgrep: ${semgrep.status} (${semgrep.findings.length} findings, ${semgrep.executionTimeMs}ms)`,
   );
 
-  const trivy = options.enableTrivy
-    ? await executeTrivy(options.repoDir)
-    : SKIPPED;
+  const trivy = options.enableTrivy ? await executeTrivy(options.repoDir) : SKIPPED;
   core.info(
     `Trivy: ${trivy.status} (${trivy.findings.length} findings, ${trivy.executionTimeMs}ms)`,
   );
 
-  const cpd = options.enableCpd
-    ? await executeCpd(options.repoDir)
-    : SKIPPED;
-  core.info(
-    `CPD: ${cpd.status} (${cpd.findings.length} findings, ${cpd.executionTimeMs}ms)`,
-  );
+  const cpd = options.enableCpd ? await executeCpd(options.repoDir) : SKIPPED;
+  core.info(`CPD: ${cpd.status} (${cpd.findings.length} findings, ${cpd.executionTimeMs}ms)`);
 
   const totalMs = Date.now() - totalStart;
   core.info(`Static analysis complete in ${(totalMs / 1000).toFixed(1)}s`);

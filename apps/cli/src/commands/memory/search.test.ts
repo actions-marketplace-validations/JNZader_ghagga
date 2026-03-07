@@ -8,9 +8,9 @@
  * @see T7.3, S8–S12
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { MemoryObservationRow } from 'ghagga-core';
 import { Command } from 'commander';
+import type { MemoryObservationRow } from 'ghagga-core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -92,7 +92,12 @@ describe('ghagga memory search', () => {
   it('displays numbered results on happy path', async () => {
     const rows = [
       makeRow({ id: 1, type: 'pattern', title: 'OAuth refresh', content: 'Handle 401 responses' }),
-      makeRow({ id: 2, type: 'bugfix', title: 'Pool leak', content: 'Connection leak in transactions' }),
+      makeRow({
+        id: 2,
+        type: 'bugfix',
+        title: 'Pool leak',
+        content: 'Connection leak in transactions',
+      }),
     ];
     mockSearchObservations.mockResolvedValue(rows);
 
@@ -158,9 +163,7 @@ describe('ghagga memory search', () => {
 
     await runSearchCommand(['auth', '--repo', 'acme/widgets']);
 
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('No memory database found'),
-    );
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('No memory database found'));
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 

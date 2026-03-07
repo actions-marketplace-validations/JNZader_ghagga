@@ -4,7 +4,7 @@
  * Pure function — no mocking needed.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { cn } from './cn';
 
 describe('cn', () => {

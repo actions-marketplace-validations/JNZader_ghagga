@@ -34,11 +34,7 @@ export class EngramClient {
   }
 
   /** Search observations. GET /api/search?q=...&project=...&limit=... */
-  async search(
-    query: string,
-    project?: string,
-    limit?: number,
-  ): Promise<EngramObservation[]> {
+  async search(query: string, project?: string, limit?: number): Promise<EngramObservation[]> {
     try {
       const params = new URLSearchParams({ q: query });
       if (project) params.set('project', project);
@@ -54,7 +50,12 @@ export class EngramClient {
 
       // Handle both array response and { observations: [...] } envelope
       if (Array.isArray(data)) return data as EngramObservation[];
-      if (data != null && typeof data === 'object' && 'observations' in data && Array.isArray((data as Record<string, unknown>).observations)) {
+      if (
+        data != null &&
+        typeof data === 'object' &&
+        'observations' in data &&
+        Array.isArray((data as Record<string, unknown>).observations)
+      ) {
         return (data as Record<string, unknown>).observations as EngramObservation[];
       }
 

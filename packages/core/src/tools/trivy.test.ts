@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -11,7 +11,7 @@ vi.mock('node:util', () => ({
 }));
 
 import { execFile } from 'node:child_process';
-import { runTrivy, mapSeverity } from './trivy.js';
+import { mapSeverity, runTrivy } from './trivy.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -104,17 +104,19 @@ describe('runTrivy', () => {
 
     expect(result.status).toBe('success');
     expect(result.findings).toHaveLength(1);
-    expect(result.findings[0]).toEqual(expect.objectContaining({
-      severity: 'high',
-      category: 'dependency-vulnerability',
-      file: 'package-lock.json',
-      source: 'trivy',
-    }));
-    expect(result.findings[0]!.message).toContain('CVE-2024-1234');
-    expect(result.findings[0]!.message).toContain('express@4.17.1');
-    expect(result.findings[0]!.message).toContain('Prototype pollution in express');
-    expect(result.findings[0]!.message).toContain('fix: upgrade to 4.18.2');
-    expect(result.findings[0]!.suggestion).toBe('Upgrade express to 4.18.2');
+    expect(result.findings[0]).toEqual(
+      expect.objectContaining({
+        severity: 'high',
+        category: 'dependency-vulnerability',
+        file: 'package-lock.json',
+        source: 'trivy',
+      }),
+    );
+    expect(result.findings[0]?.message).toContain('CVE-2024-1234');
+    expect(result.findings[0]?.message).toContain('express@4.17.1');
+    expect(result.findings[0]?.message).toContain('Prototype pollution in express');
+    expect(result.findings[0]?.message).toContain('fix: upgrade to 4.18.2');
+    expect(result.findings[0]?.suggestion).toBe('Upgrade express to 4.18.2');
   });
 
   it('handles no fix available', async () => {
@@ -138,8 +140,8 @@ describe('runTrivy', () => {
 
     const result = await runTrivy('/project');
 
-    expect(result.findings[0]!.message).toContain('no fix available');
-    expect(result.findings[0]!.suggestion).toBeUndefined();
+    expect(result.findings[0]?.message).toContain('no fix available');
+    expect(result.findings[0]?.suggestion).toBeUndefined();
   });
 
   it('uses Description when Title is not available', async () => {
@@ -164,7 +166,7 @@ describe('runTrivy', () => {
 
     const result = await runTrivy('/project');
 
-    expect(result.findings[0]!.message).toContain('HTTP/2 flow control vulnerability');
+    expect(result.findings[0]?.message).toContain('HTTP/2 flow control vulnerability');
   });
 
   it('uses "Known vulnerability" when neither Title nor Description available', async () => {
@@ -189,7 +191,7 @@ describe('runTrivy', () => {
 
     const result = await runTrivy('/project');
 
-    expect(result.findings[0]!.message).toContain('Known vulnerability');
+    expect(result.findings[0]?.message).toContain('Known vulnerability');
   });
 
   it('returns empty findings when no vulnerabilities found', async () => {
@@ -242,11 +244,29 @@ describe('runTrivy', () => {
       .mockResolvedValueOnce({
         stdout: makeTrivyOutput([
           makeTrivyTarget('package-lock.json', [
-            { VulnerabilityID: 'CVE-1', PkgName: 'pkg1', InstalledVersion: '1.0', Severity: 'HIGH', Title: 'V1' },
-            { VulnerabilityID: 'CVE-2', PkgName: 'pkg2', InstalledVersion: '2.0', Severity: 'CRITICAL', Title: 'V2' },
+            {
+              VulnerabilityID: 'CVE-1',
+              PkgName: 'pkg1',
+              InstalledVersion: '1.0',
+              Severity: 'HIGH',
+              Title: 'V1',
+            },
+            {
+              VulnerabilityID: 'CVE-2',
+              PkgName: 'pkg2',
+              InstalledVersion: '2.0',
+              Severity: 'CRITICAL',
+              Title: 'V2',
+            },
           ]),
           makeTrivyTarget('go.sum', [
-            { VulnerabilityID: 'CVE-3', PkgName: 'pkg3', InstalledVersion: '3.0', Severity: 'LOW', Title: 'V3' },
+            {
+              VulnerabilityID: 'CVE-3',
+              PkgName: 'pkg3',
+              InstalledVersion: '3.0',
+              Severity: 'LOW',
+              Title: 'V3',
+            },
           ]),
         ]),
         stderr: '',
@@ -255,8 +275,8 @@ describe('runTrivy', () => {
     const result = await runTrivy('/project');
 
     expect(result.findings).toHaveLength(3);
-    expect(result.findings[0]!.file).toBe('package-lock.json');
-    expect(result.findings[2]!.file).toBe('go.sum');
+    expect(result.findings[0]?.file).toBe('package-lock.json');
+    expect(result.findings[2]?.file).toBe('go.sum');
   });
 
   // ── Scan arguments ──
@@ -270,7 +290,15 @@ describe('runTrivy', () => {
 
     const scanCall = mockExecFile.mock.calls[1]!;
     expect(scanCall[0]).toBe('trivy');
-    expect(scanCall[1]).toEqual(['fs', '--format', 'json', '--scanners', 'vuln', '--quiet', '/my/project']);
+    expect(scanCall[1]).toEqual([
+      'fs',
+      '--format',
+      'json',
+      '--scanners',
+      'vuln',
+      '--quiet',
+      '/my/project',
+    ]);
   });
 
   // ── Error handling ──

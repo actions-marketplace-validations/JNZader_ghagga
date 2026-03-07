@@ -63,9 +63,7 @@ export async function fetchPRDiff(
   });
 
   if (!response.ok) {
-    throw new Error(
-      `GitHub API error fetching diff: ${response.status} ${response.statusText}`,
-    );
+    throw new Error(`GitHub API error fetching diff: ${response.status} ${response.statusText}`);
   }
 
   return response.text();
@@ -95,9 +93,7 @@ export async function postComment(
   });
 
   if (!response.ok) {
-    throw new Error(
-      `GitHub API error posting comment: ${response.status} ${response.statusText}`,
-    );
+    throw new Error(`GitHub API error posting comment: ${response.status} ${response.statusText}`);
   }
 
   const data = (await response.json()) as { id: number };
@@ -124,9 +120,7 @@ export async function getPRCommitMessages(
   });
 
   if (!response.ok) {
-    throw new Error(
-      `GitHub API error fetching commits: ${response.status} ${response.statusText}`,
-    );
+    throw new Error(`GitHub API error fetching commits: ${response.status} ${response.statusText}`);
   }
 
   const commits = (await response.json()) as Array<{
@@ -155,9 +149,7 @@ export async function getPRFileList(
   });
 
   if (!response.ok) {
-    throw new Error(
-      `GitHub API error fetching files: ${response.status} ${response.statusText}`,
-    );
+    throw new Error(`GitHub API error fetching files: ${response.status} ${response.statusText}`);
   }
 
   const files = (await response.json()) as Array<{ filename: string }>;
@@ -192,9 +184,7 @@ export async function addCommentReaction(
 
   if (!response.ok) {
     // Non-critical — log but don't throw
-    console.warn(
-      `[ghagga] Failed to add reaction: ${response.status} ${response.statusText}`,
-    );
+    console.warn(`[ghagga] Failed to add reaction: ${response.status} ${response.statusText}`);
   }
 }
 
@@ -217,9 +207,7 @@ export async function verifyWebhookSignature(
 
   const signatureHex = signature.slice(expectedPrefix.length);
 
-  const computed = createHmac('sha256', secret)
-    .update(payload)
-    .digest('hex');
+  const computed = createHmac('sha256', secret).update(payload).digest('hex');
 
   // Constant-time comparison
   try {

@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { formatMemoryContext } from './context.js';
+import { describe, expect, it } from 'vitest';
 import type { ObservationForContext } from './context.js';
+import { formatMemoryContext } from './context.js';
 
 describe('formatMemoryContext', () => {
   it('returns empty string for empty observations array', () => {

@@ -3,10 +3,10 @@
  * Pure presentational — renders review status label and applies correct CSS classes.
  */
 
-import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { StatusBadge } from './StatusBadge';
+import { describe, expect, it } from 'vitest';
 import type { ReviewStatus } from '@/lib/types';
+import { StatusBadge } from './StatusBadge';
 
 const statuses: Array<{ status: ReviewStatus; label: string }> = [
   { status: 'PASSED', label: 'Passed' },
@@ -16,13 +16,10 @@ const statuses: Array<{ status: ReviewStatus; label: string }> = [
 ];
 
 describe('StatusBadge', () => {
-  it.each(statuses)(
-    'renders "$label" text for status "$status"',
-    ({ status, label }) => {
-      render(<StatusBadge status={status} />);
-      expect(screen.getByText(label)).toBeInTheDocument();
-    },
-  );
+  it.each(statuses)('renders "$label" text for status "$status"', ({ status, label }) => {
+    render(<StatusBadge status={status} />);
+    expect(screen.getByText(label)).toBeInTheDocument();
+  });
 
   it('applies custom className', () => {
     render(<StatusBadge status="PASSED" className="my-custom" />);

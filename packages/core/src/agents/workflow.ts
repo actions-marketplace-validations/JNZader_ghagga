@@ -18,25 +18,25 @@
 
 import { generateText } from 'ai';
 import { createModel } from '../providers/index.js';
-import {
-  WORKFLOW_SCOPE_SYSTEM,
-  WORKFLOW_STANDARDS_SYSTEM,
-  WORKFLOW_ERRORS_SYSTEM,
-  WORKFLOW_SECURITY_SYSTEM,
-  WORKFLOW_PERFORMANCE_SYSTEM,
-  WORKFLOW_SYNTHESIS_SYSTEM,
-  REVIEW_CALIBRATION,
-  buildMemoryContext,
-  buildReviewLevelInstruction,
-} from './prompts.js';
-import { parseReviewResponse } from './simple.js';
 import type {
   LLMProvider,
   ProgressCallback,
-  ReviewResult,
   ReviewLevel,
+  ReviewResult,
   WorkflowSpecialist,
 } from '../types.js';
+import {
+  buildMemoryContext,
+  buildReviewLevelInstruction,
+  REVIEW_CALIBRATION,
+  WORKFLOW_ERRORS_SYSTEM,
+  WORKFLOW_PERFORMANCE_SYSTEM,
+  WORKFLOW_SCOPE_SYSTEM,
+  WORKFLOW_SECURITY_SYSTEM,
+  WORKFLOW_STANDARDS_SYSTEM,
+  WORKFLOW_SYNTHESIS_SYSTEM,
+} from './prompts.js';
+import { parseReviewResponse } from './simple.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -81,7 +81,8 @@ const SPECIALISTS: SpecialistConfig[] = [
  * @returns Parsed ReviewResult from the synthesis step
  */
 export async function runWorkflowReview(input: WorkflowReviewInput): Promise<ReviewResult> {
-  const { diff, provider, model, apiKey, staticContext, memoryContext, stackHints, reviewLevel } = input;
+  const { diff, provider, model, apiKey, staticContext, memoryContext, stackHints, reviewLevel } =
+    input;
   const emit = input.onProgress ?? (() => {});
 
   const startTime = Date.now();
@@ -136,9 +137,7 @@ export async function runWorkflowReview(input: WorkflowReviewInput): Promise<Rev
 
     if (result.status === 'fulfilled') {
       totalTokens += result.value.tokensUsed;
-      specialistOutputs.push(
-        `### ${result.value.label}\n\n${result.value.text}`,
-      );
+      specialistOutputs.push(`### ${result.value.label}\n\n${result.value.text}`);
       emit({
         step: `specialist-${spec.name}`,
         message: `✓ ${spec.label} — ${result.value.tokensUsed} tokens`,
@@ -184,8 +183,7 @@ export async function runWorkflowReview(input: WorkflowReviewInput): Promise<Rev
   });
 
   const synthesisTokens =
-    (synthesisResult.usage?.promptTokens ?? 0) +
-    (synthesisResult.usage?.completionTokens ?? 0);
+    (synthesisResult.usage?.promptTokens ?? 0) + (synthesisResult.usage?.completionTokens ?? 0);
   totalTokens += synthesisTokens;
 
   const executionTimeMs = Date.now() - startTime;

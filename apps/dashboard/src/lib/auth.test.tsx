@@ -5,10 +5,10 @@
  * and basic useAuth behavior.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
-import { type ReactNode } from 'react';
+import { act, renderHook } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuthProvider, useAuth } from './auth';
 
 // ─── Mock oauth module ──────────────────────────────────────────
@@ -66,16 +66,24 @@ beforeEach(() => {
   Object.defineProperty(window, 'location', {
     value: {
       href: '',
-      get pathname() { return '/'; },
-      get search() { return ''; },
-      get hash() { return ''; },
+      get pathname() {
+        return '/';
+      },
+      get search() {
+        return '';
+      },
+      get hash() {
+        return '';
+      },
     },
     writable: true,
     configurable: true,
   });
   Object.defineProperty(window.location, 'href', {
     get: () => locationHref,
-    set: (val: string) => { locationHref = val; },
+    set: (val: string) => {
+      locationHref = val;
+    },
     configurable: true,
   });
 });
@@ -118,8 +126,8 @@ describe('useAuth', () => {
   });
 
   it('restores user and token from localStorage on mount', () => {
-    store['ghagga_token'] = 'existing-token';
-    store['ghagga_user'] = JSON.stringify({
+    store.ghagga_token = 'existing-token';
+    store.ghagga_user = JSON.stringify({
       githubLogin: 'testuser',
       githubUserId: 1,
       avatarUrl: 'https://avatars.example.com/1',
@@ -192,8 +200,12 @@ describe('loginFromCallback', () => {
 describe('reAuthenticate', () => {
   it('clears stored credentials', () => {
     // Pre-populate credentials
-    store['ghagga_token'] = 'old-token';
-    store['ghagga_user'] = JSON.stringify({ githubLogin: 'testuser', githubUserId: 1, avatarUrl: '' });
+    store.ghagga_token = 'old-token';
+    store.ghagga_user = JSON.stringify({
+      githubLogin: 'testuser',
+      githubUserId: 1,
+      avatarUrl: '',
+    });
 
     const { result } = renderHook(() => useAuth(), {
       wrapper: createAuthWrapper(),
@@ -226,9 +238,9 @@ describe('reAuthenticate', () => {
 
 describe('logout', () => {
   it('clears localStorage and sessionStorage', () => {
-    store['ghagga_token'] = 'some-token';
-    store['ghagga_user'] = JSON.stringify({ githubLogin: 'user', githubUserId: 1, avatarUrl: '' });
-    sessionStore['ghagga_redirect_after_login'] = '/settings';
+    store.ghagga_token = 'some-token';
+    store.ghagga_user = JSON.stringify({ githubLogin: 'user', githubUserId: 1, avatarUrl: '' });
+    sessionStore.ghagga_redirect_after_login = '/settings';
 
     const { result } = renderHook(() => useAuth(), {
       wrapper: createAuthWrapper(),
@@ -244,8 +256,8 @@ describe('logout', () => {
   });
 
   it('sets user to null and isAuthenticated to false', () => {
-    store['ghagga_token'] = 'some-token';
-    store['ghagga_user'] = JSON.stringify({ githubLogin: 'user', githubUserId: 1, avatarUrl: '' });
+    store.ghagga_token = 'some-token';
+    store.ghagga_user = JSON.stringify({ githubLogin: 'user', githubUserId: 1, avatarUrl: '' });
 
     const { result } = renderHook(() => useAuth(), {
       wrapper: createAuthWrapper(),

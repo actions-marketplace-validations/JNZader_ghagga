@@ -6,12 +6,12 @@
 
 export { runLocalAnalysis } from './orchestrator.js';
 export type {
+  ExecResult,
+  FindingSeverity,
+  ReviewFinding,
+  StaticAnalysisResult,
   ToolName,
   ToolResult,
-  StaticAnalysisResult,
-  ReviewFinding,
-  FindingSeverity,
   ToolRunConfig,
-  ExecResult,
 } from './types.js';
-export { TOOL_VERSIONS, TOOL_TIMEOUT_MS } from './types.js';
+export { TOOL_TIMEOUT_MS, TOOL_VERSIONS } from './types.js';

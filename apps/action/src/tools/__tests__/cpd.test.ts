@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -16,10 +16,10 @@ vi.mock('@actions/core', () => ({
   warning: vi.fn(),
 }));
 
-import { exec } from '@actions/exec';
 import * as cache from '@actions/cache';
 import * as core from '@actions/core';
-import { installCpd, executeCpd } from '../cpd.js';
+import { exec } from '@actions/exec';
+import { executeCpd, installCpd } from '../cpd.js';
 import { TOOL_VERSIONS } from '../types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -29,11 +29,7 @@ const mockRestoreCache = vi.mocked(cache.restoreCache);
 const mockSaveCache = vi.mocked(cache.saveCache);
 const mockWarning = vi.mocked(core.warning);
 
-function simulateExec(
-  exitCode: number,
-  stdout = '',
-  stderr = '',
-): ReturnType<typeof mockExec> {
+function simulateExec(exitCode: number, stdout = '', stderr = ''): ReturnType<typeof mockExec> {
   return mockExec.mockImplementationOnce(async (_cmd, _args, options) => {
     if (stdout && options?.listeners?.stdout) {
       options.listeners.stdout(Buffer.from(stdout));
@@ -110,9 +106,7 @@ describe('installCpd', () => {
     const result = await installCpd();
 
     expect(result).toBe(true);
-    expect(mockWarning).toHaveBeenCalledWith(
-      expect.stringContaining('binary not functional'),
-    );
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('binary not functional'));
   });
 
   it('downloads and extracts on cache miss', async () => {
@@ -140,9 +134,7 @@ describe('installCpd', () => {
     const installCall = mockExec.mock.calls[0]!;
     const bashScript = (installCall[1] as string[])[1];
     expect(bashScript).toContain(TOOL_VERSIONS.pmd);
-    expect(bashScript).toContain(
-      `pmd-dist-${TOOL_VERSIONS.pmd}-bin.zip`,
-    );
+    expect(bashScript).toContain(`pmd-dist-${TOOL_VERSIONS.pmd}-bin.zip`);
   });
 
   it('saves to cache after successful install', async () => {
@@ -174,9 +166,7 @@ describe('installCpd', () => {
 
     await installCpd();
 
-    expect(mockWarning).toHaveBeenCalledWith(
-      expect.stringContaining('PMD/CPD install failed'),
-    );
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('PMD/CPD install failed'));
   });
 });
 
@@ -376,7 +366,7 @@ describe('executeCpd', () => {
     mockSuccessfulInstall();
     simulateExec(0, CPD_XML_NO_FINDINGS, '');
 
-    const before = Date.now();
+    const _before = Date.now();
     const result = await executeCpd('/workspace');
 
     // If the code used + instead of -, executionTimeMs would be ~2×Date.now() ≈ huge number
@@ -447,11 +437,7 @@ describe('executeCpd', () => {
 
     await installCpd();
 
-    expect(mockExec).toHaveBeenCalledWith(
-      '/opt/pmd/bin/pmd',
-      ['--version'],
-      expect.any(Object),
-    );
+    expect(mockExec).toHaveBeenCalledWith('/opt/pmd/bin/pmd', ['--version'], expect.any(Object));
   });
 
   it('uses 10s timeout for version check', async () => {
@@ -470,9 +456,7 @@ describe('executeCpd', () => {
 
     // installCpd should fall through to reinstall after version check timeout
     expect(result).toBe(true);
-    expect(mockWarning).toHaveBeenCalledWith(
-      expect.stringContaining('binary not functional'),
-    );
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('binary not functional'));
   }, 20_000);
 
   it('uses 120s timeout for install download', async () => {

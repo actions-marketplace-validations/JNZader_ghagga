@@ -1,12 +1,10 @@
-import { describe, it, expect } from 'vitest';
-import { parseVote, calculateConsensus } from './consensus.js';
-import type { ConsensusVote, ConsensusStance, LLMProvider } from '../types.js';
+import { describe, expect, it } from 'vitest';
+import type { ConsensusStance, ConsensusVote, LLMProvider } from '../types.js';
+import { calculateConsensus, parseVote } from './consensus.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-function makeVote(
-  overrides: Partial<ConsensusVote> = {},
-): ConsensusVote {
+function makeVote(overrides: Partial<ConsensusVote> = {}): ConsensusVote {
   return {
     provider: 'anthropic',
     model: 'claude-sonnet-4-20250514',
@@ -85,7 +83,7 @@ describe('parseVote', () => {
 
   it('defaults to 0.5 when confidence has negative sign (regex cannot capture it)', () => {
     const vote = call('DECISION: approve\nCONFIDENCE: -0.3\nREASONING: Maybe.');
-    // The regex [\d.]+ does not match the minus sign, so parseFloat gets "0.3" won't happen — 
+    // The regex [\d.]+ does not match the minus sign, so parseFloat gets "0.3" won't happen —
     // actually the minus makes the whole match fail, falling back to default 0.5
     expect(vote.confidence).toBe(0.5);
   });
@@ -103,8 +101,7 @@ describe('parseVote', () => {
   // ── Reasoning parsing ──
 
   it('extracts multi-line reasoning', () => {
-    const text =
-      'DECISION: approve\nCONFIDENCE: 0.8\nREASONING: Line one.\nLine two.\nLine three.';
+    const text = 'DECISION: approve\nCONFIDENCE: 0.8\nREASONING: Line one.\nLine two.\nLine three.';
     const vote = call(text);
     expect(vote.reasoning).toBe('Line one.\nLine two.\nLine three.');
   });
@@ -473,13 +470,13 @@ describe('calculateConsensus', () => {
     // This path: gap >= 30% BUT neither ratio >= 60%
     // approve = 0.55, reject = 0.1 → total = 0.65
     // ratio: approve = 84.6%, reject = 15.4%, gap = 69.2%
-    // That's above 60% so it returns PASSED... 
+    // That's above 60% so it returns PASSED...
     // Actually the no-consensus path at line 165 is only reached when:
     // gap >= 30% AND approveRatio < 60% AND rejectRatio < 60%
     // With only approve/reject that's impossible since one must be >= 50%
     // It CAN happen with very spread confidence values:
     // Actually no — if gap >= 30%, one ratio must be >= 65% (since they sum to 100%)
-    // which is >= 60%. So the final fallback at line 165 may be unreachable 
+    // which is >= 60%. So the final fallback at line 165 may be unreachable
     // with only approve+reject votes. It IS reachable with near-zero weights though:
     // This is effectively dead code for normal inputs. Skip testing it.
     // The NoCoverage mutants on line 165-167 are expected.

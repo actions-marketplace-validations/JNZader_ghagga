@@ -8,9 +8,9 @@
  * @see T7.7, S28–S35, S49
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { MemoryStats } from 'ghagga-core';
 import { Command } from 'commander';
+import type { MemoryStats } from 'ghagga-core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -105,11 +105,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-  exitSpy = vi
-    .spyOn(process, 'exit')
-    .mockImplementation(((code?: number) => {
-      throw new ProcessExitError(code);
-    }) as never);
+  exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+    throw new ProcessExitError(code);
+  }) as never);
   mockExistsSync.mockReturnValue(true);
   originalIsTTY = process.stdin.isTTY;
   process.stdin.isTTY = true;
@@ -191,9 +189,7 @@ describe('ghagga memory clear', () => {
 
     await runClearCommand();
 
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('--force'),
-    );
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('--force'));
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(mockClearObservations).not.toHaveBeenCalled();
   });
@@ -214,9 +210,7 @@ describe('ghagga memory clear', () => {
 
     await runClearCommand();
 
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('No memory database found'),
-    );
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('No memory database found'));
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 

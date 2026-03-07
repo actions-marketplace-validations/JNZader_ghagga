@@ -18,8 +18,8 @@
  */
 
 import { createAnthropic } from '@ai-sdk/anthropic';
-import { createOpenAI } from '@ai-sdk/openai';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { createOpenAI } from '@ai-sdk/openai';
 import type { LanguageModel } from 'ai';
 import type { LLMProvider } from '../types.js';
 
@@ -44,10 +44,7 @@ const QWEN_BASE_URL = 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1';
  * @param apiKey - Decrypted API key for the provider
  * @returns The provider's model creator function
  */
-export function createProvider(
-  provider: LLMProvider,
-  apiKey: string,
-) {
+export function createProvider(provider: LLMProvider, apiKey: string) {
   switch (provider) {
     case 'anthropic':
       return createAnthropic({ apiKey });
@@ -94,11 +91,7 @@ export function createProvider(
  * @param apiKey - Decrypted API key
  * @returns A LanguageModel ready for use with AI SDK's generateText/streamText
  */
-export function createModel(
-  provider: LLMProvider,
-  model: string,
-  apiKey: string,
-): LanguageModel {
+export function createModel(provider: LLMProvider, model: string, apiKey: string): LanguageModel {
   const providerInstance = createProvider(provider, apiKey);
   return providerInstance(model) as LanguageModel;
 }

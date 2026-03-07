@@ -5,7 +5,7 @@
  * expired session, and default provider/model fallback.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ─────────────────────────────────────────────────────
 
@@ -32,7 +32,7 @@ vi.mock('../ui/tui.js', () => ({
   },
 }));
 
-import { loadConfig, getConfigFilePath, isLoggedIn } from '../lib/config.js';
+import { getConfigFilePath, isLoggedIn, loadConfig } from '../lib/config.js';
 import { fetchGitHubUser } from '../lib/oauth.js';
 import * as tui from '../ui/tui.js';
 import { statusCommand } from './status.js';
@@ -62,12 +62,8 @@ describe('statusCommand', () => {
     expect(tui.log.message).toHaveBeenCalledWith(
       expect.stringContaining('/mock-home/.config/ghagga/config.json'),
     );
-    expect(tui.log.info).toHaveBeenCalledWith(
-      expect.stringContaining('Not logged in'),
-    );
-    expect(tui.log.info).toHaveBeenCalledWith(
-      expect.stringContaining('ghagga login'),
-    );
+    expect(tui.log.info).toHaveBeenCalledWith(expect.stringContaining('Not logged in'));
+    expect(tui.log.info).toHaveBeenCalledWith(expect.stringContaining('ghagga login'));
     expect(tui.outro).not.toHaveBeenCalled();
   });
 
@@ -87,18 +83,12 @@ describe('statusCommand', () => {
 
     await statusCommand();
 
-    expect(tui.log.message).toHaveBeenCalledWith(
-      expect.stringContaining('Logged in as validuser'),
-    );
-    expect(tui.log.message).toHaveBeenCalledWith(
-      expect.stringContaining('anthropic'),
-    );
+    expect(tui.log.message).toHaveBeenCalledWith(expect.stringContaining('Logged in as validuser'));
+    expect(tui.log.message).toHaveBeenCalledWith(expect.stringContaining('anthropic'));
     expect(tui.log.message).toHaveBeenCalledWith(
       expect.stringContaining('claude-sonnet-4-20250514'),
     );
-    expect(tui.log.success).toHaveBeenCalledWith(
-      expect.stringContaining('Valid (validuser)'),
-    );
+    expect(tui.log.success).toHaveBeenCalledWith(expect.stringContaining('Valid (validuser)'));
     expect(tui.outro).toHaveBeenCalledWith('Done');
   });
 
@@ -114,12 +104,8 @@ describe('statusCommand', () => {
 
     await statusCommand();
 
-    expect(tui.log.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Expired or invalid'),
-    );
-    expect(tui.log.info).toHaveBeenCalledWith(
-      expect.stringContaining('ghagga login'),
-    );
+    expect(tui.log.warn).toHaveBeenCalledWith(expect.stringContaining('Expired or invalid'));
+    expect(tui.log.info).toHaveBeenCalledWith(expect.stringContaining('ghagga login'));
     expect(tui.outro).not.toHaveBeenCalled();
   });
 
@@ -138,12 +124,8 @@ describe('statusCommand', () => {
     await statusCommand();
 
     // Uses nullish coalescing defaults
-    expect(tui.log.message).toHaveBeenCalledWith(
-      expect.stringContaining('github'),
-    );
-    expect(tui.log.message).toHaveBeenCalledWith(
-      expect.stringContaining('gpt-4o-mini'),
-    );
+    expect(tui.log.message).toHaveBeenCalledWith(expect.stringContaining('github'));
+    expect(tui.log.message).toHaveBeenCalledWith(expect.stringContaining('gpt-4o-mini'));
     expect(tui.outro).toHaveBeenCalledWith('Done');
   });
 });

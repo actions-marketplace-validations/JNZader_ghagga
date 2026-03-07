@@ -2,7 +2,7 @@
  * Status command — shows current authentication and configuration.
  */
 
-import { loadConfig, getConfigFilePath, isLoggedIn } from '../lib/config.js';
+import { getConfigFilePath, isLoggedIn, loadConfig } from '../lib/config.js';
 import { fetchGitHubUser } from '../lib/oauth.js';
 import * as tui from '../ui/tui.js';
 

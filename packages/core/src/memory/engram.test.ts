@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EngramObservation, EngramStats } from './engram-types.js';
 
 // ─── Mock the EngramClient ─────────────────────────────────────
@@ -158,9 +158,12 @@ describe('EngramMemoryStorage', () => {
       mockHealthCheck.mockResolvedValue(true);
       mockSearch.mockResolvedValue([]);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
-      await storage!.searchObservations('acme/widgets', 'auth', { limit: 5 });
+      await storage?.searchObservations('acme/widgets', 'auth', { limit: 5 });
 
       expect(mockSearch).toHaveBeenCalledWith('auth', 'acme/widgets', 5);
     });
@@ -176,8 +179,11 @@ describe('EngramMemoryStorage', () => {
         }),
       ]);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const results = await storage!.searchObservations('acme/widgets', 'auth');
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const results = await storage?.searchObservations('acme/widgets', 'auth');
 
       expect(results).toHaveLength(1);
       expect(results[0]).toEqual({
@@ -197,19 +203,25 @@ describe('EngramMemoryStorage', () => {
         makeEngramObservation({ id: 2, type: 'bugfix', title: 'Bugfix' }),
       ]);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const results = await storage!.searchObservations('acme/widgets', 'test', { type: 'bugfix' });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const results = await storage?.searchObservations('acme/widgets', 'test', { type: 'bugfix' });
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.type).toBe('bugfix');
+      expect(results[0]?.type).toBe('bugfix');
     });
 
     it('uses default limit of 10 when not specified', async () => {
       mockHealthCheck.mockResolvedValue(true);
       mockSearch.mockResolvedValue([]);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      await storage!.searchObservations('acme/widgets', 'query');
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      await storage?.searchObservations('acme/widgets', 'query');
 
       expect(mockSearch).toHaveBeenCalledWith('query', 'acme/widgets', 10);
     });
@@ -222,9 +234,12 @@ describe('EngramMemoryStorage', () => {
       mockHealthCheck.mockResolvedValue(true);
       mockSave.mockResolvedValue(makeEngramObservation({ id: 10 }));
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
-      await storage!.saveObservation({
+      await storage?.saveObservation({
         project: 'acme/widgets',
         type: 'pattern',
         title: 'Auth pattern',
@@ -254,8 +269,11 @@ describe('EngramMemoryStorage', () => {
         }),
       );
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const result = await storage!.saveObservation({
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const result = await storage?.saveObservation({
         project: 'acme/widgets',
         type: 'pattern',
         title: 'Auth',
@@ -272,8 +290,11 @@ describe('EngramMemoryStorage', () => {
       mockHealthCheck.mockResolvedValue(true);
       mockSave.mockResolvedValue(null);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const result = await storage!.saveObservation({
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const result = await storage?.saveObservation({
         project: 'acme/widgets',
         type: 'pattern',
         title: 'Failing save',
@@ -292,8 +313,11 @@ describe('EngramMemoryStorage', () => {
       mockHealthCheck.mockResolvedValue(true);
       mockSave.mockResolvedValue(null);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const result = await storage!.saveObservation({
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const result = await storage?.saveObservation({
         project: 'acme/widgets',
         type: 'discovery',
         title: 'SQL injection',
@@ -315,8 +339,11 @@ describe('EngramMemoryStorage', () => {
       mockHealthCheck.mockResolvedValue(true);
       mockCreateSession.mockResolvedValue(7);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const session = await storage!.createSession({ project: 'acme/widgets' });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const session = await storage?.createSession({ project: 'acme/widgets' });
 
       expect(session).toEqual({ id: 7 });
       expect(mockCreateSession).toHaveBeenCalledWith('acme/widgets');
@@ -326,8 +353,11 @@ describe('EngramMemoryStorage', () => {
       mockHealthCheck.mockResolvedValue(true);
       mockCreateSession.mockResolvedValue(null);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const session = await storage!.createSession({ project: 'acme/widgets' });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const session = await storage?.createSession({ project: 'acme/widgets' });
 
       expect(session).toEqual({ id: -1 });
     });
@@ -338,8 +368,11 @@ describe('EngramMemoryStorage', () => {
       mockHealthCheck.mockResolvedValue(true);
       mockEndSession.mockResolvedValue(undefined);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      await storage!.endSession(7, 'Review completed');
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      await storage?.endSession(7, 'Review completed');
 
       expect(mockEndSession).toHaveBeenCalledWith(7, 'Review completed');
     });
@@ -347,8 +380,11 @@ describe('EngramMemoryStorage', () => {
     it('skips call when sessionId is -1 (synthetic session)', async () => {
       mockHealthCheck.mockResolvedValue(true);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      await storage!.endSession(-1, 'Summary');
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      await storage?.endSession(-1, 'Summary');
 
       expect(mockEndSession).not.toHaveBeenCalled();
     });
@@ -361,8 +397,11 @@ describe('EngramMemoryStorage', () => {
       mockHealthCheck.mockResolvedValue(true);
       mockSearch.mockResolvedValue([]);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      await storage!.listObservations();
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      await storage?.listObservations();
 
       expect(mockSearch).toHaveBeenCalledWith('', undefined, 20);
     });
@@ -371,8 +410,11 @@ describe('EngramMemoryStorage', () => {
       mockHealthCheck.mockResolvedValue(true);
       mockSearch.mockResolvedValue([]);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      await storage!.listObservations({ project: 'acme/widgets', limit: 5 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      await storage?.listObservations({ project: 'acme/widgets', limit: 5 });
 
       expect(mockSearch).toHaveBeenCalledWith('', 'acme/widgets', 5);
     });
@@ -384,11 +426,14 @@ describe('EngramMemoryStorage', () => {
         makeEngramObservation({ id: 2, type: 'bugfix' }),
       ]);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const results = await storage!.listObservations({ type: 'bugfix' });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const results = await storage?.listObservations({ type: 'bugfix' });
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.type).toBe('bugfix');
+      expect(results[0]?.type).toBe('bugfix');
     });
 
     it('applies offset client-side', async () => {
@@ -399,11 +444,14 @@ describe('EngramMemoryStorage', () => {
         makeEngramObservation({ id: 3, title: 'Third' }),
       ]);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const results = await storage!.listObservations({ offset: 1 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const results = await storage?.listObservations({ offset: 1 });
 
       expect(results).toHaveLength(2);
-      expect(results[0]!.title).toBe('Second');
+      expect(results[0]?.title).toBe('Second');
     });
 
     it('returns MemoryObservationDetail shape', async () => {
@@ -422,20 +470,25 @@ describe('EngramMemoryStorage', () => {
         }),
       ]);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const results = await storage!.listObservations();
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const results = await storage?.listObservations();
 
-      expect(results[0]).toEqual(expect.objectContaining({
-        id: 1,
-        type: 'pattern',
-        title: 'Auth',
-        content: 'JWT info',
-        project: 'acme/widgets',
-        topicKey: 'auth-key',
-        revisionCount: 2,
-        createdAt: '2025-01-01T00:00:00Z',
-        updatedAt: '2025-01-02T00:00:00Z',
-      }));
+      expect(results[0]).toEqual(
+        expect.objectContaining({
+          id: 1,
+          type: 'pattern',
+          title: 'Auth',
+          content: 'JWT info',
+          project: 'acme/widgets',
+          topicKey: 'auth-key',
+          revisionCount: 2,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-02T00:00:00Z',
+        }),
+      );
     });
   });
 
@@ -445,21 +498,20 @@ describe('EngramMemoryStorage', () => {
     it('uses idMap to resolve IDs', async () => {
       mockHealthCheck.mockResolvedValue(true);
       // First, populate the idMap via searchObservations
-      mockSearch.mockResolvedValue([
-        makeEngramObservation({ id: 'engram-uuid-abc' }),
-      ]);
-      mockGetObservation.mockResolvedValue(
-        makeEngramObservation({ id: 'engram-uuid-abc' }),
-      );
+      mockSearch.mockResolvedValue([makeEngramObservation({ id: 'engram-uuid-abc' })]);
+      mockGetObservation.mockResolvedValue(makeEngramObservation({ id: 'engram-uuid-abc' }));
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
       // Search first to populate the idMap
-      const searchResults = await storage!.searchObservations('owner/repo', 'test');
-      const mappedId = searchResults[0]!.id;
+      const searchResults = await storage?.searchObservations('owner/repo', 'test');
+      const mappedId = searchResults[0]?.id;
 
       // Now getObservation should resolve the real ID
-      await storage!.getObservation(mappedId);
+      await storage?.getObservation(mappedId);
 
       expect(mockGetObservation).toHaveBeenCalledWith('engram-uuid-abc');
     });
@@ -467,9 +519,12 @@ describe('EngramMemoryStorage', () => {
     it('returns null for unknown IDs (not in idMap)', async () => {
       mockHealthCheck.mockResolvedValue(true);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
-      const result = await storage!.getObservation(999);
+      const result = await storage?.getObservation(999);
 
       expect(result).toBeNull();
       expect(mockGetObservation).not.toHaveBeenCalled();
@@ -480,10 +535,13 @@ describe('EngramMemoryStorage', () => {
       mockSearch.mockResolvedValue([makeEngramObservation({ id: 42 })]);
       mockGetObservation.mockResolvedValue(null);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
-      const searchResults = await storage!.searchObservations('owner/repo', 'test');
-      const result = await storage!.getObservation(searchResults[0]!.id);
+      const searchResults = await storage?.searchObservations('owner/repo', 'test');
+      const result = await storage?.getObservation(searchResults[0]?.id);
 
       expect(result).toBeNull();
     });
@@ -499,16 +557,19 @@ describe('EngramMemoryStorage', () => {
       mockSearch.mockResolvedValue([obs]);
       mockGetObservation.mockResolvedValue(obs);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
-      const searchResults = await storage!.searchObservations('owner/repo', 'test');
-      const detail = await storage!.getObservation(searchResults[0]!.id);
+      const searchResults = await storage?.searchObservations('owner/repo', 'test');
+      const detail = await storage?.getObservation(searchResults[0]?.id);
 
       expect(detail).not.toBeNull();
-      expect(detail!.type).toBe('bugfix');
-      expect(detail!.title).toBe('Fix it');
-      expect(detail!.content).toBe('Details');
-      expect(detail!.severity).toBe('high');
+      expect(detail?.type).toBe('bugfix');
+      expect(detail?.title).toBe('Fix it');
+      expect(detail?.content).toBe('Details');
+      expect(detail?.severity).toBe('high');
     });
   });
 
@@ -518,10 +579,13 @@ describe('EngramMemoryStorage', () => {
       mockSearch.mockResolvedValue([makeEngramObservation({ id: 42 })]);
       mockDeleteObservation.mockResolvedValue(true);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
-      const searchResults = await storage!.searchObservations('owner/repo', 'test');
-      await storage!.deleteObservation(searchResults[0]!.id);
+      const searchResults = await storage?.searchObservations('owner/repo', 'test');
+      await storage?.deleteObservation(searchResults[0]?.id);
 
       expect(mockDeleteObservation).toHaveBeenCalledWith(42);
     });
@@ -529,9 +593,12 @@ describe('EngramMemoryStorage', () => {
     it('returns false for unknown IDs (not in idMap)', async () => {
       mockHealthCheck.mockResolvedValue(true);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
-      const result = await storage!.deleteObservation(999);
+      const result = await storage?.deleteObservation(999);
 
       expect(result).toBe(false);
       expect(mockDeleteObservation).not.toHaveBeenCalled();
@@ -542,16 +609,19 @@ describe('EngramMemoryStorage', () => {
       mockSearch.mockResolvedValue([makeEngramObservation({ id: 42 })]);
       mockDeleteObservation.mockResolvedValue(true);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
-      const searchResults = await storage!.searchObservations('owner/repo', 'test');
-      const mappedId = searchResults[0]!.id;
+      const searchResults = await storage?.searchObservations('owner/repo', 'test');
+      const mappedId = searchResults[0]?.id;
 
-      const result = await storage!.deleteObservation(mappedId);
+      const result = await storage?.deleteObservation(mappedId);
       expect(result).toBe(true);
 
       // After deletion, the ID should no longer be in the map
-      const result2 = await storage!.deleteObservation(mappedId);
+      const result2 = await storage?.deleteObservation(mappedId);
       expect(result2).toBe(false);
     });
 
@@ -560,10 +630,13 @@ describe('EngramMemoryStorage', () => {
       mockSearch.mockResolvedValue([makeEngramObservation({ id: 42 })]);
       mockDeleteObservation.mockResolvedValue(false);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
-      const searchResults = await storage!.searchObservations('owner/repo', 'test');
-      const result = await storage!.deleteObservation(searchResults[0]!.id);
+      const searchResults = await storage?.searchObservations('owner/repo', 'test');
+      const result = await storage?.deleteObservation(searchResults[0]?.id);
 
       expect(result).toBe(false);
     });
@@ -580,8 +653,11 @@ describe('EngramMemoryStorage', () => {
         projects: ['acme/widgets', 'acme/gadgets'],
       });
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const stats = await storage!.getStats();
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const stats = await storage?.getStats();
 
       expect(stats).toEqual({
         totalObservations: 100,
@@ -599,8 +675,11 @@ describe('EngramMemoryStorage', () => {
       mockHealthCheck.mockResolvedValue(true);
       mockGetStats.mockResolvedValue(null);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const stats = await storage!.getStats();
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const stats = await storage?.getStats();
 
       expect(stats).toEqual({
         totalObservations: 0,
@@ -618,8 +697,11 @@ describe('EngramMemoryStorage', () => {
         total_sessions: 2,
       });
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const stats = await storage!.getStats();
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const stats = await storage?.getStats();
 
       expect(stats.totalObservations).toBe(50);
       expect(stats.byProject).toEqual({});
@@ -632,8 +714,11 @@ describe('EngramMemoryStorage', () => {
     it('returns 0 (not supported)', async () => {
       mockHealthCheck.mockResolvedValue(true);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const result = await storage!.clearObservations();
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const result = await storage?.clearObservations();
 
       expect(result).toBe(0);
     });
@@ -641,8 +726,11 @@ describe('EngramMemoryStorage', () => {
     it('logs warning about unsupported operation', async () => {
       mockHealthCheck.mockResolvedValue(true);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      await storage!.clearObservations();
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      await storage?.clearObservations();
 
       expect(warnSpy).toHaveBeenCalledWith(
         expect.stringContaining('clearObservations is not supported'),
@@ -652,8 +740,11 @@ describe('EngramMemoryStorage', () => {
     it('returns 0 even with project option', async () => {
       mockHealthCheck.mockResolvedValue(true);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const result = await storage!.clearObservations({ project: 'acme/widgets' });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const result = await storage?.clearObservations({ project: 'acme/widgets' });
 
       expect(result).toBe(0);
     });
@@ -665,9 +756,12 @@ describe('EngramMemoryStorage', () => {
     it('is a no-op (does not throw)', async () => {
       mockHealthCheck.mockResolvedValue(true);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
-      await expect(storage!.close()).resolves.toBeUndefined();
+      await expect(storage?.close()).resolves.toBeUndefined();
     });
   });
 
@@ -681,10 +775,13 @@ describe('EngramMemoryStorage', () => {
         makeEngramObservation({ id: 'original-engram-id', content: 'A\n---\nSource: ghagga' }),
       ]);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
-      const firstResults = await storage!.searchObservations('owner/repo', 'first');
-      const mappedId = firstResults[0]!.id;
+      const firstResults = await storage?.searchObservations('owner/repo', 'first');
+      const mappedId = firstResults[0]?.id;
 
       // Second search returns an obs that would hash to the same numeric ID
       // (same engram ID string), but with a different engram ID — the map should keep the first one
@@ -692,14 +789,12 @@ describe('EngramMemoryStorage', () => {
         makeEngramObservation({ id: 'original-engram-id', content: 'B\n---\nSource: ghagga' }),
       ]);
 
-      await storage!.searchObservations('owner/repo', 'second');
+      await storage?.searchObservations('owner/repo', 'second');
 
       // getObservation should use the original engram ID (the first one tracked)
-      mockGetObservation.mockResolvedValue(
-        makeEngramObservation({ id: 'original-engram-id' }),
-      );
+      mockGetObservation.mockResolvedValue(makeEngramObservation({ id: 'original-engram-id' }));
 
-      await storage!.getObservation(mappedId);
+      await storage?.getObservation(mappedId);
 
       expect(mockGetObservation).toHaveBeenCalledWith('original-engram-id');
     });
@@ -715,9 +810,12 @@ describe('EngramMemoryStorage', () => {
       mockSave.mockResolvedValue(savedObs);
       mockGetObservation.mockResolvedValue(savedObs);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
-      const result = await storage!.saveObservation({
+      const result = await storage?.saveObservation({
         project: 'acme/widgets',
         type: 'pattern',
         title: 'Saved',
@@ -725,7 +823,7 @@ describe('EngramMemoryStorage', () => {
       });
 
       // Now getObservation should be able to resolve the saved ID
-      await storage!.getObservation(result.id);
+      await storage?.getObservation(result.id);
 
       expect(mockGetObservation).toHaveBeenCalledWith('saved-uuid');
     });
@@ -739,10 +837,13 @@ describe('EngramMemoryStorage', () => {
       mockSearch.mockResolvedValue([obs]);
       mockGetObservation.mockResolvedValue(obs);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
-      const listed = await storage!.listObservations();
-      await storage!.getObservation(listed[0]!.id);
+      const listed = await storage?.listObservations();
+      await storage?.getObservation(listed[0]?.id);
 
       expect(mockGetObservation).toHaveBeenCalledWith('listed-uuid');
     });
@@ -754,12 +855,15 @@ describe('EngramMemoryStorage', () => {
     it('clearObservations warns with exact unsupported message', async () => {
       mockHealthCheck.mockResolvedValue(true);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      await storage!.clearObservations();
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      await storage?.clearObservations();
 
       expect(warnSpy).toHaveBeenCalledWith(
         '[ghagga:engram] clearObservations is not supported with the Engram backend. ' +
-        'Use the "engram" CLI directly for bulk deletion.',
+          'Use the "engram" CLI directly for bulk deletion.',
       );
     });
 
@@ -767,8 +871,11 @@ describe('EngramMemoryStorage', () => {
       mockHealthCheck.mockResolvedValue(true);
       mockSave.mockResolvedValue(null);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      await storage!.saveObservation({
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      await storage?.saveObservation({
         project: 'acme/widgets',
         type: 'pattern',
         title: 'Title',
@@ -784,8 +891,11 @@ describe('EngramMemoryStorage', () => {
       mockHealthCheck.mockResolvedValue(true);
       mockCreateSession.mockResolvedValue(null);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      await storage!.createSession({ project: 'acme/widgets' });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      await storage?.createSession({ project: 'acme/widgets' });
 
       expect(warnSpy).toHaveBeenCalledWith(
         '[ghagga:engram] createSession failed, returning synthetic id',
@@ -795,12 +905,15 @@ describe('EngramMemoryStorage', () => {
     it('getObservation warns with exact message when ID not in map', async () => {
       mockHealthCheck.mockResolvedValue(true);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      await storage!.getObservation(12345);
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      await storage?.getObservation(12345);
 
       expect(warnSpy).toHaveBeenCalledWith(
         '[ghagga:engram] getObservation: ID %d not found in local map. ' +
-        'Run searchObservations or listObservations first.',
+          'Run searchObservations or listObservations first.',
         12345,
       );
     });
@@ -808,8 +921,11 @@ describe('EngramMemoryStorage', () => {
     it('deleteObservation warns with exact message when ID not in map', async () => {
       mockHealthCheck.mockResolvedValue(true);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      await storage!.deleteObservation(12345);
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      await storage?.deleteObservation(12345);
 
       expect(warnSpy).toHaveBeenCalledWith(
         '[ghagga:engram] deleteObservation: ID %d not found in local map.',
@@ -824,8 +940,11 @@ describe('EngramMemoryStorage', () => {
     it('does not call client.endSession when sessionId is -1', async () => {
       mockHealthCheck.mockResolvedValue(true);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      await storage!.endSession(-1, 'Some summary');
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      await storage?.endSession(-1, 'Some summary');
 
       expect(mockEndSession).not.toHaveBeenCalled();
     });
@@ -834,8 +953,11 @@ describe('EngramMemoryStorage', () => {
       mockHealthCheck.mockResolvedValue(true);
       mockEndSession.mockResolvedValue(undefined);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      await storage!.endSession(0, 'Some summary');
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      await storage?.endSession(0, 'Some summary');
 
       expect(mockEndSession).toHaveBeenCalledWith(0, 'Some summary');
     });
@@ -844,8 +966,11 @@ describe('EngramMemoryStorage', () => {
       mockHealthCheck.mockResolvedValue(true);
       mockEndSession.mockResolvedValue(undefined);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      await storage!.endSession(1, 'Another summary');
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      await storage?.endSession(1, 'Another summary');
 
       expect(mockEndSession).toHaveBeenCalledWith(1, 'Another summary');
     });
@@ -860,17 +985,20 @@ describe('EngramMemoryStorage', () => {
       mockDeleteObservation.mockResolvedValue(false);
       mockGetObservation.mockResolvedValue(makeEngramObservation({ id: 42 }));
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
 
-      const searchResults = await storage!.searchObservations('owner/repo', 'test');
-      const mappedId = searchResults[0]!.id;
+      const searchResults = await storage?.searchObservations('owner/repo', 'test');
+      const mappedId = searchResults[0]?.id;
 
       // Delete fails
-      const deleted = await storage!.deleteObservation(mappedId);
+      const deleted = await storage?.deleteObservation(mappedId);
       expect(deleted).toBe(false);
 
       // ID should still be in the map — getObservation should still work
-      const obs = await storage!.getObservation(mappedId);
+      const obs = await storage?.getObservation(mappedId);
       expect(obs).not.toBeNull();
       expect(mockGetObservation).toHaveBeenCalledWith(42);
     });
@@ -886,8 +1014,11 @@ describe('EngramMemoryStorage', () => {
         makeEngramObservation({ id: 2, title: 'Second' }),
       ]);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const results = await storage!.listObservations({ offset: 0 });
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const results = await storage?.listObservations({ offset: 0 });
 
       expect(results).toHaveLength(2);
     });
@@ -899,8 +1030,11 @@ describe('EngramMemoryStorage', () => {
         makeEngramObservation({ id: 2, title: 'Second' }),
       ]);
 
-      const storage = await EngramMemoryStorage.create({ host: 'http://localhost:7437', timeout: 5000 });
-      const results = await storage!.listObservations({});
+      const storage = await EngramMemoryStorage.create({
+        host: 'http://localhost:7437',
+        timeout: 5000,
+      });
+      const results = await storage?.listObservations({});
 
       expect(results).toHaveLength(2);
     });

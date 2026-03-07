@@ -8,8 +8,8 @@
  * needing a running Inngest server.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { ReviewResult, StaticAnalysisResult } from 'ghagga-core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -352,12 +352,12 @@ describe('inngest/review — dispatch-runner step', () => {
     // waitForEvent called with correct event name and match
     const waitCalls = calls.filter((c) => c.type === 'waitForEvent');
     expect(waitCalls).toHaveLength(1);
-    expect(waitCalls[0]!.name).toBe('wait-for-runner');
-    expect(waitCalls[0]!.args).toMatchObject({
+    expect(waitCalls[0]?.name).toBe('wait-for-runner');
+    expect(waitCalls[0]?.args).toMatchObject({
       event: 'ghagga/runner.completed',
       timeout: '10m',
     });
-    expect(waitCalls[0]!.args.if).toContain('async.data.callbackId');
+    expect(waitCalls[0]?.args.if).toContain('async.data.callbackId');
 
     // reviewPipeline should have received the precomputed static analysis
     expect(mockReviewPipeline).toHaveBeenCalledWith(
@@ -382,10 +382,7 @@ describe('inngest/review — dispatch-runner step', () => {
     });
 
     // waitForEvent returns null (simulating 10m timeout)
-    const { step } = createMockStep(
-      {},
-      { 'wait-for-runner': null },
-    );
+    const { step } = createMockStep({}, { 'wait-for-runner': null });
 
     await mod.reviewFunction.fn({
       event: { data: eventData } as any,
@@ -680,9 +677,9 @@ describe('inngest/review — full step orchestration', () => {
     } as any);
 
     expect(mockPostComment).toHaveBeenCalledWith(
-      'acme',          // owner
-      'widgets',       // repo
-      42,              // prNumber
+      'acme', // owner
+      'widgets', // repo
+      42, // prNumber
       expect.stringContaining('GHAGGA Code Review'),
       'ghs_test-token',
     );
@@ -859,9 +856,7 @@ describe('inngest/review — provider chain / API key handling', () => {
       llmProvider: 'anthropic',
       llmModel: 'claude-sonnet-4-20250514',
       encryptedApiKey: null,
-      providerChain: [
-        { provider: 'github', model: 'gpt-4o', encryptedApiKey: null },
-      ],
+      providerChain: [{ provider: 'github', model: 'gpt-4o', encryptedApiKey: null }],
     });
 
     const { step } = createMockStep();
@@ -991,7 +986,9 @@ describe('inngest/review — error handling', () => {
 
     // First call (in run-review) throws, second call (in save-review) succeeds
     mockCreateDatabaseFromEnv
-      .mockImplementationOnce(() => { throw new Error('DB connection failed'); })
+      .mockImplementationOnce(() => {
+        throw new Error('DB connection failed');
+      })
       .mockReturnValueOnce({ db: 'ok' });
 
     const eventData = makeEventData();
@@ -1076,7 +1073,7 @@ describe('inngest/review — formatReviewComment (via post-comment)', () => {
       step: step as any,
     } as any);
 
-    const postedComment = mockPostComment.mock.calls[0]![3] as string;
+    const postedComment = mockPostComment.mock.calls[0]?.[3] as string;
 
     // Verify status line
     expect(postedComment).toContain('FAILED');
@@ -1125,7 +1122,7 @@ describe('inngest/review — formatReviewComment (via post-comment)', () => {
       step: step as any,
     } as any);
 
-    const postedComment = mockPostComment.mock.calls[0]![3] as string;
+    const postedComment = mockPostComment.mock.calls[0]?.[3] as string;
 
     expect(postedComment).toContain('PASSED');
     expect(postedComment).toContain('Clean code!');

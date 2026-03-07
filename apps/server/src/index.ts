@@ -7,24 +7,22 @@
 
 import 'dotenv/config';
 
+import { serve } from '@hono/node-server';
+import { createDatabaseFromEnv } from 'ghagga-db';
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
-import { bodyLimit } from 'hono/body-limit';
-import { serve } from '@hono/node-server';
-import { serve as serveInngest } from 'inngest/hono';
 import { rateLimiter } from 'hono-rate-limiter';
-
-import { createDatabaseFromEnv } from 'ghagga-db';
-
-import { logger } from './lib/logger.js';
+import { serve as serveInngest } from 'inngest/hono';
 import { inngest } from './inngest/client.js';
 import { reviewFunction } from './inngest/review.js';
-import { createWebhookRouter } from './routes/webhook.js';
-import { createOAuthRouter } from './routes/oauth.js';
-import { createApiRouter } from './routes/api.js';
-import { createRunnerCallbackRouter } from './routes/runner-callback.js';
+import { logger } from './lib/logger.js';
 import { authMiddleware } from './middleware/auth.js';
+import { createApiRouter } from './routes/api.js';
+import { createOAuthRouter } from './routes/oauth.js';
+import { createRunnerCallbackRouter } from './routes/runner-callback.js';
+import { createWebhookRouter } from './routes/webhook.js';
 
 // ─── Database ───────────────────────────────────────────────────
 
@@ -74,15 +72,18 @@ app.use('*', async (c, next) => {
 });
 
 // ── Security headers ────────────────────────────────────────────
-app.use('*', secureHeaders({
-  xFrameOptions: 'DENY',
-  xContentTypeOptions: 'nosniff',
-  strictTransportSecurity: 'max-age=31536000; includeSubDomains',
-  referrerPolicy: 'strict-origin-when-cross-origin',
-  contentSecurityPolicy: {
-    defaultSrc: ["'self'"],
-  },
-}));
+app.use(
+  '*',
+  secureHeaders({
+    xFrameOptions: 'DENY',
+    xContentTypeOptions: 'nosniff',
+    strictTransportSecurity: 'max-age=31536000; includeSubDomains',
+    referrerPolicy: 'strict-origin-when-cross-origin',
+    contentSecurityPolicy: {
+      defaultSrc: ["'self'"],
+    },
+  }),
+);
 
 // ── Body size limits ────────────────────────────────────────────
 // Webhook gets 5MB (GitHub payloads can be large); everything else gets 1MB.
@@ -98,25 +99,25 @@ app.use('*', async (c, next) => {
 function getAllowedOrigins(): string[] {
   const envOrigins = process.env.ALLOWED_ORIGINS;
   if (envOrigins) {
-    return envOrigins.split(',').map(o => o.trim());
+    return envOrigins.split(',').map((o) => o.trim());
   }
-  const defaults = [
-    'https://jnzader.github.io',
-    'https://ghagga.onrender.com',
-  ];
+  const defaults = ['https://jnzader.github.io', 'https://ghagga.onrender.com'];
   if (process.env.NODE_ENV !== 'production') {
     defaults.push('http://localhost:3000', 'http://localhost:5173');
   }
   return defaults;
 }
 
-app.use('*', cors({
-  origin: (origin) => {
-    const allowed = getAllowedOrigins();
-    return allowed.includes(origin) ? origin : '';
-  },
-  credentials: true,
-}));
+app.use(
+  '*',
+  cors({
+    origin: (origin) => {
+      const allowed = getAllowedOrigins();
+      return allowed.includes(origin) ? origin : '';
+    },
+    credentials: true,
+  }),
+);
 
 // ── Rate limiting ───────────────────────────────────────────────
 const apiLimiter = rateLimiter({
@@ -187,26 +188,23 @@ app.route('/', apiRouter);
 
 const port = parseInt(process.env.PORT ?? '3000', 10);
 
-serve(
-  { fetch: app.fetch, port },
-  (info) => {
-    logger.info({ port: info.port }, `Server running on http://localhost:${info.port}`);
+serve({ fetch: app.fetch, port }, (info) => {
+  logger.info({ port: info.port }, `Server running on http://localhost:${info.port}`);
 
-    // Keepalive: self-ping every 5 minutes to prevent Render free tier cold starts.
-    // Render spins down after 15 min of inactivity — webhooks would fail on cold start.
-    if (process.env.NODE_ENV === 'production' && process.env.RENDER_EXTERNAL_URL) {
-      const url = `${process.env.RENDER_EXTERNAL_URL}/health`;
-      const FIVE_MINUTES = 5 * 60 * 1000;
+  // Keepalive: self-ping every 5 minutes to prevent Render free tier cold starts.
+  // Render spins down after 15 min of inactivity — webhooks would fail on cold start.
+  if (process.env.NODE_ENV === 'production' && process.env.RENDER_EXTERNAL_URL) {
+    const url = `${process.env.RENDER_EXTERNAL_URL}/health`;
+    const FIVE_MINUTES = 5 * 60 * 1000;
 
-      setInterval(async () => {
-        try {
-          await fetch(url);
-        } catch {
-          // Silently ignore — if we can't reach ourselves, something else is wrong
-        }
-      }, FIVE_MINUTES);
+    setInterval(async () => {
+      try {
+        await fetch(url);
+      } catch {
+        // Silently ignore — if we can't reach ourselves, something else is wrong
+      }
+    }, FIVE_MINUTES);
 
-      logger.info({ url, intervalMs: FIVE_MINUTES }, 'Keepalive enabled');
-    }
-  },
-);
+    logger.info({ url, intervalMs: FIVE_MINUTES }, 'Keepalive enabled');
+  }
+});

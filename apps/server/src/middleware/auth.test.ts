@@ -5,8 +5,8 @@
  * and auto-discovery of installations on first login.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { authMiddleware } from './auth.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
@@ -19,7 +19,8 @@ const mockDeleteStaleUserMappings = vi.fn();
 
 vi.mock('ghagga-db', () => ({
   getInstallationsByUserId: (...args: unknown[]) => mockGetInstallationsByUserId(...args),
-  getInstallationsByAccountLogin: (...args: unknown[]) => mockGetInstallationsByAccountLogin(...args),
+  getInstallationsByAccountLogin: (...args: unknown[]) =>
+    mockGetInstallationsByAccountLogin(...args),
   upsertUserMapping: (...args: unknown[]) => mockUpsertUserMapping(...args),
   getRawMappingsByUserId: (...args: unknown[]) => mockGetRawMappingsByUserId(...args),
   deleteStaleUserMappings: (...args: unknown[]) => mockDeleteStaleUserMappings(...args),
@@ -52,10 +53,10 @@ function createApp() {
   return app;
 }
 
-function makeAuthRequest(token?: string) {
+function _makeAuthRequest(token?: string) {
   const headers: Record<string, string> = {};
   if (token !== undefined) {
-    headers['Authorization'] = `Bearer ${token}`;
+    headers.Authorization = `Bearer ${token}`;
   }
   return new Request('http://localhost/test', { headers });
 }
@@ -144,9 +145,7 @@ describe('auth middleware — GitHub API verification', () => {
     mockGetRawMappingsByUserId.mockResolvedValueOnce([
       { id: 1, githubUserId: 1, githubLogin: 'testuser', installationId: 100 },
     ]);
-    mockGetInstallationsByUserId.mockResolvedValueOnce([
-      { id: 100, accountLogin: 'testuser' },
-    ]);
+    mockGetInstallationsByUserId.mockResolvedValueOnce([{ id: 100, accountLogin: 'testuser' }]);
 
     const app = createApp();
     await app.request('/test', {
@@ -342,9 +341,7 @@ describe('auth middleware — stale mapping cleanup', () => {
       { id: 10, githubUserId: 42, githubLogin: 'octocat', installationId: 5 },
     ]);
     // Active installations → installation 5 is active
-    mockGetInstallationsByUserId.mockResolvedValueOnce([
-      { id: 5, accountLogin: 'octocat' },
-    ]);
+    mockGetInstallationsByUserId.mockResolvedValueOnce([{ id: 5, accountLogin: 'octocat' }]);
 
     const app = createApp();
     const res = await app.request('/test', {
@@ -371,9 +368,7 @@ describe('auth middleware — stale mapping cleanup', () => {
     // Cleanup stale mapping
     mockDeleteStaleUserMappings.mockResolvedValueOnce(undefined);
     // Re-discovery finds a new installation
-    mockGetInstallationsByAccountLogin.mockResolvedValueOnce([
-      { id: 10, accountLogin: 'octocat' },
-    ]);
+    mockGetInstallationsByAccountLogin.mockResolvedValueOnce([{ id: 10, accountLogin: 'octocat' }]);
     mockUpsertUserMapping.mockResolvedValue({});
 
     const app = createApp();
@@ -429,9 +424,7 @@ describe('auth middleware — stale mapping cleanup', () => {
       { id: 11, githubUserId: 42, githubLogin: 'octocat', installationId: 7 },
     ]);
     // Active installations → only 5 is active (7 is inactive)
-    mockGetInstallationsByUserId.mockResolvedValueOnce([
-      { id: 5, accountLogin: 'octocat' },
-    ]);
+    mockGetInstallationsByUserId.mockResolvedValueOnce([{ id: 5, accountLogin: 'octocat' }]);
     mockDeleteStaleUserMappings.mockResolvedValueOnce(undefined);
 
     const app = createApp();
@@ -459,9 +452,7 @@ describe('auth middleware — stale mapping cleanup', () => {
     mockGetInstallationsByUserId.mockResolvedValueOnce([]);
     mockDeleteStaleUserMappings.mockResolvedValueOnce(undefined);
     // Discovery finds new installation
-    mockGetInstallationsByAccountLogin.mockResolvedValueOnce([
-      { id: 10, accountLogin: 'johndoe' },
-    ]);
+    mockGetInstallationsByAccountLogin.mockResolvedValueOnce([{ id: 10, accountLogin: 'johndoe' }]);
     mockUpsertUserMapping.mockResolvedValue({});
 
     const app = createApp();
@@ -511,9 +502,7 @@ describe('auth middleware — stale mapping cleanup', () => {
       { id: 10, githubUserId: 42, githubLogin: 'octocat', installationId: 5 },
       { id: 11, githubUserId: 42, githubLogin: 'octocat', installationId: 7 },
     ]);
-    mockGetInstallationsByUserId.mockResolvedValueOnce([
-      { id: 5, accountLogin: 'octocat' },
-    ]);
+    mockGetInstallationsByUserId.mockResolvedValueOnce([{ id: 5, accountLogin: 'octocat' }]);
     mockDeleteStaleUserMappings.mockResolvedValueOnce(undefined);
 
     const app = createApp();
@@ -541,9 +530,7 @@ describe('auth middleware — backward compatibility', () => {
     mockGetRawMappingsByUserId.mockResolvedValueOnce([
       { id: 1, githubUserId: 42, githubLogin: 'patuser', installationId: 100 },
     ]);
-    mockGetInstallationsByUserId.mockResolvedValueOnce([
-      { id: 100, accountLogin: 'patuser' },
-    ]);
+    mockGetInstallationsByUserId.mockResolvedValueOnce([{ id: 100, accountLogin: 'patuser' }]);
 
     const app = createApp();
     const res = await app.request('/test', {
@@ -568,9 +555,7 @@ describe('auth middleware — backward compatibility', () => {
     mockGetRawMappingsByUserId.mockResolvedValueOnce([
       { id: 5, githubUserId: 77, githubLogin: 'webflowuser', installationId: 200 },
     ]);
-    mockGetInstallationsByUserId.mockResolvedValueOnce([
-      { id: 200, accountLogin: 'webflowuser' },
-    ]);
+    mockGetInstallationsByUserId.mockResolvedValueOnce([{ id: 200, accountLogin: 'webflowuser' }]);
 
     const app = createApp();
     const res = await app.request('/test', {

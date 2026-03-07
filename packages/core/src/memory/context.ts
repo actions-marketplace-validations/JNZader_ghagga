@@ -25,9 +25,7 @@ export interface ObservationForContext {
  * @param observations - Array of observation objects with type, title, and content
  * @returns Formatted string for prompt injection, or empty string if no observations
  */
-export function formatMemoryContext(
-  observations: ObservationForContext[],
-): string {
+export function formatMemoryContext(observations: ObservationForContext[]): string {
   if (observations.length === 0) return '';
 
   const lines: string[] = [

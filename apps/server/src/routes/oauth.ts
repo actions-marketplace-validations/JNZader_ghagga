@@ -16,11 +16,14 @@
  * the user is authenticated.
  */
 
-import { Hono } from 'hono';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { Hono } from 'hono';
+import { logger as rootLogger } from '../lib/logger.js';
 
-/** GHAGGA OAuth App Client ID (public) */
-const GITHUB_CLIENT_ID = 'Ov23liyYpSgDqOLUFa5k';
+const logger = rootLogger.child({ module: 'oauth' });
+
+/** GHAGGA OAuth App Client ID (public, overridable via env) */
+const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID ?? 'Ov23liyYpSgDqOLUFa5k';
 
 /** Dashboard URL for redirects after OAuth callback */
 const DASHBOARD_URL = 'https://jnzader.github.io/ghagga/app';
@@ -44,10 +47,7 @@ export function generateState(secret: string): string {
  * Validate a state parameter: check format, HMAC signature, and expiration.
  * Uses timingSafeEqual to prevent timing attacks.
  */
-export function validateState(
-  state: string,
-  secret: string,
-): { valid: boolean; error?: string } {
+export function validateState(state: string, secret: string): { valid: boolean; error?: string } {
   const parts = state.split('.');
   if (parts.length !== 2) {
     return { valid: false, error: 'invalid_state' };
@@ -99,10 +99,7 @@ export function createOAuthRouter() {
 
       if (!response.ok) {
         const text = await response.text();
-        return c.json(
-          { error: 'github_error', message: text },
-          response.status as 400 | 500,
-        );
+        return c.json({ error: 'github_error', message: text }, response.status as 400 | 500);
       }
 
       const data = await response.json();
@@ -143,10 +140,7 @@ export function createOAuthRouter() {
 
       if (!response.ok) {
         const text = await response.text();
-        return c.json(
-          { error: 'github_error', message: text },
-          response.status as 400 | 500,
-        );
+        return c.json({ error: 'github_error', message: text }, response.status as 400 | 500);
       }
 
       const data = await response.json();
@@ -204,21 +198,18 @@ export function createOAuthRouter() {
     // Validate state HMAC + expiration
     const STATE_SECRET = process.env.STATE_SECRET;
     if (!STATE_SECRET) {
-      console.error('STATE_SECRET is not configured');
+      logger.error('STATE_SECRET is not configured');
       return c.redirect(`${DASHBOARD_URL}/#/auth/callback?error=server_error`, 302);
     }
     const stateResult = validateState(state, STATE_SECRET);
     if (!stateResult.valid) {
-      return c.redirect(
-        `${DASHBOARD_URL}/#/auth/callback?error=${stateResult.error}`,
-        302,
-      );
+      return c.redirect(`${DASHBOARD_URL}/#/auth/callback?error=${stateResult.error}`, 302);
     }
 
     // Check CLIENT_SECRET
     const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET;
     if (!GITHUB_CLIENT_SECRET) {
-      console.error('GITHUB_CLIENT_SECRET is not configured');
+      logger.error('GITHUB_CLIENT_SECRET is not configured');
       return c.redirect(`${DASHBOARD_URL}/#/auth/callback?error=server_error`, 302);
     }
 
@@ -253,10 +244,7 @@ export function createOAuthRouter() {
     }
 
     // Success — redirect to Dashboard with token in fragment
-    return c.redirect(
-      `${DASHBOARD_URL}/#/auth/callback?token=${data.access_token}`,
-      302,
-    );
+    return c.redirect(`${DASHBOARD_URL}/#/auth/callback?token=${data.access_token}`, 302);
   });
 
   return router;

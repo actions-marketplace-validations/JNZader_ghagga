@@ -6,11 +6,7 @@
  */
 
 import { loadConfig, saveConfig } from '../lib/config.js';
-import {
-  requestDeviceCode,
-  pollForAccessToken,
-  fetchGitHubUser,
-} from '../lib/oauth.js';
+import { fetchGitHubUser, pollForAccessToken, requestDeviceCode } from '../lib/oauth.js';
 import * as tui from '../ui/tui.js';
 
 /**

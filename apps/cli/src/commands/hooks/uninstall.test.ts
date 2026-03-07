@@ -7,8 +7,8 @@
  * @see Phase 4, Test 5
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Command } from 'commander';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -33,8 +33,8 @@ vi.mock('../../ui/tui.js', () => ({
   },
 }));
 
-import { registerUninstallCommand } from './uninstall.js';
 import * as tui from '../../ui/tui.js';
+import { registerUninstallCommand } from './uninstall.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -61,11 +61,9 @@ let exitSpy: any;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  exitSpy = vi
-    .spyOn(process, 'exit')
-    .mockImplementation(((code?: number) => {
-      throw new ProcessExitError(code);
-    }) as never);
+  exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+    throw new ProcessExitError(code);
+  }) as never);
 
   mockIsGitRepo.mockReturnValue(true);
   mockGetHooksDir.mockReturnValue('/repo/.git/hooks');
@@ -80,8 +78,16 @@ afterEach(() => {
 describe('ghagga hooks uninstall', () => {
   it('calls uninstallHook for both pre-commit and commit-msg', async () => {
     mockUninstallHook
-      .mockReturnValueOnce({ type: 'pre-commit', success: true, message: 'Removed pre-commit hook' })
-      .mockReturnValueOnce({ type: 'commit-msg', success: true, message: 'Removed commit-msg hook' });
+      .mockReturnValueOnce({
+        type: 'pre-commit',
+        success: true,
+        message: 'Removed pre-commit hook',
+      })
+      .mockReturnValueOnce({
+        type: 'commit-msg',
+        success: true,
+        message: 'Removed commit-msg hook',
+      });
 
     await runUninstallCommand();
 
@@ -96,24 +102,28 @@ describe('ghagga hooks uninstall', () => {
     await runUninstallCommand();
 
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(tui.log.error).toHaveBeenCalledWith(
-      expect.stringContaining('Not a git repository'),
-    );
+    expect(tui.log.error).toHaveBeenCalledWith(expect.stringContaining('Not a git repository'));
     expect(mockUninstallHook).not.toHaveBeenCalled();
   });
 
   it('shows success messages for removed hooks', async () => {
     mockUninstallHook
-      .mockReturnValueOnce({ type: 'pre-commit', success: true, message: 'Removed pre-commit hook' })
-      .mockReturnValueOnce({ type: 'commit-msg', success: true, message: 'Removed commit-msg hook' });
+      .mockReturnValueOnce({
+        type: 'pre-commit',
+        success: true,
+        message: 'Removed pre-commit hook',
+      })
+      .mockReturnValueOnce({
+        type: 'commit-msg',
+        success: true,
+        message: 'Removed commit-msg hook',
+      });
 
     await runUninstallCommand();
 
     expect(tui.log.success).toHaveBeenCalledWith('Removed pre-commit hook');
     expect(tui.log.success).toHaveBeenCalledWith('Removed commit-msg hook');
-    expect(tui.log.info).toHaveBeenCalledWith(
-      expect.stringContaining('Removed 2 GHAGGA hook(s)'),
-    );
+    expect(tui.log.info).toHaveBeenCalledWith(expect.stringContaining('Removed 2 GHAGGA hook(s)'));
   });
 
   it('shows warn for skipped external hooks', async () => {
@@ -125,9 +135,7 @@ describe('ghagga hooks uninstall', () => {
 
     await runUninstallCommand();
 
-    expect(tui.log.warn).toHaveBeenCalledWith(
-      expect.stringContaining('not managed by GHAGGA'),
-    );
+    expect(tui.log.warn).toHaveBeenCalledWith(expect.stringContaining('not managed by GHAGGA'));
   });
 
   it('shows info when no GHAGGA hooks were found', async () => {
@@ -146,13 +154,19 @@ describe('ghagga hooks uninstall', () => {
 
   it('shows correct count when only one hook is actually removed', async () => {
     mockUninstallHook
-      .mockReturnValueOnce({ type: 'pre-commit', success: true, message: 'Removed pre-commit hook' })
-      .mockReturnValueOnce({ type: 'commit-msg', success: true, message: 'Hook commit-msg not installed, nothing to remove' });
+      .mockReturnValueOnce({
+        type: 'pre-commit',
+        success: true,
+        message: 'Removed pre-commit hook',
+      })
+      .mockReturnValueOnce({
+        type: 'commit-msg',
+        success: true,
+        message: 'Hook commit-msg not installed, nothing to remove',
+      });
 
     await runUninstallCommand();
 
-    expect(tui.log.info).toHaveBeenCalledWith(
-      expect.stringContaining('Removed 1 GHAGGA hook(s)'),
-    );
+    expect(tui.log.info).toHaveBeenCalledWith(expect.stringContaining('Removed 1 GHAGGA hook(s)'));
   });
 });

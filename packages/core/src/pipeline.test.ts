@@ -6,7 +6,7 @@
  * graceful degradation, diff filtering, and result assembly.
  */
 
-import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+import { beforeEach, describe, expect, it, type MockedFunction, vi } from 'vitest';
 
 // ─── Mock all external dependencies ─────────────────────────────
 
@@ -35,13 +35,13 @@ vi.mock('./memory/persist.js', () => ({
   persistReviewObservations: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { reviewPipeline } from './pipeline.js';
+import { runConsensusReview } from './agents/consensus.js';
 import { runSimpleReview } from './agents/simple.js';
 import { runWorkflowReview } from './agents/workflow.js';
-import { runConsensusReview } from './agents/consensus.js';
-import { runStaticAnalysis, formatStaticAnalysisContext } from './tools/runner.js';
-import { searchMemoryForContext } from './memory/search.js';
 import { persistReviewObservations } from './memory/persist.js';
+import { searchMemoryForContext } from './memory/search.js';
+import { reviewPipeline } from './pipeline.js';
+import { formatStaticAnalysisContext, runStaticAnalysis } from './tools/runner.js';
 import type { ReviewInput, ReviewResult } from './types.js';
 import { DEFAULT_SETTINGS } from './types.js';
 
@@ -116,8 +116,12 @@ function makeInput(overrides: Partial<ReviewInput> = {}): ReviewInput {
 beforeEach(() => {
   vi.clearAllMocks();
   (runStaticAnalysis as MockedFunction<typeof runStaticAnalysis>).mockResolvedValue(SKIPPED_STATIC);
-  (formatStaticAnalysisContext as MockedFunction<typeof formatStaticAnalysisContext>).mockReturnValue('');
-  (runSimpleReview as MockedFunction<typeof runSimpleReview>).mockResolvedValue({ ...SIMPLE_RESULT });
+  (
+    formatStaticAnalysisContext as MockedFunction<typeof formatStaticAnalysisContext>
+  ).mockReturnValue('');
+  (runSimpleReview as MockedFunction<typeof runSimpleReview>).mockResolvedValue({
+    ...SIMPLE_RESULT,
+  });
   (runWorkflowReview as MockedFunction<typeof runWorkflowReview>).mockResolvedValue({
     ...SIMPLE_RESULT,
     metadata: { ...SIMPLE_RESULT.metadata, mode: 'workflow' },
@@ -135,9 +139,7 @@ describe('reviewPipeline', () => {
 
   describe('input validation', () => {
     it('throws on empty diff', async () => {
-      await expect(reviewPipeline(makeInput({ diff: '' }))).rejects.toThrow(
-        'non-empty diff',
-      );
+      await expect(reviewPipeline(makeInput({ diff: '' }))).rejects.toThrow('non-empty diff');
     });
 
     it('throws on whitespace-only diff', async () => {
@@ -147,21 +149,15 @@ describe('reviewPipeline', () => {
     });
 
     it('throws on missing API key', async () => {
-      await expect(reviewPipeline(makeInput({ apiKey: '' }))).rejects.toThrow(
-        'API key',
-      );
+      await expect(reviewPipeline(makeInput({ apiKey: '' }))).rejects.toThrow('API key');
     });
 
     it('throws on missing provider', async () => {
-      await expect(reviewPipeline(makeInput({ provider: '' as any }))).rejects.toThrow(
-        'provider',
-      );
+      await expect(reviewPipeline(makeInput({ provider: '' as any }))).rejects.toThrow('provider');
     });
 
     it('throws on missing model', async () => {
-      await expect(reviewPipeline(makeInput({ model: '' }))).rejects.toThrow(
-        'model',
-      );
+      await expect(reviewPipeline(makeInput({ model: '' }))).rejects.toThrow('model');
     });
   });
 
@@ -224,21 +220,30 @@ describe('reviewPipeline', () => {
         trivy: { status: 'skipped' as const, findings: [], executionTimeMs: 0 },
         cpd: { status: 'skipped' as const, findings: [], executionTimeMs: 0 },
       };
-      (runStaticAnalysis as MockedFunction<typeof runStaticAnalysis>).mockResolvedValue(staticWithFindings);
+      (runStaticAnalysis as MockedFunction<typeof runStaticAnalysis>).mockResolvedValue(
+        staticWithFindings,
+      );
 
       const result = await reviewPipeline(makeInput());
       expect(result.findings).toHaveLength(1);
-      expect(result.findings[0]!.source).toBe('semgrep');
-      expect(result.findings[0]!.message).toBe('SQL injection');
+      expect(result.findings[0]?.source).toBe('semgrep');
+      expect(result.findings[0]?.message).toBe('SQL injection');
     });
 
     it('tracks toolsRun and toolsSkipped correctly', async () => {
       const staticMixed = {
         semgrep: { status: 'success' as const, findings: [], executionTimeMs: 50 },
-        trivy: { status: 'skipped' as const, findings: [], error: 'not installed', executionTimeMs: 0 },
+        trivy: {
+          status: 'skipped' as const,
+          findings: [],
+          error: 'not installed',
+          executionTimeMs: 0,
+        },
         cpd: { status: 'error' as const, findings: [], error: 'crashed', executionTimeMs: 10 },
       };
-      (runStaticAnalysis as MockedFunction<typeof runStaticAnalysis>).mockResolvedValue(staticMixed);
+      (runStaticAnalysis as MockedFunction<typeof runStaticAnalysis>).mockResolvedValue(
+        staticMixed,
+      );
 
       const result = await reviewPipeline(makeInput());
       expect(result.metadata.toolsRun).toContain('semgrep');
@@ -360,7 +365,7 @@ index 1234567..abcdefg 100644
             ignorePatterns: [],
             reviewLevel: 'normal',
           },
-           memoryStorage: undefined,
+          memoryStorage: undefined,
         }),
       );
       expect(persistReviewObservations).not.toHaveBeenCalled();
@@ -410,9 +415,9 @@ index 1234567..abcdefg 100644
     });
 
     it('passes static analysis context to agent', async () => {
-      (formatStaticAnalysisContext as MockedFunction<typeof formatStaticAnalysisContext>).mockReturnValue(
-        '## Static Analysis\n- some finding',
-      );
+      (
+        formatStaticAnalysisContext as MockedFunction<typeof formatStaticAnalysisContext>
+      ).mockReturnValue('## Static Analysis\n- some finding');
 
       await reviewPipeline(makeInput());
 
@@ -437,23 +442,26 @@ index 1234567..abcdefg 100644
     it('passes the truncated diff to the agent (not the raw diff)', async () => {
       await reviewPipeline(makeInput());
 
-      const callArgs = (runSimpleReview as MockedFunction<typeof runSimpleReview>).mock.calls[0]![0];
+      const callArgs = (runSimpleReview as MockedFunction<typeof runSimpleReview>).mock
+        .calls[0]?.[0];
       expect(callArgs.diff).toBeDefined();
       expect(callArgs.diff.length).toBeGreaterThan(0);
     });
 
     it('passes reviewLevel from settings to simple agent', async () => {
-      await reviewPipeline(makeInput({
-        settings: {
-          enableSemgrep: false,
-          enableTrivy: false,
-          enableCpd: false,
-          enableMemory: false,
-          customRules: [],
-          ignorePatterns: [],
-          reviewLevel: 'soft',
-        },
-      }));
+      await reviewPipeline(
+        makeInput({
+          settings: {
+            enableSemgrep: false,
+            enableTrivy: false,
+            enableCpd: false,
+            enableMemory: false,
+            customRules: [],
+            ignorePatterns: [],
+            reviewLevel: 'soft',
+          },
+        }),
+      );
 
       expect(runSimpleReview).toHaveBeenCalledWith(
         expect.objectContaining({ reviewLevel: 'soft' }),
@@ -461,18 +469,20 @@ index 1234567..abcdefg 100644
     });
 
     it('passes reviewLevel to workflow agent', async () => {
-      await reviewPipeline(makeInput({
-        mode: 'workflow',
-        settings: {
-          enableSemgrep: false,
-          enableTrivy: false,
-          enableCpd: false,
-          enableMemory: false,
-          customRules: [],
-          ignorePatterns: [],
-          reviewLevel: 'strict',
-        },
-      }));
+      await reviewPipeline(
+        makeInput({
+          mode: 'workflow',
+          settings: {
+            enableSemgrep: false,
+            enableTrivy: false,
+            enableCpd: false,
+            enableMemory: false,
+            customRules: [],
+            ignorePatterns: [],
+            reviewLevel: 'strict',
+          },
+        }),
+      );
 
       expect(runWorkflowReview).toHaveBeenCalledWith(
         expect.objectContaining({ reviewLevel: 'strict' }),
@@ -480,18 +490,20 @@ index 1234567..abcdefg 100644
     });
 
     it('passes reviewLevel to consensus agent', async () => {
-      await reviewPipeline(makeInput({
-        mode: 'consensus',
-        settings: {
-          enableSemgrep: false,
-          enableTrivy: false,
-          enableCpd: false,
-          enableMemory: false,
-          customRules: [],
-          ignorePatterns: [],
-          reviewLevel: 'normal',
-        },
-      }));
+      await reviewPipeline(
+        makeInput({
+          mode: 'consensus',
+          settings: {
+            enableSemgrep: false,
+            enableTrivy: false,
+            enableCpd: false,
+            enableMemory: false,
+            customRules: [],
+            ignorePatterns: [],
+            reviewLevel: 'normal',
+          },
+        }),
+      );
 
       expect(runConsensusReview).toHaveBeenCalledWith(
         expect.objectContaining({ reviewLevel: 'normal' }),
@@ -670,7 +682,8 @@ diff --git a/README.md b/README.md
       );
 
       // The agent should receive only the .ts file diff, not the .md
-      const callArgs = (runSimpleReview as MockedFunction<typeof runSimpleReview>).mock.calls[0]![0];
+      const callArgs = (runSimpleReview as MockedFunction<typeof runSimpleReview>).mock
+        .calls[0]?.[0];
       expect(callArgs.diff).toContain('app.ts');
       expect(callArgs.diff).not.toContain('README.md');
     });
@@ -680,16 +693,18 @@ diff --git a/README.md b/README.md
 
   describe('backward compatibility', () => {
     it('works with DEFAULT_SETTINGS (reviewLevel defaults to normal)', async () => {
-      const result = await reviewPipeline(makeInput({
-        settings: {
-          ...DEFAULT_SETTINGS,
-          // Disable tools to keep the test fast and focused
-          enableSemgrep: false,
-          enableTrivy: false,
-          enableCpd: false,
-          enableMemory: false,
-        },
-      }));
+      const result = await reviewPipeline(
+        makeInput({
+          settings: {
+            ...DEFAULT_SETTINGS,
+            // Disable tools to keep the test fast and focused
+            enableSemgrep: false,
+            enableTrivy: false,
+            enableCpd: false,
+            enableMemory: false,
+          },
+        }),
+      );
 
       expect(result.status).toBe('PASSED');
       expect(runSimpleReview).toHaveBeenCalledWith(

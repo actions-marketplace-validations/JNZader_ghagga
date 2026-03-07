@@ -5,7 +5,7 @@
  * and exports the expected event type interfaces.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { inngest } from './client.js';
 
 describe('inngest client', () => {

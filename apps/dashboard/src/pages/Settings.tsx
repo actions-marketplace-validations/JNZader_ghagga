@@ -1,11 +1,11 @@
-import { useState, useEffect, type FormEvent } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardHeader } from '@/components/Card';
-import { useRepositories, useSettings, useUpdateSettings } from '@/lib/api';
-import { useSelectedRepo } from '@/lib/repo-context';
 import { ProviderChainEditor } from '@/components/settings/ProviderChainEditor';
 import type { ProviderEntryState } from '@/components/settings/ProviderEntry';
-import type { ReviewMode, ProviderChainUpdate } from '@/lib/types';
+import { useRepositories, useSettings, useUpdateSettings } from '@/lib/api';
+import { useSelectedRepo } from '@/lib/repo-context';
+import type { ProviderChainUpdate, ReviewMode } from '@/lib/types';
 
 export function Settings() {
   const { selectedRepo, setSelectedRepo } = useSelectedRepo();
@@ -168,12 +168,9 @@ export function Settings() {
       {!selectedRepo ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="mb-4 text-5xl">&#9881;&#65039;</div>
-          <h2 className="mb-2 text-xl font-semibold text-text-primary">
-            Select a Repository
-          </h2>
+          <h2 className="mb-2 text-xl font-semibold text-text-primary">Select a Repository</h2>
           <p className="max-w-md text-text-secondary">
-            Choose a repository from the dropdown above to configure its review
-            settings.
+            Choose a repository from the dropdown above to configure its review settings.
           </p>
         </div>
       ) : isLoading ? (
@@ -226,10 +223,7 @@ export function Settings() {
             /* ── Read-only inherited view ─────────────────────── */
             <div className="space-y-6 opacity-75">
               <Card>
-                <CardHeader
-                  title="Static Analysis"
-                  description="Inherited from global settings"
-                />
+                <CardHeader title="Static Analysis" description="Inherited from global settings" />
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {[
                     { label: 'Semgrep (security + patterns)', value: globalSettings.enableSemgrep },
@@ -241,12 +235,12 @@ export function Settings() {
                       key={toggle.label}
                       className="flex items-center gap-3 rounded-lg border border-surface-border bg-surface-bg p-3"
                     >
-                      <span className={`text-sm ${toggle.value ? 'text-green-400' : 'text-text-muted'}`}>
+                      <span
+                        className={`text-sm ${toggle.value ? 'text-green-400' : 'text-text-muted'}`}
+                      >
                         {toggle.value ? '✓' : '✕'}
                       </span>
-                      <span className="text-sm text-text-secondary">
-                        {toggle.label}
-                      </span>
+                      <span className="text-sm text-text-secondary">{toggle.label}</span>
                       <span className="ml-auto rounded bg-primary-600/20 px-2 py-0.5 text-xs text-primary-400">
                         Inherited
                       </span>
@@ -256,10 +250,7 @@ export function Settings() {
               </Card>
 
               <Card>
-                <CardHeader
-                  title="AI Review"
-                  description="Inherited from global settings"
-                />
+                <CardHeader title="AI Review" description="Inherited from global settings" />
                 <div className="space-y-2 text-sm text-text-secondary">
                   <p>
                     <strong className="text-text-primary">Status:</strong>{' '}
@@ -291,10 +282,22 @@ export function Settings() {
                 />
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {[
-                    { label: 'Semgrep (security + patterns)', value: enableSemgrep, setter: setEnableSemgrep },
-                    { label: 'Trivy (vulnerabilities)', value: enableTrivy, setter: setEnableTrivy },
+                    {
+                      label: 'Semgrep (security + patterns)',
+                      value: enableSemgrep,
+                      setter: setEnableSemgrep,
+                    },
+                    {
+                      label: 'Trivy (vulnerabilities)',
+                      value: enableTrivy,
+                      setter: setEnableTrivy,
+                    },
                     { label: 'PMD/CPD (code duplication)', value: enableCpd, setter: setEnableCpd },
-                    { label: 'Memory (project knowledge)', value: enableMemory, setter: setEnableMemory },
+                    {
+                      label: 'Memory (project knowledge)',
+                      value: enableMemory,
+                      setter: setEnableMemory,
+                    },
                   ].map((toggle) => (
                     <label
                       key={toggle.label}
@@ -306,9 +309,7 @@ export function Settings() {
                         onChange={(e) => toggle.setter(e.target.checked)}
                         className="h-4 w-4 accent-primary-600"
                       />
-                      <span className="text-sm text-text-primary">
-                        {toggle.label}
-                      </span>
+                      <span className="text-sm text-text-primary">{toggle.label}</span>
                     </label>
                   ))}
                 </div>
@@ -347,10 +348,7 @@ export function Settings() {
                           (ordered by priority — primary first, fallbacks below)
                         </span>
                       </label>
-                      <ProviderChainEditor
-                        chain={providerChain}
-                        onChange={setProviderChain}
-                      />
+                      <ProviderChainEditor chain={providerChain} onChange={setProviderChain} />
                     </div>
 
                     <div>
@@ -359,10 +357,7 @@ export function Settings() {
                       </label>
                       <div className="flex gap-4">
                         {(['simple', 'workflow', 'consensus'] as const).map((mode) => (
-                          <label
-                            key={mode}
-                            className="flex cursor-pointer items-center gap-2"
-                          >
+                          <label key={mode} className="flex cursor-pointer items-center gap-2">
                             <input
                               type="radio"
                               name="reviewMode"
@@ -371,14 +366,13 @@ export function Settings() {
                               onChange={() => setReviewMode(mode)}
                               className="accent-primary-600"
                             />
-                            <span className="text-sm capitalize text-text-primary">
-                              {mode}
-                            </span>
+                            <span className="text-sm capitalize text-text-primary">{mode}</span>
                           </label>
                         ))}
                       </div>
                       <p className="mt-1 text-xs text-text-secondary">
-                        Simple: 1 LLM call &middot; Workflow: 5 specialist agents &middot; Consensus: 3 stances debate
+                        Simple: 1 LLM call &middot; Workflow: 5 specialist agents &middot;
+                        Consensus: 3 stances debate
                       </p>
                     </div>
                   </div>
@@ -387,10 +381,7 @@ export function Settings() {
 
               {/* ── Advanced Settings ─────────────────────────────── */}
               <Card>
-                <CardHeader
-                  title="Advanced"
-                  description="Custom rules and file ignore patterns"
-                />
+                <CardHeader title="Advanced" description="Custom rules and file ignore patterns" />
 
                 <div className="mb-4">
                   <label
@@ -415,15 +406,13 @@ export function Settings() {
                     className="mb-2 block text-sm font-medium text-text-primary"
                   >
                     Ignore Patterns{' '}
-                    <span className="font-normal text-text-secondary">
-                      (one per line)
-                    </span>
+                    <span className="font-normal text-text-secondary">(one per line)</span>
                   </label>
                   <textarea
                     id="ignorePatterns"
                     value={ignorePatterns}
                     onChange={(e) => setIgnorePatterns(e.target.value)}
-                    placeholder={"*.lock\ndist/**\nnode_modules/**"}
+                    placeholder={'*.lock\ndist/**\nnode_modules/**'}
                     rows={4}
                     className="input-field resize-y font-mono text-sm"
                   />
@@ -434,22 +423,14 @@ export function Settings() {
 
           {/* ── Save Button ──────────────────────────────────── */}
           <div className="flex items-center gap-4">
-            <button
-              type="submit"
-              disabled={updateSettings.isPending}
-              className="btn-primary"
-            >
+            <button type="submit" disabled={updateSettings.isPending} className="btn-primary">
               {updateSettings.isPending ? 'Saving...' : 'Save Settings'}
             </button>
             {saveSuccess && (
-              <span className="text-sm text-green-400">
-                Settings saved successfully!
-              </span>
+              <span className="text-sm text-green-400">Settings saved successfully!</span>
             )}
             {updateSettings.isError && (
-              <span className="text-sm text-red-400">
-                Failed to save settings.
-              </span>
+              <span className="text-sm text-red-400">Failed to save settings.</span>
             )}
           </div>
         </form>

@@ -227,9 +227,7 @@ export function buildStackHints(stacks: string[]): string {
     sql: 'Check for injection risks, missing indexes, and N+1 query patterns.',
   };
 
-  const relevant = stacks
-    .map((s) => hints[s.toLowerCase()])
-    .filter(Boolean);
+  const relevant = stacks.map((s) => hints[s.toLowerCase()]).filter(Boolean);
 
   if (relevant.length === 0) return '';
   return `\n\n## Stack-Specific Review Hints\n\n${relevant.map((h) => `- ${h}`).join('\n')}\n`;

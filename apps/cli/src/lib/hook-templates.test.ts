@@ -8,8 +8,8 @@
  * @see Phase 4, Test 1
  */
 
-import { describe, it, expect } from 'vitest';
-import { generatePreCommitHook, generateCommitMsgHook } from './hook-templates.js';
+import { describe, expect, it } from 'vitest';
+import { generateCommitMsgHook, generatePreCommitHook } from './hook-templates.js';
 import { HOOK_MARKER } from './hooks-types.js';
 
 // ─── pre-commit template ────────────────────────────────────────

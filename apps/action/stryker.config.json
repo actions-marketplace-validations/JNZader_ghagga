@@ -8,10 +8,7 @@
   ],
   "testRunner": "vitest",
   "checkers": ["typescript"],
-  "plugins": [
-    "@stryker-mutator/vitest-runner",
-    "@stryker-mutator/typescript-checker"
-  ],
+  "plugins": ["@stryker-mutator/vitest-runner", "@stryker-mutator/typescript-checker"],
   "tsconfigFile": "tsconfig.json",
   "reporters": ["clear-text", "html", "progress"],
   "thresholds": {

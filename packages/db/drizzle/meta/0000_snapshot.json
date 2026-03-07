@@ -62,12 +62,8 @@
           "name": "github_user_mappings_installation_id_installations_id_fk",
           "tableFrom": "github_user_mappings",
           "tableTo": "installations",
-          "columnsFrom": [
-            "installation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["installation_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -77,9 +73,7 @@
         "github_user_mappings_github_user_id_unique": {
           "name": "github_user_mappings_github_user_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "github_user_id"
-          ]
+          "columns": ["github_user_id"]
         }
       },
       "policies": {},
@@ -143,9 +137,7 @@
         "installations_github_installation_id_unique": {
           "name": "installations_github_installation_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "github_installation_id"
-          ]
+          "columns": ["github_installation_id"]
         }
       },
       "policies": {},
@@ -300,12 +292,8 @@
           "name": "memory_observations_session_id_memory_sessions_id_fk",
           "tableFrom": "memory_observations",
           "tableTo": "memory_sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["session_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -502,12 +490,8 @@
           "name": "repositories_installation_id_installations_id_fk",
           "tableFrom": "repositories",
           "tableTo": "installations",
-          "columnsFrom": [
-            "installation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["installation_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -517,9 +501,7 @@
         "repositories_github_repo_id_unique": {
           "name": "repositories_github_repo_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "github_repo_id"
-          ]
+          "columns": ["github_repo_id"]
         }
       },
       "policies": {},
@@ -636,12 +618,8 @@
           "name": "reviews_repository_id_repositories_id_fk",
           "tableFrom": "reviews",
           "tableTo": "repositories",
-          "columnsFrom": [
-            "repository_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["repository_id"],
+          "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }

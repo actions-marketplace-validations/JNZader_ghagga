@@ -4,8 +4,8 @@
  * Pure constants — no mocking needed.
  */
 
-import { describe, it, expect } from 'vitest';
-import { TOOL_VERSIONS, TOOL_TIMEOUT_MS } from '../tools/types.js';
+import { describe, expect, it } from 'vitest';
+import { TOOL_TIMEOUT_MS, TOOL_VERSIONS } from '../tools/types.js';
 
 // ─── TOOL_VERSIONS ──────────────────────────────────────────────
 

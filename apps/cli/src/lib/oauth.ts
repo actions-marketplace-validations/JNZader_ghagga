@@ -102,7 +102,7 @@ export async function pollForAccessToken(
       }),
     });
 
-    const data = await response.json() as AccessTokenResponse | DeviceFlowError;
+    const data = (await response.json()) as AccessTokenResponse | DeviceFlowError;
 
     // Check if we got a token
     if ('access_token' in data && data.access_token) {

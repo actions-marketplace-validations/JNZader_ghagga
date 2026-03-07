@@ -20,20 +20,16 @@
  *       api-key: ${{ secrets.DASHSCOPE_API_KEY }}
  */
 
+import * as cache from '@actions/cache';
 import * as core from '@actions/core';
 import * as github from '@actions/github';
-import * as cache from '@actions/cache';
+import type { LLMProvider, MemoryStorage, ReviewMode } from 'ghagga-core';
 import {
-  reviewPipeline,
-  DEFAULT_SETTINGS,
   DEFAULT_MODELS,
+  DEFAULT_SETTINGS,
   formatReviewComment,
+  reviewPipeline,
   SqliteMemoryStorage,
-} from 'ghagga-core';
-import type {
-  LLMProvider,
-  ReviewMode,
-  MemoryStorage,
 } from 'ghagga-core';
 import { runLocalAnalysis } from './tools/index.js';
 
@@ -53,15 +49,12 @@ async function run(): Promise<void> {
     const enableMemory = core.getInput('enable-memory') !== 'false';
 
     // Step 2: Resolve GitHub token (for PR diff fetching + GitHub Models API)
-    const githubToken =
-      core.getInput('github-token') ||
-      process.env['GITHUB_TOKEN'] ||
-      '';
+    const githubToken = core.getInput('github-token') || process.env.GITHUB_TOKEN || '';
 
     if (!githubToken) {
       core.setFailed(
         'GitHub token is required to fetch PR diffs and post comments. ' +
-        'The GITHUB_TOKEN is usually available automatically in Actions.',
+          'The GITHUB_TOKEN is usually available automatically in Actions.',
       );
       return;
     }
@@ -78,7 +71,7 @@ async function run(): Promise<void> {
       if (!apiKey) {
         core.setFailed(
           `API key is required for provider "${provider}". ` +
-          `Set the "api-key" input, or use provider "github" for free reviews.`,
+            `Set the "api-key" input, or use provider "github" for free reviews.`,
         );
         return;
       }
@@ -94,7 +87,7 @@ async function run(): Promise<void> {
     if (!pr) {
       core.setFailed(
         'This action must be triggered by a pull_request event. ' +
-        'Add `on: pull_request` to your workflow.',
+          'Add `on: pull_request` to your workflow.',
       );
       return;
     }
@@ -144,7 +137,7 @@ async function run(): Promise<void> {
     const totalFindings = semgrepCount + trivyCount + cpdCount;
     core.info(
       `Static analysis summary: ${totalFindings} findings ` +
-      `(Semgrep: ${semgrepCount}, Trivy: ${trivyCount}, CPD: ${cpdCount})`,
+        `(Semgrep: ${semgrepCount}, Trivy: ${trivyCount}, CPD: ${cpdCount})`,
     );
 
     // Step 5.6: Initialize review memory (SQLite + @actions/cache)
@@ -244,7 +237,7 @@ async function run(): Promise<void> {
     if (result.status === 'FAILED') {
       core.setFailed(
         `Code review found critical issues. Status: ${result.status} | ` +
-        `Findings: ${result.findings.length}`,
+          `Findings: ${result.findings.length}`,
       );
     }
   } catch (error) {
@@ -258,6 +251,6 @@ async function run(): Promise<void> {
 export { run };
 
 // Only auto-run when executed directly (not imported by tests)
-if (process.env['NODE_ENV'] !== 'test') {
+if (process.env.NODE_ENV !== 'test') {
   run();
 }

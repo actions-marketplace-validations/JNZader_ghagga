@@ -8,7 +8,7 @@
  * @see Phase 4, Test 2
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HOOK_MARKER } from './hooks-types.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
@@ -44,13 +44,7 @@ vi.mock('node:fs', () => ({
   chmodSync: (...args: unknown[]) => mockChmodSync(...args),
 }));
 
-import {
-  isGitRepo,
-  getHooksDir,
-  getHookStatus,
-  installHook,
-  uninstallHook,
-} from './git-hooks.js';
+import { getHookStatus, getHooksDir, installHook, isGitRepo, uninstallHook } from './git-hooks.js';
 
 // ─── Setup ──────────────────────────────────────────────────────
 

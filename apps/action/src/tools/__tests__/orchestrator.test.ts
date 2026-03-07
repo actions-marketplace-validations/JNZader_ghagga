@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -20,10 +20,10 @@ vi.mock('../cpd.js', () => ({
 }));
 
 import * as core from '@actions/core';
-import { executeSemgrep } from '../semgrep.js';
-import { executeTrivy } from '../trivy.js';
 import { executeCpd } from '../cpd.js';
 import { runLocalAnalysis } from '../orchestrator.js';
+import { executeSemgrep } from '../semgrep.js';
+import { executeTrivy } from '../trivy.js';
 import type { ToolResult } from '../types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -33,10 +33,7 @@ const mockExecuteTrivy = vi.mocked(executeTrivy);
 const mockExecuteCpd = vi.mocked(executeCpd);
 const mockInfo = vi.mocked(core.info);
 
-function makeSuccessResult(
-  findingCount = 0,
-  timeMs = 100,
-): ToolResult {
+function makeSuccessResult(findingCount = 0, timeMs = 100): ToolResult {
   return {
     status: 'success',
     findings: Array.from({ length: findingCount }, (_, i) => ({
@@ -323,18 +320,10 @@ describe('runLocalAnalysis', () => {
     expect(mockInfo).toHaveBeenCalledWith(
       expect.stringContaining('Starting local static analysis'),
     );
-    expect(mockInfo).toHaveBeenCalledWith(
-      expect.stringContaining('Semgrep: success'),
-    );
-    expect(mockInfo).toHaveBeenCalledWith(
-      expect.stringContaining('Trivy: success'),
-    );
-    expect(mockInfo).toHaveBeenCalledWith(
-      expect.stringContaining('CPD: success'),
-    );
-    expect(mockInfo).toHaveBeenCalledWith(
-      expect.stringContaining('Static analysis complete'),
-    );
+    expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('Semgrep: success'));
+    expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('Trivy: success'));
+    expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('CPD: success'));
+    expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('Static analysis complete'));
   });
 
   it('logs finding counts', async () => {
@@ -349,9 +338,7 @@ describe('runLocalAnalysis', () => {
       repoDir: '/workspace',
     });
 
-    expect(mockInfo).toHaveBeenCalledWith(
-      expect.stringContaining('5 findings'),
-    );
+    expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('5 findings'));
   });
 
   // ── Timing arithmetic ──
@@ -374,9 +361,9 @@ describe('runLocalAnalysis', () => {
     );
     expect(completeCall).toBeDefined();
     // Extract the number — should be small (< 10s), not huge (Date.now() + start would be ~3 trillion)
-    const match = (completeCall![0] as string).match(/([\d.]+)s/);
+    const match = (completeCall?.[0] as string).match(/([\d.]+)s/);
     expect(match).toBeDefined();
-    const seconds = parseFloat(match![1]!);
+    const seconds = parseFloat(match?.[1]!);
     expect(seconds).toBeLessThan(10);
   });
 });

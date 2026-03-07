@@ -7,10 +7,10 @@
  * 3. Field values, counts, and types are correct
  */
 
-import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -42,9 +42,7 @@ describe('Semgrep fixture parsing', () => {
   });
 
   it('contains all expected severities', () => {
-    const severities = data.results.map(
-      (r: { extra: { severity: string } }) => r.extra.severity,
-    );
+    const severities = data.results.map((r: { extra: { severity: string } }) => r.extra.severity);
     expect(severities).toContain('ERROR');
     expect(severities).toContain('WARNING');
     expect(severities).toContain('INFO');
@@ -58,7 +56,7 @@ describe('Semgrep fixture parsing', () => {
         start: { line: number };
         extra: { severity: string; message: string };
       }) => ({
-        file: r.path.replace(repoDir + '/', ''),
+        file: r.path.replace(`${repoDir}/`, ''),
         line: r.start.line,
         severity: r.extra.severity,
         message: r.extra.message,
@@ -105,9 +103,8 @@ describe('Trivy fixture parsing', () => {
 
   it('contains all expected severities', () => {
     const severities = data.Results.flatMap(
-      (t: {
-        Vulnerabilities?: Array<{ Severity: string }>;
-      }) => (t.Vulnerabilities ?? []).map((v) => v.Severity),
+      (t: { Vulnerabilities?: Array<{ Severity: string }> }) =>
+        (t.Vulnerabilities ?? []).map((v) => v.Severity),
     );
     expect(severities).toContain('CRITICAL');
     expect(severities).toContain('HIGH');
@@ -116,12 +113,9 @@ describe('Trivy fixture parsing', () => {
 
   it('one vulnerability has no FixedVersion (no fix available)', () => {
     const allVulns = data.Results.flatMap(
-      (t: { Vulnerabilities?: Array<{ FixedVersion?: string }> }) =>
-        t.Vulnerabilities ?? [],
+      (t: { Vulnerabilities?: Array<{ FixedVersion?: string }> }) => t.Vulnerabilities ?? [],
     );
-    const noFix = allVulns.filter(
-      (v: { FixedVersion?: string }) => !v.FixedVersion,
-    );
+    const noFix = allVulns.filter((v: { FixedVersion?: string }) => !v.FixedVersion);
     expect(noFix.length).toBeGreaterThanOrEqual(1);
   });
 
@@ -149,8 +143,7 @@ describe('CPD fixture parsing', () => {
   });
 
   it('parses duplications with the same regex the code uses', () => {
-    const dupRegex =
-      /<duplication lines="(\d+)" tokens="(\d+)">([\s\S]*?)<\/duplication>/g;
+    const dupRegex = /<duplication lines="(\d+)" tokens="(\d+)">([\s\S]*?)<\/duplication>/g;
     const fileRegex = /<file\s+path="([^"]+)"\s+line="(\d+)"/g;
 
     const duplications: Array<{
@@ -181,8 +174,7 @@ describe('CPD fixture parsing', () => {
   });
 
   it('first duplication has 2 files, 15 lines, 87 tokens', () => {
-    const dupRegex =
-      /<duplication lines="(\d+)" tokens="(\d+)">([\s\S]*?)<\/duplication>/g;
+    const dupRegex = /<duplication lines="(\d+)" tokens="(\d+)">([\s\S]*?)<\/duplication>/g;
     const fileRegex = /<file\s+path="([^"]+)"\s+line="(\d+)"/g;
 
     const dupMatch = dupRegex.exec(raw)!;
@@ -201,8 +193,7 @@ describe('CPD fixture parsing', () => {
   });
 
   it('second duplication has 3 files (multi-location)', () => {
-    const dupRegex =
-      /<duplication lines="(\d+)" tokens="(\d+)">([\s\S]*?)<\/duplication>/g;
+    const dupRegex = /<duplication lines="(\d+)" tokens="(\d+)">([\s\S]*?)<\/duplication>/g;
     const fileRegex = /<file\s+path="([^"]+)"\s+line="(\d+)"/g;
 
     // Skip first match
@@ -223,8 +214,7 @@ describe('CPD fixture parsing', () => {
 
   it('produces correct ReviewFinding fields with path stripping', () => {
     const basePath = '/workspace';
-    const dupRegex =
-      /<duplication lines="(\d+)" tokens="(\d+)">([\s\S]*?)<\/duplication>/g;
+    const dupRegex = /<duplication lines="(\d+)" tokens="(\d+)">([\s\S]*?)<\/duplication>/g;
     const fileRegex = /<file\s+path="([^"]+)"\s+line="(\d+)"/g;
 
     const dupMatch = dupRegex.exec(raw)!;
@@ -237,7 +227,7 @@ describe('CPD fixture parsing', () => {
     fileRegex.lastIndex = 0;
     while ((fileMatch = fileRegex.exec(inner)) !== null) {
       files.push({
-        path: fileMatch[1]!.replace(basePath + '/', ''),
+        path: fileMatch[1]?.replace(`${basePath}/`, ''),
         line: parseInt(fileMatch[2]!, 10),
       });
     }
@@ -245,8 +235,8 @@ describe('CPD fixture parsing', () => {
     const locations = files.map((f) => `${f.path}:${f.line}`).join(', ');
     const message = `Duplicated code block (${lines} lines, ${tokens} tokens) found in: ${locations}`;
 
-    expect(files[0]!.path).toBe('src/utils/validate.ts');
-    expect(files[0]!.line).toBe(10);
+    expect(files[0]?.path).toBe('src/utils/validate.ts');
+    expect(files[0]?.line).toBe(10);
     expect(message).toContain('15 lines');
     expect(message).toContain('87 tokens');
     expect(message).toContain('src/utils/validate.ts:10');

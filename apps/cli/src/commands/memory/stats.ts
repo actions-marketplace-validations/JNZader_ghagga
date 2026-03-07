@@ -8,9 +8,9 @@
  */
 
 import { statSync } from 'node:fs';
-import { Command } from 'commander';
-import { openMemoryOrExit, formatSize } from './utils.js';
+import type { Command } from 'commander';
 import * as tui from '../../ui/tui.js';
+import { formatSize, openMemoryOrExit } from './utils.js';
 
 export function registerStatsCommand(parent: Command): void {
   parent
@@ -30,12 +30,8 @@ export function registerStatsCommand(parent: Command): void {
         tui.log.message(`Observations: ${stats.totalObservations} total`);
         tui.log.message('');
 
-        const oldest = stats.oldestObservation
-          ? stats.oldestObservation.slice(0, 10)
-          : '(none)';
-        const newest = stats.newestObservation
-          ? stats.newestObservation.slice(0, 10)
-          : '(none)';
+        const oldest = stats.oldestObservation ? stats.oldestObservation.slice(0, 10) : '(none)';
+        const newest = stats.newestObservation ? stats.newestObservation.slice(0, 10) : '(none)';
         tui.log.message(`Date Range:   ${oldest} \u2014 ${newest}`);
         tui.log.message('');
 

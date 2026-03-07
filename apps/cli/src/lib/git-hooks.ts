@@ -6,10 +6,22 @@
  * clean uninstallation with backup restoration.
  */
 
-import { existsSync, readFileSync, writeFileSync, unlinkSync, renameSync, chmodSync } from 'node:fs';
-import { join } from 'node:path';
 import { execSync } from 'node:child_process';
-import { HOOK_MARKER, type HookType, type HookStatus, type HookOperationResult } from './hooks-types.js';
+import {
+  chmodSync,
+  existsSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
+import {
+  HOOK_MARKER,
+  type HookOperationResult,
+  type HookStatus,
+  type HookType,
+} from './hooks-types.js';
 
 /** Get the git hooks directory (respects core.hooksPath config) */
 export function getHooksDir(): string {

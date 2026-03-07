@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'node:crypto';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Logger Mock ────────────────────────────────────────────────
 // vi.hoisted ensures these are available when vi.mock factory runs
@@ -23,15 +23,15 @@ vi.mock('../lib/logger.js', () => ({
 }));
 
 import {
-  deriveCallbackSecret,
-  verifyCallbackSignature,
-  discoverRunnerRepo,
-  setRunnerSecret,
-  dispatchWorkflow,
-  RunnerCreationError,
   createRunnerRepo,
   type DispatchParams,
+  deriveCallbackSecret,
+  discoverRunnerRepo,
+  dispatchWorkflow,
+  RunnerCreationError,
   type RunnerErrorCode,
+  setRunnerSecret,
+  verifyCallbackSignature,
 } from './runner.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -113,9 +113,7 @@ describe('deriveCallbackSecret', () => {
 
   it('computes HMAC-SHA256(STATE_SECRET, callbackId) as hex', () => {
     const callbackId = '550e8400-e29b-41d4-a716-446655440000.m1abc';
-    const expected = createHmac('sha256', TEST_SECRET)
-      .update(callbackId)
-      .digest('hex');
+    const expected = createHmac('sha256', TEST_SECRET).update(callbackId).digest('hex');
 
     expect(deriveCallbackSecret(callbackId)).toBe(expected);
   });
@@ -123,17 +121,13 @@ describe('deriveCallbackSecret', () => {
   it('throws when STATE_SECRET is undefined (S-CC1.1)', () => {
     delete process.env.STATE_SECRET;
 
-    expect(() => deriveCallbackSecret('any-id.ts1')).toThrow(
-      'STATE_SECRET is not configured',
-    );
+    expect(() => deriveCallbackSecret('any-id.ts1')).toThrow('STATE_SECRET is not configured');
   });
 
   it('throws when STATE_SECRET is empty string', () => {
     process.env.STATE_SECRET = '';
 
-    expect(() => deriveCallbackSecret('any-id.ts1')).toThrow(
-      'STATE_SECRET is not configured',
-    );
+    expect(() => deriveCallbackSecret('any-id.ts1')).toThrow('STATE_SECRET is not configured');
   });
 });
 
@@ -290,9 +284,7 @@ describe('verifyCallbackSignature', () => {
   });
 
   it('rejects callbackId without dot separator (S-R4.5)', () => {
-    expect(
-      verifyCallbackSignature('plain-uuid-no-timestamp', payload, 'sha256=aabb'),
-    ).toBe(false);
+    expect(verifyCallbackSignature('plain-uuid-no-timestamp', payload, 'sha256=aabb')).toBe(false);
   });
 
   it('logs warning for callbackId without dot separator', () => {
@@ -307,17 +299,13 @@ describe('verifyCallbackSignature', () => {
   it('rejects signature with wrong-length hex (S-R4.6)', () => {
     const callbackId = makeCallbackId(0);
 
-    expect(
-      verifyCallbackSignature(callbackId, payload, 'sha256=aabbccdd'),
-    ).toBe(false);
+    expect(verifyCallbackSignature(callbackId, payload, 'sha256=aabbccdd')).toBe(false);
   });
 
   it('rejects invalid hex in signature without throwing (S-R4.7)', () => {
     const callbackId = makeCallbackId(0);
 
-    expect(
-      verifyCallbackSignature(callbackId, payload, 'sha256=zzzzzz'),
-    ).toBe(false);
+    expect(verifyCallbackSignature(callbackId, payload, 'sha256=zzzzzz')).toBe(false);
   });
 
   // ─── HMAC failure logging ───────────────────────────────────────
@@ -360,9 +348,9 @@ describe('verifyCallbackSignature', () => {
     // Now remove STATE_SECRET
     delete process.env.STATE_SECRET;
 
-    expect(() =>
-      verifyCallbackSignature(callbackId, payload, signature),
-    ).toThrow('STATE_SECRET is not configured');
+    expect(() => verifyCallbackSignature(callbackId, payload, signature)).toThrow(
+      'STATE_SECRET is not configured',
+    );
   });
 
   // ─── Logger assertions ────────────────────────────────────────
@@ -462,9 +450,9 @@ describe('discoverRunnerRepo', () => {
     const result = await discoverRunnerRepo('org', 'ghp_token');
 
     expect(result).not.toBeNull();
-    expect(result!.repoId).toBe(999);
-    expect(result!.fullName).toBe('org/ghagga-runner');
-    expect(result!.isPrivate).toBe(true);
+    expect(result?.repoId).toBe(999);
+    expect(result?.fullName).toBe('org/ghagga-runner');
+    expect(result?.isPrivate).toBe(true);
   });
 
   it('returns isPrivate: false for public repos', async () => {
@@ -478,7 +466,7 @@ describe('discoverRunnerRepo', () => {
     const result = await discoverRunnerRepo('alice', 'ghp_token');
 
     expect(result).not.toBeNull();
-    expect(result!.isPrivate).toBe(false);
+    expect(result?.isPrivate).toBe(false);
   });
 });
 
@@ -504,10 +492,10 @@ describe('setRunnerSecret', () => {
   it('encrypts and sets the secret (happy path)', async () => {
     // GET public-key → 200
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ key: testPublicKeyB64, key_id: 'key-001' }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+      new Response(JSON.stringify({ key: testPublicKeyB64, key_id: 'key-001' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     // PUT secret → 204
     mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
@@ -529,10 +517,10 @@ describe('setRunnerSecret', () => {
 
   it('sends correct headers for GET public-key request', async () => {
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ key: testPublicKeyB64, key_id: 'key-001' }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+      new Response(JSON.stringify({ key: testPublicKeyB64, key_id: 'key-001' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
@@ -551,10 +539,10 @@ describe('setRunnerSecret', () => {
 
   it('sends correct headers and URL for PUT secret request', async () => {
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ key: testPublicKeyB64, key_id: 'key-001' }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+      new Response(JSON.stringify({ key: testPublicKeyB64, key_id: 'key-001' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
@@ -575,10 +563,10 @@ describe('setRunnerSecret', () => {
 
   it('PUT body encrypted_value is a non-empty base64 string', async () => {
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ key: testPublicKeyB64, key_id: 'key-010' }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+      new Response(JSON.stringify({ key: testPublicKeyB64, key_id: 'key-010' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
 
@@ -606,10 +594,10 @@ describe('setRunnerSecret', () => {
   it('throws when secret PUT fails (500)', async () => {
     // GET public-key → 200
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ key: testPublicKeyB64, key_id: 'key-002' }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+      new Response(JSON.stringify({ key: testPublicKeyB64, key_id: 'key-002' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     // PUT secret → 500
     mockFetch.mockResolvedValueOnce(
@@ -655,19 +643,19 @@ describe('dispatchWorkflow', () => {
   function setupMockChain(dispatchStatus: number, dispatchBody?: string) {
     // setRunnerSecret(GHAGGA_TOKEN) → GET public key
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ key: testPublicKeyB64, key_id: 'key-dispatch' }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+      new Response(JSON.stringify({ key: testPublicKeyB64, key_id: 'key-dispatch' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     // setRunnerSecret(GHAGGA_TOKEN) → PUT secret
     mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
     // setRunnerSecret(GHAGGA_CALLBACK_SECRET) → GET public key
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ key: testPublicKeyB64, key_id: 'key-dispatch' }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+      new Response(JSON.stringify({ key: testPublicKeyB64, key_id: 'key-dispatch' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     // setRunnerSecret(GHAGGA_CALLBACK_SECRET) → PUT secret
     mockFetch.mockResolvedValueOnce(new Response(null, { status: 204 }));
@@ -705,9 +693,7 @@ describe('dispatchWorkflow', () => {
     const callbackId = await dispatchWorkflow(makeDispatchParams());
 
     const body = JSON.parse(mockFetch.mock.calls[4][1].body as string);
-    const expectedSecret = createHmac('sha256', TEST_SECRET)
-      .update(callbackId)
-      .digest('hex');
+    const expectedSecret = createHmac('sha256', TEST_SECRET).update(callbackId).digest('hex');
 
     expect(body.inputs.callbackSecret).toBe(expectedSecret);
   });
@@ -889,11 +875,13 @@ describe('dispatchWorkflow', () => {
   it('boolean flags are converted to strings in inputs', async () => {
     setupMockChain(204);
 
-    await dispatchWorkflow(makeDispatchParams({
-      enableSemgrep: false,
-      enableTrivy: true,
-      enableCpd: true,
-    }));
+    await dispatchWorkflow(
+      makeDispatchParams({
+        enableSemgrep: false,
+        enableTrivy: true,
+        enableCpd: true,
+      }),
+    );
 
     const body = JSON.parse(mockFetch.mock.calls[4][1].body as string);
     expect(body.inputs.enableSemgrep).toBe('false');
@@ -951,7 +939,12 @@ describe('RunnerCreationError', () => {
   });
 
   it('stores optional repoFullName', () => {
-    const err = new RunnerCreationError('already_exists', 'Exists', undefined, 'alice/ghagga-runner');
+    const err = new RunnerCreationError(
+      'already_exists',
+      'Exists',
+      undefined,
+      'alice/ghagga-runner',
+    );
     expect(err.repoFullName).toBe('alice/ghagga-runner');
   });
 
@@ -1028,10 +1021,10 @@ describe('createRunnerRepo', () => {
 
     // 2. template generate → 201
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ full_name: 'testuser/ghagga-runner', private: isPrivate }),
-        { status: 201, headers: { 'Content-Type': 'application/json' } },
-      ),
+      new Response(JSON.stringify({ full_name: 'testuser/ghagga-runner', private: isPrivate }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
 
     // 3. poll discoverRunnerRepo → 200 (found on first poll)
@@ -1044,10 +1037,10 @@ describe('createRunnerRepo', () => {
 
     // 4. setRunnerSecret → GET public-key
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ key: testPublicKeyB64, key_id: 'key-create' }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+      new Response(JSON.stringify({ key: testPublicKeyB64, key_id: 'key-create' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
 
     // 5. setRunnerSecret → PUT secret
@@ -1185,13 +1178,10 @@ describe('createRunnerRepo', () => {
     mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
     // template generate → 403 org permission denied
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ message: 'Resource not accessible by organization' }),
-        {
-          status: 403,
-          headers: { 'X-RateLimit-Remaining': '100' },
-        },
-      ),
+      new Response(JSON.stringify({ message: 'Resource not accessible by organization' }), {
+        status: 403,
+        headers: { 'X-RateLimit-Remaining': '100' },
+      }),
     );
 
     try {
@@ -1207,9 +1197,7 @@ describe('createRunnerRepo', () => {
     // discoverRunnerRepo → 404
     mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
     // template generate → 404
-    mockFetch.mockResolvedValueOnce(
-      new Response('Not Found', { status: 404 }),
-    );
+    mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
 
     try {
       await createRunnerRepo(defaultOptions);
@@ -1225,10 +1213,10 @@ describe('createRunnerRepo', () => {
     mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
     // template generate → 201
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ full_name: 'testuser/ghagga-runner', private: false }),
-        { status: 201, headers: { 'Content-Type': 'application/json' } },
-      ),
+      new Response(JSON.stringify({ full_name: 'testuser/ghagga-runner', private: false }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     // All poll attempts → 404 (never ready)
     for (let i = 0; i < MAX_POLL_ATTEMPTS; i++) {
@@ -1259,10 +1247,10 @@ describe('createRunnerRepo', () => {
     mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
     // template generate → 201
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ full_name: 'testuser/ghagga-runner', private: false }),
-        { status: 201, headers: { 'Content-Type': 'application/json' } },
-      ),
+      new Response(JSON.stringify({ full_name: 'testuser/ghagga-runner', private: false }), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
     // poll discoverRunnerRepo → 200
     mockFetch.mockResolvedValueOnce(
@@ -1299,9 +1287,7 @@ describe('createRunnerRepo', () => {
     // discoverRunnerRepo → 404
     mockFetch.mockResolvedValueOnce(new Response('Not Found', { status: 404 }));
     // template generate → 500
-    mockFetch.mockResolvedValueOnce(
-      new Response('Internal Server Error', { status: 500 }),
-    );
+    mockFetch.mockResolvedValueOnce(new Response('Internal Server Error', { status: 500 }));
 
     try {
       await createRunnerRepo(defaultOptions);

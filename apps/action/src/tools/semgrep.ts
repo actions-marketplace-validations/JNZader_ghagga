@@ -12,10 +12,10 @@
  */
 
 import * as core from '@actions/core';
-import { execWithTimeout } from './exec.js';
 import { restoreToolCache, saveToolCache } from './cache.js';
-import { TOOL_VERSIONS, TOOL_TIMEOUT_MS } from './types.js';
-import type { ToolResult, ReviewFinding, FindingSeverity } from './types.js';
+import { execWithTimeout } from './exec.js';
+import type { FindingSeverity, ReviewFinding, ToolResult } from './types.js';
+import { TOOL_TIMEOUT_MS, TOOL_VERSIONS } from './types.js';
 
 /**
  * Map Semgrep severity to GHAGGA FindingSeverity.
@@ -46,9 +46,7 @@ export async function installSemgrep(): Promise<boolean> {
       await execWithTimeout('semgrep', ['--version'], { timeoutMs: 10_000 });
       return true;
     } catch {
-      core.warning(
-        'Semgrep cache restored but binary not functional, reinstalling',
-      );
+      core.warning('Semgrep cache restored but binary not functional, reinstalling');
     }
   }
 
@@ -98,7 +96,7 @@ export async function executeSemgrep(repoDir: string): Promise<ToolResult> {
       }) => ({
         severity: mapSeverity(r.extra.severity),
         category: 'security',
-        file: r.path.replace(repoDir + '/', ''),
+        file: r.path.replace(`${repoDir}/`, ''),
         line: r.start.line,
         message: r.extra.message,
         source: 'semgrep' as const,

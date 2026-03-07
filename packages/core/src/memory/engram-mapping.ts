@@ -16,7 +16,7 @@
  * sensible defaults are used.
  */
 
-import type { MemoryObservationRow, MemoryObservationDetail } from '../types.js';
+import type { MemoryObservationDetail, MemoryObservationRow } from '../types.js';
 import type { EngramObservation } from './engram-types.js';
 
 // ─── Types for the save payload ─────────────────────────────────
@@ -197,7 +197,7 @@ function toNumericId(id: string | number): number {
   if (typeof id === 'number') return id;
 
   const parsed = parseInt(id, 10);
-  if (!isNaN(parsed)) return parsed;
+  if (!Number.isNaN(parsed)) return parsed;
 
   // Simple hash for UUID/string IDs → positive 32-bit integer
   let hash = 0;

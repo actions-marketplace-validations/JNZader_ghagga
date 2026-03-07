@@ -5,7 +5,7 @@
  * and fallback to "unknown" when githubLogin is missing.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ─────────────────────────────────────────────────────
 
@@ -48,9 +48,7 @@ describe('logoutCommand', () => {
 
     logoutCommand();
 
-    expect(tui.log.info).toHaveBeenCalledWith(
-      expect.stringContaining('Not currently logged in'),
-    );
+    expect(tui.log.info).toHaveBeenCalledWith(expect.stringContaining('Not currently logged in'));
     expect(mockClearConfig).not.toHaveBeenCalled();
   });
 
@@ -64,9 +62,7 @@ describe('logoutCommand', () => {
     logoutCommand();
 
     expect(mockClearConfig).toHaveBeenCalledOnce();
-    expect(tui.log.success).toHaveBeenCalledWith(
-      expect.stringContaining('testuser'),
-    );
+    expect(tui.log.success).toHaveBeenCalledWith(expect.stringContaining('testuser'));
     expect(tui.log.info).toHaveBeenCalledWith(
       expect.stringContaining('credentials have been removed'),
     );
@@ -79,8 +75,6 @@ describe('logoutCommand', () => {
     logoutCommand();
 
     expect(mockClearConfig).toHaveBeenCalledOnce();
-    expect(tui.log.success).toHaveBeenCalledWith(
-      expect.stringContaining('unknown'),
-    );
+    expect(tui.log.success).toHaveBeenCalledWith(expect.stringContaining('unknown'));
   });
 });

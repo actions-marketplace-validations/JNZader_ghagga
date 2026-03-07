@@ -1,24 +1,23 @@
 import type {
-  MemoryStorage,
-  MemoryObservationRow,
-  MemoryObservationDetail,
-  MemoryStats,
   ListObservationsOptions,
+  MemoryObservationDetail,
+  MemoryObservationRow,
+  MemoryStats,
+  MemoryStorage,
 } from 'ghagga-core';
+import type { Database, memoryObservations } from 'ghagga-db';
 import {
-  searchObservations,
-  saveObservation,
-  createMemorySession,
-  endMemorySession,
-  deleteMemoryObservation,
-  clearMemoryObservationsByProject,
   clearAllMemoryObservations,
+  clearMemoryObservationsByProject,
+  createMemorySession,
+  deleteMemoryObservation,
+  endMemorySession,
   getMemoryObservation,
-  listMemoryObservations,
   getMemoryStats,
+  listMemoryObservations,
+  saveObservation,
+  searchObservations,
 } from 'ghagga-db';
-import type { Database } from 'ghagga-db';
-import type { memoryObservations } from 'ghagga-db';
 
 type ObservationRow = typeof memoryObservations.$inferSelect;
 
@@ -76,10 +75,7 @@ export class PostgresMemoryStorage implements MemoryStorage {
     };
   }
 
-  async createSession(data: {
-    project: string;
-    prNumber?: number;
-  }): Promise<{ id: number }> {
+  async createSession(data: { project: string; prNumber?: number }): Promise<{ id: number }> {
     const session = await createMemorySession(this.db, data);
     return { id: session.id };
   }
@@ -106,8 +102,10 @@ export class PostgresMemoryStorage implements MemoryStorage {
       project: row.project,
       topicKey: row.topicKey ?? null,
       revisionCount: row.revisionCount,
-      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
-      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt),
+      createdAt:
+        row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
+      updatedAt:
+        row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt),
     }));
   }
 
@@ -124,8 +122,10 @@ export class PostgresMemoryStorage implements MemoryStorage {
       project: row.project,
       topicKey: row.topicKey ?? null,
       revisionCount: row.revisionCount,
-      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
-      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt),
+      createdAt:
+        row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
+      updatedAt:
+        row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt),
     };
   }
 
@@ -139,8 +139,18 @@ export class PostgresMemoryStorage implements MemoryStorage {
       totalObservations: raw.totalObservations,
       byType: Object.fromEntries(raw.byType.map((r) => [r.type, r.count])),
       byProject: Object.fromEntries(raw.byProject.map((r) => [r.project, r.count])),
-      oldestObservation: raw.oldestDate instanceof Date ? raw.oldestDate.toISOString() : raw.oldestDate ? String(raw.oldestDate) : null,
-      newestObservation: raw.newestDate instanceof Date ? raw.newestDate.toISOString() : raw.newestDate ? String(raw.newestDate) : null,
+      oldestObservation:
+        raw.oldestDate instanceof Date
+          ? raw.oldestDate.toISOString()
+          : raw.oldestDate
+            ? String(raw.oldestDate)
+            : null,
+      newestObservation:
+        raw.newestDate instanceof Date
+          ? raw.newestDate.toISOString()
+          : raw.newestDate
+            ? String(raw.newestDate)
+            : null,
     };
   }
 

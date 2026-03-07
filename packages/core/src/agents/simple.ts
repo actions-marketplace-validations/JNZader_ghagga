@@ -8,24 +8,22 @@
 
 import { generateText } from 'ai';
 import { createModel } from '../providers/index.js';
-import {
-  SIMPLE_REVIEW_SYSTEM,
-  REVIEW_CALIBRATION,
-  buildStaticAnalysisContext,
-  buildMemoryContext,
-  buildStackHints,
-  buildReviewLevelInstruction,
-} from './prompts.js';
 import type {
-  LLMProvider,
-  ProgressCallback,
-  ReviewResult,
-  ReviewFinding,
-  ReviewStatus,
   FindingSeverity,
   FindingSource,
+  LLMProvider,
+  ProgressCallback,
+  ReviewFinding,
   ReviewLevel,
+  ReviewResult,
+  ReviewStatus,
 } from '../types.js';
+import {
+  buildMemoryContext,
+  buildReviewLevelInstruction,
+  REVIEW_CALIBRATION,
+  SIMPLE_REVIEW_SYSTEM,
+} from './prompts.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -44,13 +42,7 @@ export interface SimpleReviewInput {
 // ─── Response Parsing ───────────────────────────────────────────
 
 /** Valid severity values for type-safe parsing */
-const VALID_SEVERITIES = new Set<FindingSeverity>([
-  'critical',
-  'high',
-  'medium',
-  'low',
-  'info',
-]);
+const VALID_SEVERITIES = new Set<FindingSeverity>(['critical', 'high', 'medium', 'low', 'info']);
 
 /**
  * Parse the structured LLM response into a ReviewResult.
@@ -68,7 +60,8 @@ function parseReviewResponse(
 ): ReviewResult {
   // Extract STATUS
   const statusMatch = /STATUS:\s*(PASSED|FAILED|NEEDS_HUMAN_REVIEW|SKIPPED)/i.exec(text);
-  const status: ReviewStatus = (statusMatch?.[1]?.toUpperCase() as ReviewStatus) ?? 'NEEDS_HUMAN_REVIEW';
+  const status: ReviewStatus =
+    (statusMatch?.[1]?.toUpperCase() as ReviewStatus) ?? 'NEEDS_HUMAN_REVIEW';
 
   // Extract SUMMARY
   const summaryMatch = /SUMMARY:\s*(.+?)(?:\n(?:FINDINGS:|$))/is.exec(text);
@@ -119,19 +112,19 @@ function parseFindingsBlock(text: string): ReviewFinding[] {
 
   let match;
   while ((match = findingPattern.exec(text)) !== null) {
-    const rawSeverity = match[1]!.toLowerCase() as FindingSeverity;
+    const rawSeverity = match[1]?.toLowerCase() as FindingSeverity;
     const severity: FindingSeverity = VALID_SEVERITIES.has(rawSeverity) ? rawSeverity : 'info';
 
-    const lineStr = match[4]!.trim();
+    const lineStr = match[4]?.trim();
     const line = lineStr === 'N/A' ? undefined : parseInt(lineStr, 10) || undefined;
 
     findings.push({
       severity,
-      category: match[2]!.trim().toLowerCase(),
-      file: match[3]!.trim(),
+      category: match[2]?.trim().toLowerCase(),
+      file: match[3]?.trim(),
       line,
-      message: match[5]!.trim(),
-      suggestion: match[6]!.trim(),
+      message: match[5]?.trim(),
+      suggestion: match[6]?.trim(),
       source: 'ai' as FindingSource,
     });
   }
@@ -151,7 +144,8 @@ function parseFindingsBlock(text: string): ReviewFinding[] {
  * @returns Parsed ReviewResult
  */
 export async function runSimpleReview(input: SimpleReviewInput): Promise<ReviewResult> {
-  const { diff, provider, model, apiKey, staticContext, memoryContext, stackHints, reviewLevel } = input;
+  const { diff, provider, model, apiKey, staticContext, memoryContext, stackHints, reviewLevel } =
+    input;
   const emit = input.onProgress ?? (() => {});
 
   const startTime = Date.now();
@@ -186,8 +180,7 @@ export async function runSimpleReview(input: SimpleReviewInput): Promise<ReviewR
   });
 
   const executionTimeMs = Date.now() - startTime;
-  const tokensUsed =
-    (result.usage?.promptTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+  const tokensUsed = (result.usage?.promptTokens ?? 0) + (result.usage?.completionTokens ?? 0);
 
   emit({
     step: 'simple-done',

@@ -37,7 +37,7 @@ let _plain = true; // default to plain (safe for tests / non-TTY)
  * Auto-detects styled vs. plain based on TTY, CI, and --plain flag.
  */
 export function init(opts?: TuiInitOptions): void {
-  _plain = !!(opts?.plain) || !process.stdout.isTTY || !!process.env['CI'];
+  _plain = !!opts?.plain || !process.stdout.isTTY || !!process.env.CI;
 }
 
 /** Returns true when the current mode is plain. */

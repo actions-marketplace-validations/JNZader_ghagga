@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -16,10 +16,10 @@ vi.mock('@actions/core', () => ({
   warning: vi.fn(),
 }));
 
-import { exec } from '@actions/exec';
 import * as cache from '@actions/cache';
 import * as core from '@actions/core';
-import { installTrivy, executeTrivy } from '../trivy.js';
+import { exec } from '@actions/exec';
+import { executeTrivy, installTrivy } from '../trivy.js';
 import { TOOL_VERSIONS } from '../types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -29,11 +29,7 @@ const mockRestoreCache = vi.mocked(cache.restoreCache);
 const mockSaveCache = vi.mocked(cache.saveCache);
 const mockWarning = vi.mocked(core.warning);
 
-function simulateExec(
-  exitCode: number,
-  stdout = '',
-  stderr = '',
-): ReturnType<typeof mockExec> {
+function simulateExec(exitCode: number, stdout = '', stderr = ''): ReturnType<typeof mockExec> {
   return mockExec.mockImplementationOnce(async (_cmd, _args, options) => {
     if (stdout && options?.listeners?.stdout) {
       options.listeners.stdout(Buffer.from(stdout));
@@ -130,9 +126,7 @@ describe('installTrivy', () => {
     const result = await installTrivy();
 
     expect(result).toBe(true);
-    expect(mockWarning).toHaveBeenCalledWith(
-      expect.stringContaining('binary not functional'),
-    );
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('binary not functional'));
   });
 
   it('runs install script on cache miss', async () => {
@@ -196,9 +190,7 @@ describe('installTrivy', () => {
 
     await installTrivy();
 
-    expect(mockWarning).toHaveBeenCalledWith(
-      expect.stringContaining('Trivy install failed'),
-    );
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('Trivy install failed'));
   });
 });
 
@@ -245,9 +237,7 @@ describe('executeTrivy', () => {
 
     const result = await executeTrivy('/workspace');
 
-    const critical = result.findings.find((f) =>
-      f.message.includes('CVE-2023-5678'),
-    );
+    const critical = result.findings.find((f) => f.message.includes('CVE-2023-5678'));
     expect(critical?.severity).toBe('critical');
   });
 
@@ -257,9 +247,7 @@ describe('executeTrivy', () => {
 
     const result = await executeTrivy('/workspace');
 
-    const high = result.findings.find((f) =>
-      f.message.includes('CVE-2023-1234'),
-    );
+    const high = result.findings.find((f) => f.message.includes('CVE-2023-1234'));
     expect(high?.severity).toBe('high');
   });
 
@@ -269,9 +257,7 @@ describe('executeTrivy', () => {
 
     const result = await executeTrivy('/workspace');
 
-    const medium = result.findings.find((f) =>
-      f.message.includes('CVE-2024-9999'),
-    );
+    const medium = result.findings.find((f) => f.message.includes('CVE-2024-9999'));
     expect(medium?.severity).toBe('medium');
   });
 
@@ -585,11 +571,7 @@ describe('executeTrivy', () => {
 
     await installTrivy();
 
-    expect(mockExec).toHaveBeenCalledWith(
-      'trivy',
-      ['--version'],
-      expect.any(Object),
-    );
+    expect(mockExec).toHaveBeenCalledWith('trivy', ['--version'], expect.any(Object));
   });
 
   it('uses 10s timeout for version check', async () => {
@@ -606,9 +588,7 @@ describe('executeTrivy', () => {
     const result = await installTrivy();
 
     expect(result).toBe(true);
-    expect(mockWarning).toHaveBeenCalledWith(
-      expect.stringContaining('binary not functional'),
-    );
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('binary not functional'));
   }, 20_000);
 
   it('uses 120s timeout for install script', async () => {
@@ -621,10 +601,7 @@ describe('executeTrivy', () => {
     // Verify bash install was called — timeoutMs is handled internally
     expect(mockExec).toHaveBeenCalledWith(
       'bash',
-      [
-        '-c',
-        expect.stringContaining('aquasecurity/trivy'),
-      ],
+      ['-c', expect.stringContaining('aquasecurity/trivy')],
       expect.any(Object),
     );
   });

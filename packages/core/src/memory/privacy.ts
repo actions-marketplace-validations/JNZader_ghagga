@@ -23,7 +23,10 @@ const SENSITIVE_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /AKIA[0-9A-Z]{16}/g, replacement: '[REDACTED_AWS_KEY]' },
 
   // AWS Secret Access Keys (typically 40 chars, base64-ish)
-  { pattern: /(?<=AWS_SECRET_ACCESS_KEY\s*=\s*)[A-Za-z0-9/+=]{40}/g, replacement: '[REDACTED_AWS_SECRET]' },
+  {
+    pattern: /(?<=AWS_SECRET_ACCESS_KEY\s*=\s*)[A-Za-z0-9/+=]{40}/g,
+    replacement: '[REDACTED_AWS_SECRET]',
+  },
 
   // GitHub tokens (classic and fine-grained)
   { pattern: /ghp_[a-zA-Z0-9]{36,}/g, replacement: '[REDACTED_GITHUB_PAT]' },
@@ -51,13 +54,15 @@ const SENSITIVE_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
   // Base64-encoded strings that look like they could be secrets (64+ chars)
   // Only match when preceded by common secret-related variable names
   {
-    pattern: /(?<=(SECRET|KEY|TOKEN|CREDENTIAL|PASSWORD)\s*[:=]\s*['"]?)[A-Za-z0-9+/]{64,}={0,2}(?=['"]?)/gi,
+    pattern:
+      /(?<=(SECRET|KEY|TOKEN|CREDENTIAL|PASSWORD)\s*[:=]\s*['"]?)[A-Za-z0-9+/]{64,}={0,2}(?=['"]?)/gi,
     replacement: '[REDACTED_BASE64]',
   },
 
   // Private keys (PEM format)
   {
-    pattern: /-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA )?PRIVATE KEY-----/g,
+    pattern:
+      /-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |DSA )?PRIVATE KEY-----/g,
     replacement: '[REDACTED_PRIVATE_KEY]',
   },
 

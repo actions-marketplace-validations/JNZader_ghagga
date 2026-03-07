@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
 import { createHmac } from 'node:crypto';
+import { describe, expect, it } from 'vitest';
 import { verifyWebhookSignature } from './client.js';
 
 /**
@@ -53,7 +53,7 @@ describe('verifyWebhookSignature', () => {
   });
 
   it('handles large payloads', async () => {
-    const largePayload = '{"data":"' + 'x'.repeat(100_000) + '"}';
+    const largePayload = `{"data":"${'x'.repeat(100_000)}"}`;
     const signature = computeSignature(largePayload, secret);
     expect(await verifyWebhookSignature(largePayload, signature, secret)).toBe(true);
   });

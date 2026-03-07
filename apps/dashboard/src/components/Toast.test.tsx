@@ -3,8 +3,8 @@
  * Covers rendering, auto-dismiss timing, stacking, and type variants.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider, useToast } from './Toast';
 
 // ─── Helper: component that triggers toasts ──────────────────────
@@ -19,11 +19,7 @@ function ToastTrigger({
   duration?: number;
 }) {
   const { addToast } = useToast();
-  return (
-    <button onClick={() => addToast({ message, type, duration })}>
-      Add Toast
-    </button>
-  );
+  return <button onClick={() => addToast({ message, type, duration })}>Add Toast</button>;
 }
 
 function MultiTrigger() {

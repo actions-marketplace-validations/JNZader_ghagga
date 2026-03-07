@@ -5,8 +5,8 @@
  * plus new shared formatters. All functions are pure (CC2).
  */
 
-import type { ReviewResult, ReviewStatus, FindingSeverity } from 'ghagga-core';
-import { STATUS_EMOJI, SEVERITY_EMOJI, SOURCE_LABELS } from './theme.js';
+import type { ReviewResult } from 'ghagga-core';
+import { SEVERITY_EMOJI, SOURCE_LABELS, STATUS_EMOJI } from './theme.js';
 
 // ─── Table & Value Formatting ───────────────────────────────────
 
@@ -14,11 +14,7 @@ import { STATUS_EMOJI, SEVERITY_EMOJI, SOURCE_LABELS } from './theme.js';
  * Format a plain-text table with headers, separator, and padded columns.
  * Moved from memory/utils.ts — same signature, same behavior.
  */
-export function formatTable(
-  headers: string[],
-  rows: string[][],
-  widths: number[],
-): string {
+export function formatTable(headers: string[], rows: string[][], widths: number[]): string {
   const lines: string[] = [];
 
   // Header row
@@ -58,7 +54,7 @@ export function formatId(id: number): string {
  */
 export function truncate(str: string, maxLen: number): string {
   if (str.length <= maxLen) return str;
-  return str.slice(0, maxLen - 3) + '...';
+  return `${str.slice(0, maxLen - 3)}...`;
 }
 
 // ─── Key-Value Formatting ───────────────────────────────────────
@@ -68,11 +64,7 @@ export function truncate(str: string, maxLen: number): string {
  * Used by status and memory show commands.
  * Example: formatKeyValue('Provider', 'github') → "   Provider:  github"
  */
-export function formatKeyValue(
-  label: string,
-  value: string,
-  indent: number = 3,
-): string {
+export function formatKeyValue(label: string, value: string, indent: number = 3): string {
   const pad = ' '.repeat(indent);
   return `${pad}${label.padEnd(12)}  ${value}`;
 }
@@ -92,7 +84,9 @@ export function formatMarkdownResult(result: ReviewResult): string {
   // Header
   lines.push('---');
   lines.push(`🤖 GHAGGA Code Review  |  ${status}`);
-  lines.push(`Mode: ${result.metadata.mode} | Model: ${result.metadata.model} | Time: ${timeSeconds}s | Tokens: ${result.metadata.tokensUsed}`);
+  lines.push(
+    `Mode: ${result.metadata.mode} | Model: ${result.metadata.model} | Time: ${timeSeconds}s | Tokens: ${result.metadata.tokensUsed}`,
+  );
   lines.push('---');
   lines.push('');
 
@@ -111,7 +105,7 @@ export function formatMarkdownResult(result: ReviewResult): string {
     for (const finding of result.findings) {
       const src = finding.source ?? 'ai';
       if (!grouped.has(src)) grouped.set(src, []);
-      grouped.get(src)!.push(finding);
+      grouped.get(src)?.push(finding);
     }
 
     // Render order: static tools first, then AI
@@ -127,9 +121,7 @@ export function formatMarkdownResult(result: ReviewResult): string {
 
       for (const finding of findings) {
         const emoji = SEVERITY_EMOJI[finding.severity] ?? '';
-        const location = finding.line
-          ? `${finding.file}:${finding.line}`
-          : finding.file;
+        const location = finding.line ? `${finding.file}:${finding.line}` : finding.file;
 
         lines.push(`${emoji} [${finding.severity.toUpperCase()}] ${finding.category}`);
         lines.push(`   ${location}`);

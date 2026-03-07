@@ -23,18 +23,18 @@
 import 'dotenv/config';
 
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
-import { DEFAULT_MODELS } from 'ghagga-core';
 import type { LLMProvider, ReviewMode } from 'ghagga-core';
-import { loadConfig, getStoredToken } from './lib/config.js';
-import { reviewCommand } from './commands/review.js';
+import { DEFAULT_MODELS } from 'ghagga-core';
+import { hooksCommand } from './commands/hooks/index.js';
 import { loginCommand } from './commands/login.js';
 import { logoutCommand } from './commands/logout.js';
-import { statusCommand } from './commands/status.js';
 import { memoryCommand } from './commands/memory/index.js';
-import { hooksCommand } from './commands/hooks/index.js';
+import { reviewCommand } from './commands/review.js';
+import { statusCommand } from './commands/status.js';
+import { getStoredToken, loadConfig } from './lib/config.js';
 import * as tui from './ui/tui.js';
 
 // Read version from package.json at runtime (no hardcoded strings)
@@ -88,31 +88,15 @@ program
   .command('review')
   .description('Review local code changes using AI')
   .argument('[path]', 'Path to the repository', '.')
-  .option(
-    '-m, --mode <mode>',
-    'Review mode',
-    'simple',
-  )
+  .option('-m, --mode <mode>', 'Review mode', 'simple')
   .option(
     '-p, --provider <provider>',
     'LLM provider (auto-detected from login)',
-    process.env['GHAGGA_PROVIDER'],
+    process.env.GHAGGA_PROVIDER,
   )
-  .option(
-    '--model <model>',
-    'LLM model identifier',
-    process.env['GHAGGA_MODEL'],
-  )
-  .option(
-    '--api-key <key>',
-    'LLM provider API key',
-    process.env['GHAGGA_API_KEY'],
-  )
-  .option(
-    '-f, --format <format>',
-    'Output format',
-    'markdown',
-  )
+  .option('--model <model>', 'LLM model identifier', process.env.GHAGGA_MODEL)
+  .option('--api-key <key>', 'LLM provider API key', process.env.GHAGGA_API_KEY)
+  .option('-f, --format <format>', 'Output format', 'markdown')
   .option('--no-semgrep', 'Disable Semgrep static analysis')
   .option('--no-trivy', 'Disable Trivy vulnerability scanning')
   .option('--no-cpd', 'Disable CPD duplicate detection')
@@ -123,7 +107,11 @@ program
   .option('--commit-msg <file>', 'Validate commit message from file path')
   .option('--exit-on-issues', 'Exit with code 1 if critical/high issues found')
   .option('--quick', 'Static analysis only — skip LLM review')
-  .option('--memory-backend <type>', 'Memory backend: sqlite (default) or engram (env: GHAGGA_MEMORY_BACKEND)', 'sqlite')
+  .option(
+    '--memory-backend <type>',
+    'Memory backend: sqlite (default) or engram (env: GHAGGA_MEMORY_BACKEND)',
+    'sqlite',
+  )
   .action(async (path: string, options: ReviewCommandOptions) => {
     // ── Auto-resolve auth from stored config ──────────────────
     const config = loadConfig();
@@ -141,21 +129,26 @@ program
     // Auto-resolve API key: CLI flag > env var > GITHUB_TOKEN > stored token
     if (!options.apiKey) {
       if (options.provider === 'github') {
-        options.apiKey = process.env['GITHUB_TOKEN'] ?? storedToken ?? undefined;
+        options.apiKey = process.env.GITHUB_TOKEN ?? storedToken ?? undefined;
       }
     }
 
     // ── Validate mode ─────────────────────────────────────────
     const validModes: ReviewMode[] = ['simple', 'workflow', 'consensus'];
     if (!validModes.includes(options.mode as ReviewMode)) {
-      tui.log.error(
-        `❌ Invalid mode "${options.mode}". Choose from: ${validModes.join(', ')}`,
-      );
+      tui.log.error(`❌ Invalid mode "${options.mode}". Choose from: ${validModes.join(', ')}`);
       process.exit(1);
     }
 
     // ── Validate provider ─────────────────────────────────────
-    const validProviders: LLMProvider[] = ['anthropic', 'openai', 'google', 'github', 'ollama', 'qwen'];
+    const validProviders: LLMProvider[] = [
+      'anthropic',
+      'openai',
+      'google',
+      'github',
+      'ollama',
+      'qwen',
+    ];
     if (!validProviders.includes(options.provider as LLMProvider)) {
       tui.log.error(
         `❌ Invalid provider "${options.provider}". Choose from: ${validProviders.join(', ')}`,

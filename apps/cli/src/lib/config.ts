@@ -6,8 +6,8 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ export interface GhaggaCliConfig {
 // ─── Paths ──────────────────────────────────────────────────────
 
 export function getConfigDir(): string {
-  const xdgConfig = process.env['XDG_CONFIG_HOME'];
+  const xdgConfig = process.env.XDG_CONFIG_HOME;
   const base = xdgConfig || join(homedir(), '.config');
   return join(base, 'ghagga');
 }
@@ -68,7 +68,7 @@ export function saveConfig(config: GhaggaCliConfig): void {
     mkdirSync(configDir, { recursive: true });
   }
 
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
 }
 
 /**

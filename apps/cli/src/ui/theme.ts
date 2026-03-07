@@ -5,7 +5,7 @@
  * inline emoji maps or ANSI color codes (CC3).
  */
 
-import type { ReviewStatus, FindingSeverity } from 'ghagga-core';
+import type { FindingSeverity, ReviewStatus } from 'ghagga-core';
 
 /** Brand identity for intro/outro. */
 export const BRAND = {
@@ -32,19 +32,19 @@ export const SEVERITY_EMOJI: Record<FindingSeverity, string> = {
 
 /** Step icons for verbose progress output. */
 export const STEP_ICON: Record<string, string> = {
-  'validate':          '🔍',
-  'parse-diff':        '📄',
-  'detect-stacks':     '🧩',
-  'token-budget':      '📊',
-  'static-analysis':   '🛡️',
-  'static-results':    '📋',
-  'agent-start':       '🤖',
-  'simple-call':       '💬',
-  'simple-done':       '✅',
-  'workflow-start':    '🔄',
+  validate: '🔍',
+  'parse-diff': '📄',
+  'detect-stacks': '🧩',
+  'token-budget': '📊',
+  'static-analysis': '🛡️',
+  'static-results': '📋',
+  'agent-start': '🤖',
+  'simple-call': '💬',
+  'simple-done': '✅',
+  'workflow-start': '🔄',
   'workflow-synthesis': '🧬',
-  'consensus-start':   '🗳️',
-  'consensus-voting':  '🏛️',
+  'consensus-start': '🗳️',
+  'consensus-voting': '🏛️',
 };
 
 /** Source labels for review findings. */

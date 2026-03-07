@@ -6,10 +6,7 @@ interface StatusBadgeProps {
   className?: string;
 }
 
-const statusConfig: Record<
-  ReviewStatus,
-  { label: string; classes: string }
-> = {
+const statusConfig: Record<ReviewStatus, { label: string; classes: string }> = {
   PASSED: {
     label: 'Passed',
     classes: 'bg-green-500/15 text-green-400 border-green-500/25',

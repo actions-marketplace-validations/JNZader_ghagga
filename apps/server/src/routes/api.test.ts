@@ -5,10 +5,10 @@
  * injected auth user context, and comprehensive edge cases.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
-import { createApiRouter } from './api.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RunnerCreationError } from '../github/runner.js';
+import { createApiRouter } from './api.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -44,7 +44,8 @@ vi.mock('ghagga-db', () => ({
   encrypt: (...args: unknown[]) => mockEncrypt(...args),
   decrypt: (...args: unknown[]) => mockDecrypt(...args),
   deleteMemoryObservation: (...args: unknown[]) => mockDeleteMemoryObservation(...args),
-  clearMemoryObservationsByProject: (...args: unknown[]) => mockClearMemoryObservationsByProject(...args),
+  clearMemoryObservationsByProject: (...args: unknown[]) =>
+    mockClearMemoryObservationsByProject(...args),
   clearAllMemoryObservations: (...args: unknown[]) => mockClearAllMemoryObservations(...args),
   deleteMemorySession: (...args: unknown[]) => mockDeleteMemorySession(...args),
   clearEmptyMemorySessions: (...args: unknown[]) => mockClearEmptyMemorySessions(...args),
@@ -425,9 +426,7 @@ describe('GET /api/installations', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.data).toEqual([
-      { id: 100, accountLogin: 'my-org', accountType: 'Organization' },
-    ]);
+    expect(json.data).toEqual([{ id: 100, accountLogin: 'my-org', accountType: 'Organization' }]);
   });
 
   it('skips installations that are not found in DB', async () => {
@@ -609,7 +608,7 @@ describe('PUT /api/installation-settings', () => {
 
     // Verify upsert was called with correct args
     expect(mockUpsertInstallationSettings).toHaveBeenCalledOnce();
-    const [db, installId, updates] = mockUpsertInstallationSettings.mock.calls[0];
+    const [_db, installId, updates] = mockUpsertInstallationSettings.mock.calls[0];
     expect(installId).toBe(100);
     expect(updates.providerChain[0].encryptedApiKey).toBe('encrypted-sk-ant-new-key');
     expect(updates.aiReviewEnabled).toBe(false);
@@ -622,7 +621,11 @@ describe('PUT /api/installation-settings', () => {
   it('preserves existing API key when no new key provided', async () => {
     mockGetInstallationSettings.mockResolvedValueOnce({
       providerChain: [
-        { provider: 'anthropic', model: 'claude-sonnet-4-20250514', encryptedApiKey: 'existing-enc-key' },
+        {
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-20250514',
+          encryptedApiKey: 'existing-enc-key',
+        },
       ],
       settings: {
         enableSemgrep: true,
@@ -665,9 +668,7 @@ describe('PUT /api/installation-settings', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         installationId: 100,
-        providerChain: [
-          { provider: 'github', model: 'gpt-4o' },
-        ],
+        providerChain: [{ provider: 'github', model: 'gpt-4o' }],
       }),
     });
 
@@ -749,7 +750,9 @@ describe('PUT /api/installation-settings', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         installationId: 100,
-        providerChain: [{ provider: 'anthropic', model: 'claude-sonnet-4-20250514', apiKey: 'key' }],
+        providerChain: [
+          { provider: 'anthropic', model: 'claude-sonnet-4-20250514', apiKey: 'key' },
+        ],
       }),
     });
 
@@ -768,9 +771,7 @@ describe('GET /api/settings', () => {
     mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
     // Global settings for reference
     mockGetInstallationSettings.mockResolvedValueOnce({
-      providerChain: [
-        { provider: 'openai', model: 'gpt-4o', encryptedApiKey: 'global-enc-key' },
-      ],
+      providerChain: [{ provider: 'openai', model: 'gpt-4o', encryptedApiKey: 'global-enc-key' }],
       aiReviewEnabled: true,
       reviewMode: 'simple',
       settings: {
@@ -907,9 +908,7 @@ describe('PUT /api/settings', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         repoFullName: 'owner/repo',
-        providerChain: [
-          { provider: 'openai', model: 'gpt-4o', apiKey: 'sk-new-openai-key' },
-        ],
+        providerChain: [{ provider: 'openai', model: 'gpt-4o', apiKey: 'sk-new-openai-key' }],
         aiReviewEnabled: true,
         reviewMode: 'workflow',
         enableSemgrep: true,
@@ -929,7 +928,7 @@ describe('PUT /api/settings', () => {
     expect(mockEncrypt).toHaveBeenCalledWith('sk-new-openai-key');
     expect(mockUpdateRepoSettings).toHaveBeenCalledOnce();
 
-    const [db, repoId, updates] = mockUpdateRepoSettings.mock.calls[0];
+    const [_db, repoId, updates] = mockUpdateRepoSettings.mock.calls[0];
     expect(repoId).toBe(42);
     expect(updates.providerChain[0].provider).toBe('openai');
     expect(updates.providerChain[0].encryptedApiKey).toBe('encrypted-sk-new-openai-key');
@@ -976,9 +975,7 @@ describe('PUT /api/settings', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         repoFullName: 'owner/repo',
-        providerChain: [
-          { provider: 'github', model: 'gpt-4o-mini' },
-        ],
+        providerChain: [{ provider: 'github', model: 'gpt-4o-mini' }],
       }),
     });
 
@@ -1600,7 +1597,12 @@ describe('POST /api/runner/create', () => {
 
   it('returns 409 for already_exists error', async () => {
     mockCreateRunnerRepo.mockRejectedValueOnce(
-      new RunnerCreationError('already_exists', 'Repo already exists', undefined, 'testuser/ghagga-runner'),
+      new RunnerCreationError(
+        'already_exists',
+        'Repo already exists',
+        undefined,
+        'testuser/ghagga-runner',
+      ),
     );
 
     const app = createApp();
@@ -1699,7 +1701,12 @@ describe('POST /api/runner/create', () => {
 
   it('returns 201 with secretConfigured: false for secret_failed error', async () => {
     mockCreateRunnerRepo.mockRejectedValueOnce(
-      new RunnerCreationError('secret_failed', 'Failed to set secret', undefined, 'testuser/ghagga-runner'),
+      new RunnerCreationError(
+        'secret_failed',
+        'Failed to set secret',
+        undefined,
+        'testuser/ghagga-runner',
+      ),
     );
 
     const app = createApp();

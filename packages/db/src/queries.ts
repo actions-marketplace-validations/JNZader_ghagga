@@ -1,18 +1,18 @@
-import { eq, and, desc, inArray, sql, type SQL } from 'drizzle-orm';
+import { createHash } from 'node:crypto';
+import { and, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
 import type { Database } from './client.js';
 import {
-  installations,
+  type DbProviderChainEntry,
+  DEFAULT_REPO_SETTINGS,
+  githubUserMappings,
   installationSettings,
+  installations,
+  memoryObservations,
+  memorySessions,
+  type RepoSettings,
   repositories,
   reviews,
-  memorySessions,
-  memoryObservations,
-  githubUserMappings,
-  DEFAULT_REPO_SETTINGS,
-  type RepoSettings,
-  type DbProviderChainEntry,
 } from './schema.js';
-import { createHash } from 'node:crypto';
 
 // ─── Installations ──────────────────────────────────────────────
 
@@ -68,12 +68,7 @@ export async function getInstallationsByAccountLogin(db: Database, accountLogin:
   return db
     .select()
     .from(installations)
-    .where(
-      and(
-        eq(installations.accountLogin, accountLogin),
-        eq(installations.isActive, true),
-      ),
-    );
+    .where(and(eq(installations.accountLogin, accountLogin), eq(installations.isActive, true)));
 }
 
 // ─── Installation Settings ──────────────────────────────────────
@@ -799,12 +794,7 @@ export async function getInstallationsByUserId(db: Database, githubUserId: numbe
   return db
     .select()
     .from(installations)
-    .where(
-      and(
-        inArray(installations.id, installationIds),
-        eq(installations.isActive, true),
-      ),
-    );
+    .where(and(inArray(installations.id, installationIds), eq(installations.isActive, true)));
 }
 
 /**
@@ -817,7 +807,9 @@ export async function getInstallationsByUserId(db: Database, githubUserId: numbe
 export async function getRawMappingsByUserId(
   db: Database,
   githubUserId: number,
-): Promise<Array<{ id: number; githubUserId: number; githubLogin: string; installationId: number }>> {
+): Promise<
+  Array<{ id: number; githubUserId: number; githubLogin: string; installationId: number }>
+> {
   return db
     .select({
       id: githubUserMappings.id,
@@ -834,15 +826,10 @@ export async function getRawMappingsByUserId(
  * Used to clean up stale mappings that point to deactivated installations.
  * No-op if mappingIds is empty.
  */
-export async function deleteStaleUserMappings(
-  db: Database,
-  mappingIds: number[],
-): Promise<void> {
+export async function deleteStaleUserMappings(db: Database, mappingIds: number[]): Promise<void> {
   if (mappingIds.length === 0) return;
 
-  await db
-    .delete(githubUserMappings)
-    .where(inArray(githubUserMappings.id, mappingIds));
+  await db.delete(githubUserMappings).where(inArray(githubUserMappings.id, mappingIds));
 }
 
 /**
@@ -854,9 +841,7 @@ export async function deleteMappingsByInstallationId(
   db: Database,
   installationId: number,
 ): Promise<void> {
-  await db
-    .delete(githubUserMappings)
-    .where(eq(githubUserMappings.installationId, installationId));
+  await db.delete(githubUserMappings).where(eq(githubUserMappings.installationId, installationId));
 }
 
 // ─── Memory: Session Deletion ───────────────────────────────────

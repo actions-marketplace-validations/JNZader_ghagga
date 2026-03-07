@@ -5,31 +5,31 @@
  * use fetchApi/fetchData which call the global fetch.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, waitFor, act } from '@testing-library/react';
+import type { QueryClient } from '@tanstack/react-query';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createTestQueryClient, createWrapper } from '../test/test-utils';
 import {
-  useRunnerStatus,
-  useCreateRunner,
+  useCleanupEmptySessions,
+  useClearRepoMemory,
   useConfigureRunnerSecret,
-  useReviews,
-  useStats,
-  useRepositories,
-  useSettings,
-  useUpdateSettings,
-  useValidateProvider,
-  useInstallations,
+  useCreateRunner,
+  useDeleteObservation,
+  useDeleteSession,
   useInstallationSettings,
-  useUpdateInstallationSettings,
+  useInstallations,
   useMemorySessions,
   useObservations,
-  useDeleteObservation,
-  useClearRepoMemory,
   usePurgeAllMemory,
-  useDeleteSession,
-  useCleanupEmptySessions,
+  useRepositories,
+  useReviews,
+  useRunnerStatus,
+  useSettings,
+  useStats,
+  useUpdateInstallationSettings,
+  useUpdateSettings,
+  useValidateProvider,
 } from './api';
-import { createWrapper, createTestQueryClient } from '../test/test-utils';
-import type { QueryClient } from '@tanstack/react-query';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -105,9 +105,7 @@ describe('useRunnerStatus', () => {
 
   it('returns isError true on API failure', async () => {
     // useRunnerStatus has retry: 1, so we need to provide responses for both attempts
-    mockFetch.mockResolvedValue(
-      new Response('Internal Server Error', { status: 500 }),
-    );
+    mockFetch.mockResolvedValue(new Response('Internal Server Error', { status: 500 }));
 
     const { result } = renderHook(() => useRunnerStatus('acme'), {
       wrapper: createWrapper(),
@@ -117,9 +115,7 @@ describe('useRunnerStatus', () => {
   });
 
   it('returns exists: false for runner not configured', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: { exists: false } }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { exists: false } }));
 
     const { result } = renderHook(() => useRunnerStatus('acme'), {
       wrapper: createWrapper(),
@@ -202,7 +198,12 @@ describe('useCreateRunner', () => {
   it('sends POST to /api/runner/create', async () => {
     mockFetch.mockResolvedValueOnce(
       mockJsonResponse({
-        data: { created: true, repoFullName: 'acme/ghagga-runner', secretConfigured: true, isPrivate: false },
+        data: {
+          created: true,
+          repoFullName: 'acme/ghagga-runner',
+          secretConfigured: true,
+          isPrivate: false,
+        },
       }),
     );
 
@@ -237,9 +238,7 @@ describe('useCreateRunner', () => {
   });
 
   it('reports error on generic server error', async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response('Internal Server Error', { status: 500 }),
-    );
+    mockFetch.mockResolvedValueOnce(new Response('Internal Server Error', { status: 500 }));
 
     const { result } = renderHook(() => useCreateRunner(), {
       wrapper: createWrapper(queryClient),
@@ -259,9 +258,7 @@ describe('useCreateRunner', () => {
 
 describe('useConfigureRunnerSecret', () => {
   it('configures secret successfully', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: { configured: true } }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { configured: true } }));
 
     const { result } = renderHook(() => useConfigureRunnerSecret(), {
       wrapper: createWrapper(),
@@ -276,9 +273,7 @@ describe('useConfigureRunnerSecret', () => {
   });
 
   it('sends POST to /api/runner/configure-secret', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: { configured: true } }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { configured: true } }));
 
     const { result } = renderHook(() => useConfigureRunnerSecret(), {
       wrapper: createWrapper(),
@@ -296,9 +291,7 @@ describe('useConfigureRunnerSecret', () => {
   });
 
   it('reports error on failure', async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response('Server Error', { status: 500 }),
-    );
+    mockFetch.mockResolvedValueOnce(new Response('Server Error', { status: 500 }));
 
     const { result } = renderHook(() => useConfigureRunnerSecret(), {
       wrapper: createWrapper(),
@@ -319,7 +312,16 @@ describe('useConfigureRunnerSecret', () => {
 describe('useReviews', () => {
   it('returns paginated reviews', async () => {
     const reviews = [
-      { id: 1, repo: 'acme/app', prNumber: 42, status: 'PASSED', mode: 'simple', summary: 'All good', findings: [], createdAt: '2026-01-01' },
+      {
+        id: 1,
+        repo: 'acme/app',
+        prNumber: 42,
+        status: 'PASSED',
+        mode: 'simple',
+        summary: 'All good',
+        findings: [],
+        createdAt: '2026-01-01',
+      },
     ];
     mockFetch.mockResolvedValueOnce(
       mockJsonResponse({
@@ -379,7 +381,15 @@ describe('useReviews', () => {
 
 describe('useStats', () => {
   it('returns stats when repo is provided', async () => {
-    const stats = { totalReviews: 10, passed: 8, failed: 2, needsHumanReview: 0, skipped: 0, passRate: 80, reviewsByDay: [] };
+    const stats = {
+      totalReviews: 10,
+      passed: 8,
+      failed: 2,
+      needsHumanReview: 0,
+      skipped: 0,
+      passRate: 80,
+      reviewsByDay: [],
+    };
     mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: stats }));
 
     const { result } = renderHook(() => useStats('acme/app'), {
@@ -406,9 +416,7 @@ describe('useStats', () => {
 
 describe('useRepositories', () => {
   it('returns repository list', async () => {
-    const repos = [
-      { id: 1, fullName: 'acme/app', owner: 'acme', name: 'app', isActive: true },
-    ];
+    const repos = [{ id: 1, fullName: 'acme/app', owner: 'acme', name: 'app', isActive: true }];
     mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: repos }));
 
     const { result } = renderHook(() => useRepositories(), {
@@ -472,9 +480,7 @@ describe('useUpdateSettings', () => {
   });
 
   it('sends PUT to /api/settings with JSON body', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ message: 'Settings updated' }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ message: 'Settings updated' }));
 
     const { result } = renderHook(() => useUpdateSettings(), {
       wrapper: createWrapper(queryClient),
@@ -499,9 +505,7 @@ describe('useUpdateSettings', () => {
 
   it('invalidates settings cache for the repo on success', async () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ message: 'Settings updated' }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ message: 'Settings updated' }));
 
     const { result } = renderHook(() => useUpdateSettings(), {
       wrapper: createWrapper(queryClient),
@@ -523,9 +527,7 @@ describe('useUpdateSettings', () => {
 
 describe('useValidateProvider', () => {
   it('sends POST to /api/providers/validate with payload', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ valid: true, models: ['gpt-4o'] }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ valid: true, models: ['gpt-4o'] }));
 
     const { result } = renderHook(() => useValidateProvider(), {
       wrapper: createWrapper(),
@@ -549,9 +551,7 @@ describe('useValidateProvider', () => {
 
 describe('useInstallations', () => {
   it('returns installation list', async () => {
-    const installations = [
-      { id: 100, accountLogin: 'acme', accountType: 'Organization' },
-    ];
+    const installations = [{ id: 100, accountLogin: 'acme', accountType: 'Organization' }];
     mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: installations }));
 
     const { result } = renderHook(() => useInstallations(), {
@@ -614,9 +614,7 @@ describe('useUpdateInstallationSettings', () => {
   });
 
   it('sends PUT to /api/installation-settings', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ message: 'Settings updated' }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ message: 'Settings updated' }));
 
     const { result } = renderHook(() => useUpdateInstallationSettings(), {
       wrapper: createWrapper(queryClient),
@@ -637,9 +635,7 @@ describe('useUpdateInstallationSettings', () => {
 
   it('invalidates both installation-settings and settings cache on success', async () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ message: 'Settings updated' }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ message: 'Settings updated' }));
 
     const { result } = renderHook(() => useUpdateInstallationSettings(), {
       wrapper: createWrapper(queryClient),
@@ -665,7 +661,14 @@ describe('useUpdateInstallationSettings', () => {
 describe('useMemorySessions', () => {
   it('returns sessions when project is provided', async () => {
     const sessions = [
-      { id: 1, project: 'acme/app', prNumber: 42, summary: 'Learned patterns', createdAt: '2026-01-01', observationCount: 5 },
+      {
+        id: 1,
+        project: 'acme/app',
+        prNumber: 42,
+        summary: 'Learned patterns',
+        createdAt: '2026-01-01',
+        observationCount: 5,
+      },
     ];
     mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: sessions }));
 
@@ -694,7 +697,15 @@ describe('useMemorySessions', () => {
 describe('useObservations', () => {
   it('returns observations when sessionId is provided', async () => {
     const observations = [
-      { id: 1, sessionId: 1, type: 'pattern', title: 'Uses async/await', content: 'Prefers async', filePaths: ['src/index.ts'], createdAt: '2026-01-01' },
+      {
+        id: 1,
+        sessionId: 1,
+        type: 'pattern',
+        title: 'Uses async/await',
+        content: 'Prefers async',
+        filePaths: ['src/index.ts'],
+        createdAt: '2026-01-01',
+      },
     ];
     mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: observations }));
 
@@ -728,9 +739,7 @@ describe('useDeleteObservation', () => {
   });
 
   it('sends DELETE to /api/memory/observations/:id', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: { deleted: true } }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deleted: true } }));
 
     const { result } = renderHook(() => useDeleteObservation(), {
       wrapper: createWrapper(queryClient),
@@ -748,9 +757,7 @@ describe('useDeleteObservation', () => {
 
   it('invalidates observations and sessions cache on success', async () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: { deleted: true } }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deleted: true } }));
 
     const { result } = renderHook(() => useDeleteObservation(), {
       wrapper: createWrapper(queryClient),
@@ -797,9 +804,7 @@ describe('useClearRepoMemory', () => {
   });
 
   it('sends DELETE to /api/memory/projects/:project/observations with URL-encoded project', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: { cleared: 15 } }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { cleared: 15 } }));
 
     const { result } = renderHook(() => useClearRepoMemory(), {
       wrapper: createWrapper(queryClient),
@@ -817,9 +822,7 @@ describe('useClearRepoMemory', () => {
 
   it('invalidates observations and sessions cache on success', async () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: { cleared: 10 } }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { cleared: 10 } }));
 
     const { result } = renderHook(() => useClearRepoMemory(), {
       wrapper: createWrapper(queryClient),
@@ -866,9 +869,7 @@ describe('usePurgeAllMemory', () => {
   });
 
   it('sends DELETE to /api/memory/observations', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: { cleared: 50 } }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { cleared: 50 } }));
 
     const { result } = renderHook(() => usePurgeAllMemory(), {
       wrapper: createWrapper(queryClient),
@@ -888,9 +889,7 @@ describe('usePurgeAllMemory', () => {
 
   it('invalidates ALL memory queries on success', async () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: { cleared: 50 } }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { cleared: 50 } }));
 
     const { result } = renderHook(() => usePurgeAllMemory(), {
       wrapper: createWrapper(queryClient),
@@ -906,9 +905,7 @@ describe('usePurgeAllMemory', () => {
   });
 
   it('reports error on API failure (401)', async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response('Unauthorized', { status: 401 }),
-    );
+    mockFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
 
     const { result } = renderHook(() => usePurgeAllMemory(), {
       wrapper: createWrapper(queryClient),
@@ -934,9 +931,7 @@ describe('useDeleteSession', () => {
   });
 
   it('sends DELETE to /api/memory/sessions/:id', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: { deleted: true } }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deleted: true } }));
 
     const { result } = renderHook(() => useDeleteSession(), {
       wrapper: createWrapper(queryClient),
@@ -954,9 +949,7 @@ describe('useDeleteSession', () => {
 
   it('invalidates sessions and observations cache on success', async () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: { deleted: true } }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deleted: true } }));
 
     const { result } = renderHook(() => useDeleteSession(), {
       wrapper: createWrapper(queryClient),
@@ -1003,9 +996,7 @@ describe('useCleanupEmptySessions', () => {
   });
 
   it('sends DELETE to /api/memory/sessions/empty with project param', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: { deletedCount: 3 } }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deletedCount: 3 } }));
 
     const { result } = renderHook(() => useCleanupEmptySessions(), {
       wrapper: createWrapper(queryClient),
@@ -1022,9 +1013,7 @@ describe('useCleanupEmptySessions', () => {
   });
 
   it('sends DELETE without project param when not provided', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: { deletedCount: 5 } }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deletedCount: 5 } }));
 
     const { result } = renderHook(() => useCleanupEmptySessions(), {
       wrapper: createWrapper(queryClient),
@@ -1043,9 +1032,7 @@ describe('useCleanupEmptySessions', () => {
 
   it('invalidates sessions cache on success', async () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: { deletedCount: 2 } }),
-    );
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deletedCount: 2 } }));
 
     const { result } = renderHook(() => useCleanupEmptySessions(), {
       wrapper: createWrapper(queryClient),
@@ -1061,9 +1048,7 @@ describe('useCleanupEmptySessions', () => {
   });
 
   it('reports error on API failure (500)', async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response('Internal Server Error', { status: 500 }),
-    );
+    mockFetch.mockResolvedValueOnce(new Response('Internal Server Error', { status: 500 }));
 
     const { result } = renderHook(() => useCleanupEmptySessions(), {
       wrapper: createWrapper(queryClient),

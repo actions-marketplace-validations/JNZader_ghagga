@@ -5,12 +5,12 @@
  * with mocked global fetch and fake timers for the polling loop.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  GITHUB_CLIENT_ID,
-  requestDeviceCode,
-  pollForAccessToken,
   fetchGitHubUser,
+  GITHUB_CLIENT_ID,
+  pollForAccessToken,
+  requestDeviceCode,
 } from './oauth.js';
 
 // ─── Mock global fetch ──────────────────────────────────────────
@@ -105,11 +105,7 @@ describe('pollForAccessToken', () => {
   });
 
   // Helper: run pollForAccessToken and advance timers
-  async function runPoll(
-    deviceCode = 'dc_123',
-    interval = 1,
-    expiresIn = 60,
-  ) {
+  async function _runPoll(deviceCode = 'dc_123', interval = 1, expiresIn = 60) {
     const promise = pollForAccessToken(deviceCode, interval, expiresIn);
 
     // Advance through the initial sleep + poll cycles
@@ -140,9 +136,7 @@ describe('pollForAccessToken', () => {
 
   it('keeps polling on authorization_pending, returns on success', async () => {
     // First call: pending
-    mockFetch.mockResolvedValueOnce(
-      jsonResponse({ error: 'authorization_pending' }),
-    );
+    mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'authorization_pending' }));
     // Second call: success
     mockFetch.mockResolvedValueOnce(
       jsonResponse({
@@ -167,9 +161,7 @@ describe('pollForAccessToken', () => {
 
   it('increases interval by 5 on slow_down and continues polling', async () => {
     // First call: slow_down
-    mockFetch.mockResolvedValueOnce(
-      jsonResponse({ error: 'slow_down', interval: 5 }),
-    );
+    mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'slow_down', interval: 5 }));
     // Second call: success (after longer wait)
     mockFetch.mockResolvedValueOnce(
       jsonResponse({
@@ -191,9 +183,7 @@ describe('pollForAccessToken', () => {
   });
 
   it('throws "Device code expired" on expired_token error', async () => {
-    mockFetch.mockResolvedValueOnce(
-      jsonResponse({ error: 'expired_token' }),
-    );
+    mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'expired_token' }));
 
     const promise = pollForAccessToken('dc_123', 1, 60);
     // Attach rejection handler immediately to prevent unhandled rejection
@@ -206,9 +196,7 @@ describe('pollForAccessToken', () => {
   });
 
   it('throws "Authorization was denied" on access_denied error', async () => {
-    mockFetch.mockResolvedValueOnce(
-      jsonResponse({ error: 'access_denied' }),
-    );
+    mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'access_denied' }));
 
     const promise = pollForAccessToken('dc_123', 1, 60);
     const rejection = promise.catch((e: Error) => e);
@@ -237,9 +225,7 @@ describe('pollForAccessToken', () => {
   });
 
   it('throws "OAuth error" without description when none provided', async () => {
-    mockFetch.mockResolvedValueOnce(
-      jsonResponse({ error: 'unknown_error' }),
-    );
+    mockFetch.mockResolvedValueOnce(jsonResponse({ error: 'unknown_error' }));
 
     const promise = pollForAccessToken('dc_123', 1, 60);
     const rejection = promise.catch((e: Error) => e);
@@ -303,8 +289,6 @@ describe('fetchGitHubUser', () => {
   it('throws on non-ok response with status', async () => {
     mockFetch.mockResolvedValueOnce(errorResponse(401));
 
-    await expect(fetchGitHubUser('bad_token')).rejects.toThrow(
-      'Failed to fetch GitHub user: 401',
-    );
+    await expect(fetchGitHubUser('bad_token')).rejects.toThrow('Failed to fetch GitHub user: 401');
   });
 });

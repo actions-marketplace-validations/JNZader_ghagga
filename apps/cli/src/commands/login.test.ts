@@ -6,7 +6,7 @@
  * browser auto-open, and error handling.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ─────────────────────────────────────────────────────
 
@@ -46,11 +46,7 @@ vi.mock('node:os', () => ({
 }));
 
 import { loadConfig, saveConfig } from '../lib/config.js';
-import {
-  requestDeviceCode,
-  pollForAccessToken,
-  fetchGitHubUser,
-} from '../lib/oauth.js';
+import { fetchGitHubUser, pollForAccessToken, requestDeviceCode } from '../lib/oauth.js';
 import * as tui from '../ui/tui.js';
 import { loginCommand } from './login.js';
 
@@ -124,9 +120,7 @@ describe('loginCommand', () => {
     expect(mockRequestDeviceCode).toHaveBeenCalledOnce();
 
     // Verify user code was displayed
-    expect(tui.log.message).toHaveBeenCalledWith(
-      expect.stringContaining('ABCD-1234'),
-    );
+    expect(tui.log.message).toHaveBeenCalledWith(expect.stringContaining('ABCD-1234'));
 
     // Verify poll was called with device code params
     expect(mockPollForAccessToken).toHaveBeenCalledWith('dc_123', 5, 900);
@@ -143,9 +137,7 @@ describe('loginCommand', () => {
     });
 
     // Verify success message
-    expect(tui.log.success).toHaveBeenCalledWith(
-      expect.stringContaining('newuser'),
-    );
+    expect(tui.log.success).toHaveBeenCalledWith(expect.stringContaining('newuser'));
   });
 
   it('manages spinner lifecycle: start → stop', async () => {

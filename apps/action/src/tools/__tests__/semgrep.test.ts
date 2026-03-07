@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -16,10 +16,10 @@ vi.mock('@actions/core', () => ({
   warning: vi.fn(),
 }));
 
-import { exec } from '@actions/exec';
 import * as cache from '@actions/cache';
 import * as core from '@actions/core';
-import { installSemgrep, executeSemgrep } from '../semgrep.js';
+import { exec } from '@actions/exec';
+import { executeSemgrep, installSemgrep } from '../semgrep.js';
 import { TOOL_VERSIONS } from '../types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -32,11 +32,7 @@ const mockWarning = vi.mocked(core.warning);
 /**
  * Simulate @actions/exec: invoke listeners, return exit code.
  */
-function simulateExec(
-  exitCode: number,
-  stdout = '',
-  stderr = '',
-): ReturnType<typeof mockExec> {
+function simulateExec(exitCode: number, stdout = '', stderr = ''): ReturnType<typeof mockExec> {
   return mockExec.mockImplementationOnce(async (_cmd, _args, options) => {
     if (stdout && options?.listeners?.stdout) {
       options.listeners.stdout(Buffer.from(stdout));
@@ -126,9 +122,7 @@ describe('installSemgrep', () => {
     const result = await installSemgrep();
 
     expect(result).toBe(true);
-    expect(mockWarning).toHaveBeenCalledWith(
-      expect.stringContaining('binary not functional'),
-    );
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('binary not functional'));
     // pip install was called
     expect(mockExec).toHaveBeenCalledTimes(2);
   });
@@ -179,9 +173,7 @@ describe('installSemgrep', () => {
 
     await installSemgrep();
 
-    expect(mockWarning).toHaveBeenCalledWith(
-      expect.stringContaining('Semgrep install failed'),
-    );
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('Semgrep install failed'));
   });
 });
 
@@ -234,9 +226,7 @@ describe('executeSemgrep', () => {
 
     const result = await executeSemgrep('/workspace');
 
-    const xssFinding = result.findings.find((f) =>
-      f.message.includes('XSS'),
-    );
+    const xssFinding = result.findings.find((f) => f.message.includes('XSS'));
     expect(xssFinding?.severity).toBe('medium');
   });
 
@@ -246,9 +236,7 @@ describe('executeSemgrep', () => {
 
     const result = await executeSemgrep('/workspace');
 
-    const sqlFinding = result.findings.find((f) =>
-      f.message.includes('SQL injection'),
-    );
+    const sqlFinding = result.findings.find((f) => f.message.includes('SQL injection'));
     expect(sqlFinding?.severity).toBe('high');
   });
 
@@ -258,9 +246,7 @@ describe('executeSemgrep', () => {
 
     const result = await executeSemgrep('/workspace');
 
-    const infoFinding = result.findings.find((f) =>
-      f.message.includes('Unused import'),
-    );
+    const infoFinding = result.findings.find((f) => f.message.includes('Unused import'));
     expect(infoFinding?.severity).toBe('info');
   });
 
@@ -398,13 +384,7 @@ describe('executeSemgrep', () => {
     // The second exec call is the scan
     const scanCall = mockExec.mock.calls[1]!;
     expect(scanCall[0]).toBe('semgrep');
-    expect(scanCall[1]).toEqual([
-      '--json',
-      '--config',
-      'auto',
-      '--quiet',
-      '/my/repo',
-    ]);
+    expect(scanCall[1]).toEqual(['--json', '--config', 'auto', '--quiet', '/my/repo']);
   });
 
   it('uses allowNonZero: true for scan', async () => {
@@ -459,11 +439,7 @@ describe('executeSemgrep', () => {
 
     await installSemgrep();
 
-    expect(mockExec).toHaveBeenCalledWith(
-      'semgrep',
-      ['--version'],
-      expect.any(Object),
-    );
+    expect(mockExec).toHaveBeenCalledWith('semgrep', ['--version'], expect.any(Object));
   });
 
   it('uses 10s timeout for version check', async () => {
@@ -480,9 +456,7 @@ describe('executeSemgrep', () => {
     const result = await installSemgrep();
 
     expect(result).toBe(true);
-    expect(mockWarning).toHaveBeenCalledWith(
-      expect.stringContaining('binary not functional'),
-    );
+    expect(mockWarning).toHaveBeenCalledWith(expect.stringContaining('binary not functional'));
   }, 20_000);
 
   it('uses 120s timeout for pip install', async () => {

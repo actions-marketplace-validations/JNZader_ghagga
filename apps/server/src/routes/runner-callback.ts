@@ -18,11 +18,11 @@
  *   staticAnalysis: StaticAnalysisResult
  */
 
+import type { StaticAnalysisResult } from 'ghagga-core';
 import { Hono } from 'hono';
 import { verifyCallbackSignature } from '../github/runner.js';
 import { inngest } from '../inngest/client.js';
 import { logger as rootLogger } from '../lib/logger.js';
-import type { StaticAnalysisResult } from 'ghagga-core';
 
 const logger = rootLogger.child({ module: 'runner-callback' });
 

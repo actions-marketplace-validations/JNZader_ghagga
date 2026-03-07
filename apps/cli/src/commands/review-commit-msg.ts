@@ -9,11 +9,11 @@
  */
 
 import type {
-  LLMProvider,
-  ReviewResult,
-  ReviewFinding,
-  ReviewStatus,
   FindingSeverity,
+  LLMProvider,
+  ReviewFinding,
+  ReviewResult,
+  ReviewStatus,
 } from 'ghagga-core';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -117,9 +117,7 @@ function validateHeuristics(message: string): HeuristicFinding[] {
  * Validate a commit message using heuristics and optional LLM review.
  * Returns a ReviewResult for consistent exit-code and output handling.
  */
-export async function reviewCommitMessage(
-  opts: CommitMsgReviewOptions,
-): Promise<ReviewResult> {
+export async function reviewCommitMessage(opts: CommitMsgReviewOptions): Promise<ReviewResult> {
   const startTime = Date.now();
   const findings: ReviewFinding[] = [];
 

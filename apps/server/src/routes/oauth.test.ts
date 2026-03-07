@@ -10,8 +10,8 @@
  * - Web Flow: GET /auth/callback exchange code, redirect to Dashboard
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createOAuthRouter, generateState, validateState } from './oauth.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
@@ -119,9 +119,7 @@ describe('POST /auth/device/code', () => {
   });
 
   it('returns github_error when GitHub responds with error', async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response('Bad Request', { status: 400 }),
-    );
+    mockFetch.mockResolvedValueOnce(new Response('Bad Request', { status: 400 }));
 
     const app = createApp();
     const res = await app.request('/auth/device/code', { method: 'POST' });
@@ -235,9 +233,7 @@ describe('POST /auth/device/token', () => {
   });
 
   it('returns github_error when GitHub responds with error', async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response('Server Error', { status: 500 }),
-    );
+    mockFetch.mockResolvedValueOnce(new Response('Server Error', { status: 500 }));
 
     const app = createApp();
     const res = await app.request('/auth/device/token', {
@@ -379,7 +375,7 @@ describe('GET /auth/login', () => {
     // State should be present and non-empty
     const state = location.searchParams.get('state');
     expect(state).toBeTruthy();
-    expect(state!.split('.')).toHaveLength(2);
+    expect(state?.split('.')).toHaveLength(2);
   });
 
   it('generates a valid state that can be validated (S-R2.6)', async () => {
@@ -441,9 +437,7 @@ describe('GET /auth/callback', () => {
 
     expect(res.status).toBe(302);
     const location = res.headers.get('Location')!;
-    expect(location).toBe(
-      `${DASHBOARD_URL}/#/auth/callback?token=gho_web-flow-token`,
-    );
+    expect(location).toBe(`${DASHBOARD_URL}/#/auth/callback?token=gho_web-flow-token`);
 
     // Verify fetch was called with correct params
     expect(mockFetch).toHaveBeenCalledOnce();
@@ -458,16 +452,14 @@ describe('GET /auth/callback', () => {
 
   it('sends correct headers when exchanging code (S-R1.2)', async () => {
     mockFetch.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({ access_token: 'gho_test', token_type: 'bearer' }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
+      new Response(JSON.stringify({ access_token: 'gho_test', token_type: 'bearer' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }),
     );
 
     const app = createApp();
-    await app.request(
-      `/auth/callback?code=test&state=${encodeURIComponent(validState)}`,
-    );
+    await app.request(`/auth/callback?code=test&state=${encodeURIComponent(validState)}`);
 
     const [, options] = mockFetch.mock.calls[0];
     expect(options.headers).toEqual({
@@ -500,9 +492,7 @@ describe('GET /auth/callback', () => {
   });
 
   it('redirects with error=exchange_failed when GitHub returns non-200 (S-R1.3)', async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response('Internal Server Error', { status: 500 }),
-    );
+    mockFetch.mockResolvedValueOnce(new Response('Internal Server Error', { status: 500 }));
 
     const app = createApp();
     const res = await app.request(
@@ -517,14 +507,10 @@ describe('GET /auth/callback', () => {
 
   it('redirects with error=missing_code when code is absent (S-R1.4)', async () => {
     const app = createApp();
-    const res = await app.request(
-      `/auth/callback?state=${encodeURIComponent(validState)}`,
-    );
+    const res = await app.request(`/auth/callback?state=${encodeURIComponent(validState)}`);
 
     expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe(
-      `${DASHBOARD_URL}/#/auth/callback?error=missing_code`,
-    );
+    expect(res.headers.get('Location')).toBe(`${DASHBOARD_URL}/#/auth/callback?error=missing_code`);
   });
 
   it('redirects with error=missing_state when state is absent (S-R2.4)', async () => {
@@ -585,9 +571,7 @@ describe('GET /auth/callback', () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe(
-      `${DASHBOARD_URL}/#/auth/callback?error=server_error`,
-    );
+    expect(res.headers.get('Location')).toBe(`${DASHBOARD_URL}/#/auth/callback?error=server_error`);
 
     // fetch should NOT have been called
     expect(mockFetch).not.toHaveBeenCalled();
@@ -629,9 +613,7 @@ describe('GET /auth/callback', () => {
     );
 
     expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe(
-      `${DASHBOARD_URL}/#/auth/callback?error=server_error`,
-    );
+    expect(res.headers.get('Location')).toBe(`${DASHBOARD_URL}/#/auth/callback?error=server_error`);
   });
 
   it('token is in fragment path, not query params (S-CC1.1)', async () => {

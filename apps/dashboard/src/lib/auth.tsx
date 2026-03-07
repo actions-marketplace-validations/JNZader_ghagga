@@ -1,13 +1,6 @@
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-  type ReactNode,
-} from 'react';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { fetchGitHubUser, API_URL, type GitHubUser } from './oauth';
+import { API_URL, fetchGitHubUser, type GitHubUser } from './oauth';
 import type { User } from './types';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -62,9 +55,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     return null;
   });
-  const [token, setToken] = useState<string | null>(
-    () => localStorage.getItem(TOKEN_KEY),
-  );
+  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -92,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setIsLoading(false);
         });
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Web Flow Callback Login ─────────────────────────────────
 

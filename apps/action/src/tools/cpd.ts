@@ -9,10 +9,10 @@
  */
 
 import * as core from '@actions/core';
-import { execWithTimeout } from './exec.js';
 import { restoreToolCache, saveToolCache } from './cache.js';
-import { TOOL_VERSIONS, TOOL_TIMEOUT_MS } from './types.js';
-import type { ToolResult, ReviewFinding } from './types.js';
+import { execWithTimeout } from './exec.js';
+import type { ReviewFinding, ToolResult } from './types.js';
+import { TOOL_TIMEOUT_MS, TOOL_VERSIONS } from './types.js';
 
 /** PMD install path */
 const PMD_HOME = '/opt/pmd';
@@ -33,8 +33,7 @@ const PMD_BIN = `${PMD_HOME}/bin/pmd`;
  */
 function parseCpdXml(xml: string, basePath: string): ReviewFinding[] {
   const findings: ReviewFinding[] = [];
-  const dupRegex =
-    /<duplication lines="(\d+)" tokens="(\d+)">([\s\S]*?)<\/duplication>/g;
+  const dupRegex = /<duplication lines="(\d+)" tokens="(\d+)">([\s\S]*?)<\/duplication>/g;
   const fileRegex = /<file\s+path="([^"]+)"\s+line="(\d+)"/g;
 
   let dupMatch: RegExpExecArray | null;
@@ -48,7 +47,7 @@ function parseCpdXml(xml: string, basePath: string): ReviewFinding[] {
     fileRegex.lastIndex = 0;
     while ((fileMatch = fileRegex.exec(inner)) !== null) {
       files.push({
-        path: fileMatch[1]!.replace(basePath + '/', ''),
+        path: fileMatch[1]?.replace(`${basePath}/`, ''),
         line: parseInt(fileMatch[2]!, 10),
       });
     }
@@ -58,8 +57,8 @@ function parseCpdXml(xml: string, basePath: string): ReviewFinding[] {
       findings.push({
         severity: 'medium',
         category: 'duplication',
-        file: files[0]!.path,
-        line: files[0]!.line,
+        file: files[0]?.path,
+        line: files[0]?.line,
         message: `Duplicated code block (${lines} lines, ${tokens} tokens) found in: ${locations}`,
         source: 'cpd' as const,
       });
@@ -82,9 +81,7 @@ export async function installCpd(): Promise<boolean> {
       await execWithTimeout(PMD_BIN, ['--version'], { timeoutMs: 10_000 });
       return true;
     } catch {
-      core.warning(
-        'PMD cache restored but binary not functional, reinstalling',
-      );
+      core.warning('PMD cache restored but binary not functional, reinstalling');
     }
   }
 

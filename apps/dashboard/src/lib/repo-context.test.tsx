@@ -2,9 +2,9 @@
  * Tests for RepoProvider context and useSelectedRepo hook.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
-import { type ReactNode } from 'react';
+import { act, renderHook } from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RepoProvider, useSelectedRepo } from './repo-context';
 
 // ─── Mocks ──────────────────────────────────────────────────────
@@ -49,7 +49,7 @@ function createRepoWrapper() {
 
 describe('RepoProvider', () => {
   it('initializes selectedRepo from localStorage', () => {
-    mockLocalStorage['ghagga_selected_repo'] = 'acme/app';
+    mockLocalStorage.ghagga_selected_repo = 'acme/app';
 
     const { result } = renderHook(() => useSelectedRepo(), {
       wrapper: createRepoWrapper(),
@@ -99,7 +99,7 @@ describe('useSelectedRepo', () => {
   });
 
   it('setting empty string removes from localStorage', () => {
-    mockLocalStorage['ghagga_selected_repo'] = 'acme/app';
+    mockLocalStorage.ghagga_selected_repo = 'acme/app';
 
     const { result } = renderHook(() => useSelectedRepo(), {
       wrapper: createRepoWrapper(),

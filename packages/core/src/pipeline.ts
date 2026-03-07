@@ -15,17 +15,23 @@
  * memory is unavailable, the pipeline continues with what it has.
  */
 
-import { parseDiffFiles, filterIgnoredFiles, truncateDiff } from './utils/diff.js';
-import { detectStacks } from './utils/stack-detect.js';
-import { calculateTokenBudget } from './utils/token-budget.js';
-import { runStaticAnalysis, formatStaticAnalysisContext } from './tools/runner.js';
-import { searchMemoryForContext } from './memory/search.js';
-import { persistReviewObservations } from './memory/persist.js';
+import { runConsensusReview } from './agents/consensus.js';
 import { buildStackHints } from './agents/prompts.js';
 import { runSimpleReview } from './agents/simple.js';
 import { runWorkflowReview } from './agents/workflow.js';
-import { runConsensusReview } from './agents/consensus.js';
-import type { ReviewInput, ReviewResult, ReviewStatus, LLMProvider, ProviderChainEntry } from './types.js';
+import { persistReviewObservations } from './memory/persist.js';
+import { searchMemoryForContext } from './memory/search.js';
+import { formatStaticAnalysisContext, runStaticAnalysis } from './tools/runner.js';
+import type {
+  LLMProvider,
+  ProviderChainEntry,
+  ReviewInput,
+  ReviewResult,
+  ReviewStatus,
+} from './types.js';
+import { filterIgnoredFiles, parseDiffFiles, truncateDiff } from './utils/diff.js';
+import { detectStacks } from './utils/stack-detect.js';
+import { calculateTokenBudget } from './utils/token-budget.js';
 
 // ─── Validation ─────────────────────────────────────────────────
 
@@ -126,9 +132,11 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
   // ── Step 5: Run static analysis (in parallel with memory) ──
   // If precomputed results are available (from GitHub Actions runner), use those directly.
   // Otherwise, run tools locally (CLI/Action modes).
-  emit({ step: 'static-analysis', message: input.precomputedStaticAnalysis
-    ? 'Using precomputed static analysis from runner...'
-    : 'Running static analysis & memory search...',
+  emit({
+    step: 'static-analysis',
+    message: input.precomputedStaticAnalysis
+      ? 'Using precomputed static analysis from runner...'
+      : 'Running static analysis & memory search...',
   });
   const [staticResult, memoryContext] = await Promise.all([
     input.precomputedStaticAnalysis
@@ -160,7 +168,10 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
   } else {
     // Resolve the primary provider for agent calls
     const primary = resolvePrimaryProvider(input);
-    emit({ step: 'agent-start', message: `Running ${input.mode} agent with ${primary.provider}/${primary.model}...` });
+    emit({
+      step: 'agent-start',
+      message: `Running ${input.mode} agent with ${primary.provider}/${primary.model}...`,
+    });
 
     try {
       switch (input.mode) {
@@ -196,9 +207,24 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
           result = await runConsensusReview({
             diff: truncatedDiff,
             models: [
-              { provider: primary.provider as LLMProvider, model: primary.model, apiKey: primary.apiKey, stance: 'for' },
-              { provider: primary.provider as LLMProvider, model: primary.model, apiKey: primary.apiKey, stance: 'against' },
-              { provider: primary.provider as LLMProvider, model: primary.model, apiKey: primary.apiKey, stance: 'neutral' },
+              {
+                provider: primary.provider as LLMProvider,
+                model: primary.model,
+                apiKey: primary.apiKey,
+                stance: 'for',
+              },
+              {
+                provider: primary.provider as LLMProvider,
+                model: primary.model,
+                apiKey: primary.apiKey,
+                stance: 'against',
+              },
+              {
+                provider: primary.provider as LLMProvider,
+                model: primary.model,
+                apiKey: primary.apiKey,
+                stance: 'neutral',
+              },
             ],
             staticContext,
             memoryContext,
@@ -280,7 +306,9 @@ function resolveAiEnabled(input: ReviewInput): boolean {
   if (input.aiReviewEnabled === false) return false;
   // If chain is explicitly empty and no single provider, treat as disabled
   if (input.providerChain && input.providerChain.length === 0 && !input.provider) {
-    console.warn('[ghagga] AI review enabled but provider chain is empty and no single provider — treating as disabled');
+    console.warn(
+      '[ghagga] AI review enabled but provider chain is empty and no single provider — treating as disabled',
+    );
     return false;
   }
   return true;
@@ -308,7 +336,7 @@ function resolvePrimaryProvider(input: ReviewInput): ProviderChainEntry {
  */
 function resolvePrimaryModel(input: ReviewInput): string {
   if (input.providerChain && input.providerChain.length > 0) {
-    return input.providerChain[0]!.model;
+    return input.providerChain[0]?.model;
   }
   return input.model ?? 'gpt-4o-mini';
 }
@@ -319,10 +347,7 @@ function resolvePrimaryModel(input: ReviewInput): string {
  * Run static analysis with graceful degradation.
  * Returns a result with all tools skipped if anything goes wrong.
  */
-async function runStaticAnalysisSafe(
-  fileList: string[],
-  input: ReviewInput,
-) {
+async function runStaticAnalysisSafe(fileList: string[], input: ReviewInput) {
   try {
     // Build a file map for static analysis (paths only, content from diff)
     const files = new Map<string, string>();
@@ -361,20 +386,13 @@ async function runStaticAnalysisSafe(
  * Search memory with graceful degradation.
  * Returns null if memory is disabled or unavailable.
  */
-async function searchMemorySafe(
-  input: ReviewInput,
-  fileList: string[],
-): Promise<string | null> {
+async function searchMemorySafe(input: ReviewInput, fileList: string[]): Promise<string | null> {
   if (!input.settings.enableMemory || !input.memoryStorage || !input.context) {
     return null;
   }
 
   try {
-    return await searchMemoryForContext(
-      input.memoryStorage,
-      input.context.repoFullName,
-      fileList,
-    );
+    return await searchMemoryForContext(input.memoryStorage, input.context.repoFullName, fileList);
   } catch (error) {
     console.warn(
       '[ghagga] Memory search failed (degrading gracefully):',
@@ -432,9 +450,10 @@ function createStaticOnlyResult(
 
   return {
     status: hasCriticalOrHigh ? 'FAILED' : 'PASSED',
-    summary: allFindings.length > 0
-      ? `Static analysis found ${allFindings.length} finding(s). AI review was not performed.`
-      : 'Static analysis found no issues. AI review was not performed.',
+    summary:
+      allFindings.length > 0
+        ? `Static analysis found ${allFindings.length} finding(s). AI review was not performed.`
+        : 'Static analysis found no issues. AI review was not performed.',
     findings: [], // Will be merged in step 7
     staticAnalysis: staticResult,
     memoryContext: null,

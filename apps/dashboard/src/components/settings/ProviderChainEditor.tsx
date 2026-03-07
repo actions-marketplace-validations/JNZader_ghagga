@@ -1,5 +1,5 @@
-import { ProviderEntry, type ProviderEntryState } from './ProviderEntry';
 import type { SaaSProvider } from '@/lib/types';
+import { ProviderEntry, type ProviderEntryState } from './ProviderEntry';
 
 interface ProviderChainEditorProps {
   chain: ProviderEntryState[];
@@ -46,10 +46,7 @@ export function ProviderChainEditor({ chain, onChange }: ProviderChainEditorProp
     const available = (['github', 'openai', 'anthropic', 'google', 'qwen'] as SaaSProvider[]).find(
       (p) => !usedProviders.has(p),
     );
-    onChange([
-      ...chain,
-      { ...DEFAULT_ENTRY, provider: available ?? 'github' },
-    ]);
+    onChange([...chain, { ...DEFAULT_ENTRY, provider: available ?? 'github' }]);
   };
 
   return (
@@ -59,11 +56,7 @@ export function ProviderChainEditor({ chain, onChange }: ProviderChainEditorProp
           <p className="mb-2 text-sm text-text-secondary">
             No providers configured. Add at least one to enable AI review.
           </p>
-          <button
-            type="button"
-            onClick={handleAdd}
-            className="btn-primary text-sm"
-          >
+          <button type="button" onClick={handleAdd} className="btn-primary text-sm">
             + Add Provider
           </button>
         </div>

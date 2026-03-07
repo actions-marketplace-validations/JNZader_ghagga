@@ -8,25 +8,25 @@
  *   - installation_repositories: Track repo additions/removals
  */
 
+import type { Database } from 'ghagga-db';
+import {
+  deactivateInstallation,
+  deleteMappingsByInstallationId,
+  getEffectiveRepoSettings,
+  getInstallationByGitHubId,
+  getRepoByGithubId,
+  upsertInstallation,
+  upsertRepository,
+} from 'ghagga-db';
 import { Hono } from 'hono';
 import {
-  verifyWebhookSignature,
   addCommentReaction,
-  getInstallationToken,
   fetchPRDetails,
+  getInstallationToken,
+  verifyWebhookSignature,
 } from '../github/client.js';
 import { inngest } from '../inngest/client.js';
 import { logger as rootLogger } from '../lib/logger.js';
-import {
-  upsertInstallation,
-  deactivateInstallation,
-  upsertRepository,
-  getRepoByGithubId,
-  getEffectiveRepoSettings,
-  getInstallationByGitHubId,
-  deleteMappingsByInstallationId,
-} from 'ghagga-db';
-import type { Database } from 'ghagga-db';
 
 const logger = rootLogger.child({ module: 'webhook' });
 
@@ -133,11 +133,9 @@ function matchesPattern(file: string, pattern: string): boolean {
   return regex.test(file);
 }
 
-function allFilesIgnored(files: string[], patterns: string[]): boolean {
+function _allFilesIgnored(files: string[], patterns: string[]): boolean {
   if (files.length === 0) return true;
-  return files.every((file) =>
-    patterns.some((pattern) => matchesPattern(file, pattern)),
-  );
+  return files.every((file) => patterns.some((pattern) => matchesPattern(file, pattern)));
 }
 
 // ─── Route Factory ──────────────────────────────────────────────
@@ -309,7 +307,11 @@ async function handleIssueComment(
   // Check author association (only contributors/members can trigger)
   if (!ALLOWED_ASSOCIATIONS.has(payload.comment.author_association)) {
     logger.info(
-      { user: payload.comment.user.login, association: payload.comment.author_association, repo: payload.repository.full_name },
+      {
+        user: payload.comment.user.login,
+        association: payload.comment.author_association,
+        repo: payload.repository.full_name,
+      },
       'Review trigger rejected: insufficient permissions',
     );
     return c.json({ message: 'Insufficient permissions to trigger review' }, 200);
@@ -327,7 +329,7 @@ async function handleIssueComment(
     return c.json({ message: 'Repository not tracked' }, 200);
   }
 
-   // React with 👀 to acknowledge the trigger and fetch PR details
+  // React with 👀 to acknowledge the trigger and fetch PR details
   const appId = process.env.GITHUB_APP_ID;
   const privateKey = process.env.GITHUB_PRIVATE_KEY;
   const [owner, repoName] = payload.repository.full_name.split('/') as [string, string];
@@ -343,7 +345,10 @@ async function handleIssueComment(
       await addCommentReaction(owner, repoName, payload.comment.id, 'eyes', installationToken);
     } catch (error) {
       // Non-critical — don't fail the review
-      logger.warn({ repo: payload.repository.full_name, error: String(error) }, 'Failed to add acknowledgment reaction');
+      logger.warn(
+        { repo: payload.repository.full_name, error: String(error) },
+        'Failed to add acknowledgment reaction',
+      );
     }
 
     // Fetch PR details to get headSha and baseBranch
@@ -451,7 +456,11 @@ async function handleInstallation(
     if (inst) {
       await deleteMappingsByInstallationId(db, inst.id);
       logger.info(
-        { account: installation.account.login, installationId: installation.id, internalId: inst.id },
+        {
+          account: installation.account.login,
+          installationId: installation.id,
+          internalId: inst.id,
+        },
         'Installation deactivated and user mappings cleaned up',
       );
     } else {
@@ -506,7 +515,10 @@ async function handleInstallationRepositories(
         // We don't have a dedicated deactivateRepository function,
         // but we can update settings to mark it
         // For now, just log — the repo will still exist but won't receive webhooks
-        logger.info({ repo: repo.full_name, installationId: installation.id }, 'Repo removed from installation');
+        logger.info(
+          { repo: repo.full_name, installationId: installation.id },
+          'Repo removed from installation',
+        );
       }
     }
   }

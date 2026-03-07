@@ -4,14 +4,14 @@
  * Pure constants — no mocking needed.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   BRAND,
-  STATUS_EMOJI,
-  SEVERITY_EMOJI,
-  STEP_ICON,
-  SOURCE_LABELS,
   resolveStepIcon,
+  SEVERITY_EMOJI,
+  SOURCE_LABELS,
+  STATUS_EMOJI,
+  STEP_ICON,
 } from '../theme.js';
 
 // ─── Constants ──────────────────────────────────────────────────
@@ -50,10 +50,19 @@ describe('SEVERITY_EMOJI', () => {
 describe('STEP_ICON', () => {
   it('should have all 13 known step keys', () => {
     const expectedKeys = [
-      'validate', 'parse-diff', 'detect-stacks', 'token-budget',
-      'static-analysis', 'static-results', 'agent-start', 'simple-call',
-      'simple-done', 'workflow-start', 'workflow-synthesis',
-      'consensus-start', 'consensus-voting',
+      'validate',
+      'parse-diff',
+      'detect-stacks',
+      'token-budget',
+      'static-analysis',
+      'static-results',
+      'agent-start',
+      'simple-call',
+      'simple-done',
+      'workflow-start',
+      'workflow-synthesis',
+      'consensus-start',
+      'consensus-voting',
     ];
     for (const key of expectedKeys) {
       expect(STEP_ICON).toHaveProperty(key);
@@ -76,7 +85,7 @@ describe('SOURCE_LABELS', () => {
 
 describe('resolveStepIcon', () => {
   it('should return the STEP_ICON value for a known step', () => {
-    expect(resolveStepIcon('validate')).toBe(STEP_ICON['validate']);
+    expect(resolveStepIcon('validate')).toBe(STEP_ICON.validate);
     expect(resolveStepIcon('agent-start')).toBe(STEP_ICON['agent-start']);
   });
 

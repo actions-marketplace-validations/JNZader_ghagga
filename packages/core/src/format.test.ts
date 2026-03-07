@@ -5,9 +5,9 @@
  * covering all spec scenarios from the deduplicate-format-review-comment change.
  */
 
-import { describe, it, expect } from 'vitest';
-import { formatReviewComment, STATUS_EMOJI, SEVERITY_EMOJI } from './format.js';
-import type { ReviewResult, ReviewFinding, FindingSource, FindingSeverity } from './types.js';
+import { describe, expect, it } from 'vitest';
+import { formatReviewComment, SEVERITY_EMOJI, STATUS_EMOJI } from './format.js';
+import type { FindingSeverity, ReviewFinding, ReviewResult } from './types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -59,11 +59,11 @@ describe('STATUS_EMOJI', () => {
 
 describe('SEVERITY_EMOJI', () => {
   it('maps all five severity levels', () => {
-    expect(SEVERITY_EMOJI['critical']).toBeDefined();
-    expect(SEVERITY_EMOJI['high']).toBeDefined();
-    expect(SEVERITY_EMOJI['medium']).toBeDefined();
-    expect(SEVERITY_EMOJI['low']).toBeDefined();
-    expect(SEVERITY_EMOJI['info']).toBeDefined();
+    expect(SEVERITY_EMOJI.critical).toBeDefined();
+    expect(SEVERITY_EMOJI.high).toBeDefined();
+    expect(SEVERITY_EMOJI.medium).toBeDefined();
+    expect(SEVERITY_EMOJI.low).toBeDefined();
+    expect(SEVERITY_EMOJI.info).toBeDefined();
   });
 });
 
@@ -77,10 +77,38 @@ describe('formatReviewComment', () => {
       status: 'FAILED',
       summary: 'Issues found across all tools.',
       findings: [
-        makeFinding({ severity: 'high', category: 'security', file: 'src/auth.ts', line: 10, message: 'SQL injection', source: 'semgrep' }),
-        makeFinding({ severity: 'medium', category: 'vulnerability', file: 'Dockerfile', line: 5, message: 'Outdated base image', source: 'trivy' }),
-        makeFinding({ severity: 'low', category: 'duplication', file: 'src/utils.ts', line: 20, message: 'Code clone detected', source: 'cpd' }),
-        makeFinding({ severity: 'critical', category: 'bug', file: 'src/main.ts', line: 42, message: 'Null dereference', source: 'ai' }),
+        makeFinding({
+          severity: 'high',
+          category: 'security',
+          file: 'src/auth.ts',
+          line: 10,
+          message: 'SQL injection',
+          source: 'semgrep',
+        }),
+        makeFinding({
+          severity: 'medium',
+          category: 'vulnerability',
+          file: 'Dockerfile',
+          line: 5,
+          message: 'Outdated base image',
+          source: 'trivy',
+        }),
+        makeFinding({
+          severity: 'low',
+          category: 'duplication',
+          file: 'src/utils.ts',
+          line: 20,
+          message: 'Code clone detected',
+          source: 'cpd',
+        }),
+        makeFinding({
+          severity: 'critical',
+          category: 'bug',
+          file: 'src/main.ts',
+          line: 42,
+          message: 'Null dereference',
+          source: 'ai',
+        }),
       ],
       metadata: {
         mode: 'standard',
@@ -140,7 +168,9 @@ describe('formatReviewComment', () => {
     expect(output).toContain('✅ Tools run: semgrep, trivy, cpd');
 
     // Footer
-    expect(output).toContain('---\n*Powered by [GHAGGA](https://github.com/JNZader/ghagga) — AI Code Review*');
+    expect(output).toContain(
+      '---\n*Powered by [GHAGGA](https://github.com/JNZader/ghagga) — AI Code Review*',
+    );
   });
 
   // ── S2: Empty findings ──
@@ -265,9 +295,11 @@ describe('formatReviewComment', () => {
 
   it('always includes the footer', () => {
     // With findings
-    const withFindings = formatReviewComment(makeResult({
-      findings: [makeFinding()],
-    }));
+    const withFindings = formatReviewComment(
+      makeResult({
+        findings: [makeFinding()],
+      }),
+    );
     expect(withFindings).toContain('Powered by [GHAGGA]');
 
     // Without findings
@@ -280,10 +312,7 @@ describe('formatReviewComment', () => {
   it('silently skips sources with no findings', () => {
     const result = makeResult({
       status: 'FAILED',
-      findings: [
-        makeFinding({ source: 'semgrep' }),
-        makeFinding({ source: 'ai' }),
-      ],
+      findings: [makeFinding({ source: 'semgrep' }), makeFinding({ source: 'ai' })],
     });
 
     const output = formatReviewComment(result);
@@ -311,11 +340,11 @@ describe('formatReviewComment', () => {
       expect(output).toContain(severity);
     }
     // Each emoji should appear
-    expect(output).toContain('🔴');  // critical
-    expect(output).toContain('🟠');  // high
-    expect(output).toContain('🟡');  // medium
-    expect(output).toContain('🟢');  // low
-    expect(output).toContain('🟣');  // info
+    expect(output).toContain('🔴'); // critical
+    expect(output).toContain('🟠'); // high
+    expect(output).toContain('🟡'); // medium
+    expect(output).toContain('🟢'); // low
+    expect(output).toContain('🟣'); // info
   });
 
   // ── Edge case: finding with no source defaults to 'ai' ──

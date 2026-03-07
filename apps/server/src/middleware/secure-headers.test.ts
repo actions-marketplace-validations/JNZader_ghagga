@@ -5,22 +5,25 @@
  * to API responses, webhook responses, and error responses.
  */
 
-import { describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
 import { secureHeaders } from 'hono/secure-headers';
+import { describe, expect, it } from 'vitest';
 
 function createApp() {
   const app = new Hono();
 
-  app.use('*', secureHeaders({
-    xFrameOptions: 'DENY',
-    xContentTypeOptions: 'nosniff',
-    strictTransportSecurity: 'max-age=31536000; includeSubDomains',
-    referrerPolicy: 'strict-origin-when-cross-origin',
-    contentSecurityPolicy: {
-      defaultSrc: ["'self'"],
-    },
-  }));
+  app.use(
+    '*',
+    secureHeaders({
+      xFrameOptions: 'DENY',
+      xContentTypeOptions: 'nosniff',
+      strictTransportSecurity: 'max-age=31536000; includeSubDomains',
+      referrerPolicy: 'strict-origin-when-cross-origin',
+      contentSecurityPolicy: {
+        defaultSrc: ["'self'"],
+      },
+    }),
+  );
 
   // Normal API route
   app.get('/api/reviews', (c) => c.json({ data: [] }));

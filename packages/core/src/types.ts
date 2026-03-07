@@ -315,10 +315,7 @@ export interface MemoryStorage {
     severity?: string;
   }): Promise<MemoryObservationRow>;
 
-  createSession(data: {
-    project: string;
-    prNumber?: number;
-  }): Promise<{ id: number }>;
+  createSession(data: { project: string; prNumber?: number }): Promise<{ id: number }>;
 
   endSession(sessionId: number, summary: string): Promise<void>;
 
@@ -371,8 +368,8 @@ export interface MemoryObservationDetail {
   project: string;
   topicKey: string | null;
   revisionCount: number;
-  createdAt: string;   // ISO 8601 from SQLite datetime()
-  updatedAt: string;   // ISO 8601 from SQLite datetime()
+  createdAt: string; // ISO 8601 from SQLite datetime()
+  updatedAt: string; // ISO 8601 from SQLite datetime()
 }
 
 /**
@@ -383,8 +380,8 @@ export interface MemoryStats {
   totalObservations: number;
   byType: Record<string, number>;
   byProject: Record<string, number>;
-  oldestObservation: string | null;  // ISO 8601, null if empty
-  newestObservation: string | null;  // ISO 8601, null if empty
+  oldestObservation: string | null; // ISO 8601, null if empty
+  newestObservation: string | null; // ISO 8601, null if empty
 }
 
 /**

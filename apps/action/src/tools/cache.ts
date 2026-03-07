@@ -16,10 +16,7 @@ import { TOOL_VERSIONS } from './types.js';
 
 /** Cache paths per tool */
 const CACHE_PATHS: Record<ToolName, string[]> = {
-  semgrep: [
-    '~/.local/bin/semgrep',
-    '~/.local/lib/python3*/site-packages/semgrep*',
-  ],
+  semgrep: ['~/.local/bin/semgrep', '~/.local/lib/python3*/site-packages/semgrep*'],
   trivy: ['/usr/local/bin/trivy'],
   cpd: ['/opt/pmd'],
 };

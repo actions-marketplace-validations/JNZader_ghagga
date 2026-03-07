@@ -5,12 +5,11 @@
  * and redirect-after-login behavior.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import { type ReactNode } from 'react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import { AuthCallback } from '../pages/AuthCallback';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { REDIRECT_KEY } from '../lib/auth';
+import { AuthCallback } from '../pages/AuthCallback';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 

@@ -1,11 +1,10 @@
 // Schema
-export * from './schema.js';
 
 // Client
 export { createDatabase, createDatabaseFromEnv, type Database } from './client.js';
+// Crypto
+export { decrypt, encrypt } from './crypto.js';
 
 // Queries
 export * from './queries.js';
-
-// Crypto
-export { encrypt, decrypt } from './crypto.js';
+export * from './schema.js';

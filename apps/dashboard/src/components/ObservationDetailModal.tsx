@@ -1,16 +1,13 @@
-import { useCallback, useEffect, useRef, type KeyboardEvent } from 'react';
+import { type KeyboardEvent, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/cn';
-import { SeverityBadge } from './SeverityBadge';
-import { isValidSeverity, formatRelativeTime } from '@/lib/utils';
 import type { Observation } from '@/lib/types';
+import { formatRelativeTime, isValidSeverity } from '@/lib/utils';
+import { SeverityBadge } from './SeverityBadge';
 
 // ─── Types ──────────────────────────────────────────────────────
 
-const observationTypeConfig: Record<
-  Observation['type'],
-  { label: string; classes: string }
-> = {
+const observationTypeConfig: Record<Observation['type'], { label: string; classes: string }> = {
   pattern: {
     label: 'Pattern',
     classes: 'bg-purple-500/15 text-purple-400 border-purple-500/25',
@@ -77,10 +74,7 @@ export function ObservationDetailModal({ observation, onClose }: ObservationDeta
 
   return createPortal(
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      onKeyDown={handleKeyDown}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center" onKeyDown={handleKeyDown}>
       {/* Backdrop */}
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div
@@ -103,10 +97,7 @@ export function ObservationDetailModal({ observation, onClose }: ObservationDeta
           {/* Header: title + badges */}
           <div className="flex items-start gap-3">
             <div className="flex-1">
-              <h2
-                id="observation-detail-title"
-                className="text-lg font-semibold text-text-primary"
-              >
+              <h2 id="observation-detail-title" className="text-lg font-semibold text-text-primary">
                 {observation.title}
               </h2>
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -135,7 +126,13 @@ export function ObservationDetailModal({ observation, onClose }: ObservationDeta
               className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
               aria-label="Close"
             >
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <svg
+                className="h-5 w-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>

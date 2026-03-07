@@ -1,19 +1,18 @@
-import { useState, useEffect, type FormEvent } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
 import { Card, CardHeader } from '@/components/Card';
-import {
-  useInstallations,
-  useInstallationSettings,
-  useUpdateInstallationSettings,
-  useValidateProvider,
-  useRunnerStatus,
-  useCreateRunner,
-  useConfigureRunnerSecret,
-  ApiError,
-} from '@/lib/api';
-import { useAuth } from '@/lib/auth';
 import { ProviderChainEditor } from '@/components/settings/ProviderChainEditor';
 import type { ProviderEntryState } from '@/components/settings/ProviderEntry';
-import type { ReviewMode, ProviderChainUpdate } from '@/lib/types';
+import {
+  ApiError,
+  useConfigureRunnerSecret,
+  useCreateRunner,
+  useInstallationSettings,
+  useInstallations,
+  useRunnerStatus,
+  useUpdateInstallationSettings,
+} from '@/lib/api';
+import { useAuth } from '@/lib/auth';
+import type { ProviderChainUpdate, ReviewMode } from '@/lib/types';
 
 export function GlobalSettings() {
   const { data: installations, isLoading: instLoading } = useInstallations();
@@ -23,7 +22,7 @@ export function GlobalSettings() {
 
   useEffect(() => {
     if (installations?.length && !selectedInstallation) {
-      setSelectedInstallation(installations[0]!.id);
+      setSelectedInstallation(installations[0]?.id);
     }
   }, [installations, selectedInstallation]);
 
@@ -48,7 +47,9 @@ export function GlobalSettings() {
             setNeedsReauth(true);
             return;
           }
-        } catch { /* not JSON */ }
+        } catch {
+          /* not JSON */
+        }
       }
       setNeedsReauth(false);
     }
@@ -133,9 +134,7 @@ export function GlobalSettings() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">Global Settings</h1>
-          <p className="mt-1 text-text-secondary">
-            Default settings inherited by all repositories
-          </p>
+          <p className="mt-1 text-text-secondary">Default settings inherited by all repositories</p>
         </div>
 
         {installations && installations.length > 1 && (
@@ -166,9 +165,9 @@ export function GlobalSettings() {
           {/* Info banner */}
           <div className="rounded-lg border border-primary-600/30 bg-primary-600/10 p-4">
             <p className="text-sm text-primary-300">
-              <strong>Global defaults</strong> — These settings are inherited by all
-              repositories under <strong>{selectedInst?.accountLogin ?? 'this installation'}</strong> unless
-              a repository has custom settings configured.
+              <strong>Global defaults</strong> — These settings are inherited by all repositories
+              under <strong>{selectedInst?.accountLogin ?? 'this installation'}</strong> unless a
+              repository has custom settings configured.
             </p>
           </div>
 
@@ -192,7 +191,11 @@ export function GlobalSettings() {
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <svg className="h-5 w-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    <path
+                      fillRule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                   <span className="text-sm text-text-primary">Runner enabled</span>
                   <a
@@ -223,30 +226,33 @@ export function GlobalSettings() {
             )}
 
             {/* State: not_configured */}
-            {!runnerStatus.isLoading && !runnerStatus.data?.exists && !createRunner.isPending && !needsReauth && (
-              <div className="space-y-3">
-                <p className="text-sm text-text-secondary">
-                  GHAGGA uses a GitHub Actions runner in your account for static analysis
-                  (Semgrep, Trivy, PMD/CPD). This creates a public repository named
-                  <code className="mx-1 rounded bg-surface-bg px-1 text-xs">ghagga-runner</code>
-                  in your GitHub account.
-                </p>
-                <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3">
-                  <p className="text-xs text-yellow-300">
-                    This requires the <code>public_repo</code> OAuth scope, which grants write
-                    access to your public repositories. The token is only used server-side to
-                    create the runner repo and configure its secrets.
+            {!runnerStatus.isLoading &&
+              !runnerStatus.data?.exists &&
+              !createRunner.isPending &&
+              !needsReauth && (
+                <div className="space-y-3">
+                  <p className="text-sm text-text-secondary">
+                    GHAGGA uses a GitHub Actions runner in your account for static analysis
+                    (Semgrep, Trivy, PMD/CPD). This creates a public repository named
+                    <code className="mx-1 rounded bg-surface-bg px-1 text-xs">ghagga-runner</code>
+                    in your GitHub account.
                   </p>
+                  <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3">
+                    <p className="text-xs text-yellow-300">
+                      This requires the <code>public_repo</code> OAuth scope, which grants write
+                      access to your public repositories. The token is only used server-side to
+                      create the runner repo and configure its secrets.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => createRunner.mutate()}
+                    className="btn-primary"
+                  >
+                    Enable Runner
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => createRunner.mutate()}
-                  className="btn-primary"
-                >
-                  Enable Runner
-                </button>
-              </div>
-            )}
+              )}
 
             {/* State: creating */}
             {createRunner.isPending && (
@@ -262,15 +268,11 @@ export function GlobalSettings() {
                 <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3">
                   <p className="text-sm text-yellow-300">
                     Your session needs to be refreshed to enable the runner. The
-                    <code className="mx-1">public_repo</code> scope is required to create
-                    the runner repository.
+                    <code className="mx-1">public_repo</code> scope is required to create the runner
+                    repository.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => reAuthenticate()}
-                  className="btn-primary"
-                >
+                <button type="button" onClick={() => reAuthenticate()} className="btn-primary">
                   Re-authenticate
                 </button>
               </div>
@@ -284,11 +286,7 @@ export function GlobalSettings() {
                     Failed to create runner repository. Please try again.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => createRunner.mutate()}
-                  className="btn-primary"
-                >
+                <button type="button" onClick={() => createRunner.mutate()} className="btn-primary">
                   Retry
                 </button>
               </div>
@@ -303,10 +301,18 @@ export function GlobalSettings() {
             />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {[
-                { label: 'Semgrep (security + patterns)', value: enableSemgrep, setter: setEnableSemgrep },
+                {
+                  label: 'Semgrep (security + patterns)',
+                  value: enableSemgrep,
+                  setter: setEnableSemgrep,
+                },
                 { label: 'Trivy (vulnerabilities)', value: enableTrivy, setter: setEnableTrivy },
                 { label: 'PMD/CPD (code duplication)', value: enableCpd, setter: setEnableCpd },
-                { label: 'Memory (project knowledge)', value: enableMemory, setter: setEnableMemory },
+                {
+                  label: 'Memory (project knowledge)',
+                  value: enableMemory,
+                  setter: setEnableMemory,
+                },
               ].map((toggle) => (
                 <label
                   key={toggle.label}
@@ -318,9 +324,7 @@ export function GlobalSettings() {
                     onChange={(e) => toggle.setter(e.target.checked)}
                     className="h-4 w-4 accent-primary-600"
                   />
-                  <span className="text-sm text-text-primary">
-                    {toggle.label}
-                  </span>
+                  <span className="text-sm text-text-primary">{toggle.label}</span>
                 </label>
               ))}
             </div>
@@ -359,10 +363,7 @@ export function GlobalSettings() {
                       (ordered by priority — primary first, fallbacks below)
                     </span>
                   </label>
-                  <ProviderChainEditor
-                    chain={providerChain}
-                    onChange={setProviderChain}
-                  />
+                  <ProviderChainEditor chain={providerChain} onChange={setProviderChain} />
                 </div>
 
                 <div>
@@ -371,10 +372,7 @@ export function GlobalSettings() {
                   </label>
                   <div className="flex gap-4">
                     {(['simple', 'workflow', 'consensus'] as const).map((mode) => (
-                      <label
-                        key={mode}
-                        className="flex cursor-pointer items-center gap-2"
-                      >
+                      <label key={mode} className="flex cursor-pointer items-center gap-2">
                         <input
                           type="radio"
                           name="reviewMode"
@@ -383,14 +381,13 @@ export function GlobalSettings() {
                           onChange={() => setReviewMode(mode)}
                           className="accent-primary-600"
                         />
-                        <span className="text-sm capitalize text-text-primary">
-                          {mode}
-                        </span>
+                        <span className="text-sm capitalize text-text-primary">{mode}</span>
                       </label>
                     ))}
                   </div>
                   <p className="mt-1 text-xs text-text-secondary">
-                    Simple: 1 LLM call &middot; Workflow: 5 specialist agents &middot; Consensus: 3 stances debate
+                    Simple: 1 LLM call &middot; Workflow: 5 specialist agents &middot; Consensus: 3
+                    stances debate
                   </p>
                 </div>
               </div>
@@ -427,15 +424,13 @@ export function GlobalSettings() {
                 className="mb-2 block text-sm font-medium text-text-primary"
               >
                 Ignore Patterns{' '}
-                <span className="font-normal text-text-secondary">
-                  (one per line)
-                </span>
+                <span className="font-normal text-text-secondary">(one per line)</span>
               </label>
               <textarea
                 id="ignorePatterns"
                 value={ignorePatterns}
                 onChange={(e) => setIgnorePatterns(e.target.value)}
-                placeholder={"*.lock\ndist/**\nnode_modules/**"}
+                placeholder={'*.lock\ndist/**\nnode_modules/**'}
                 rows={4}
                 className="input-field resize-y font-mono text-sm"
               />
@@ -444,22 +439,14 @@ export function GlobalSettings() {
 
           {/* ── Save Button ──────────────────────────────────── */}
           <div className="flex items-center gap-4">
-            <button
-              type="submit"
-              disabled={updateSettings.isPending}
-              className="btn-primary"
-            >
+            <button type="submit" disabled={updateSettings.isPending} className="btn-primary">
               {updateSettings.isPending ? 'Saving...' : 'Save Global Settings'}
             </button>
             {saveSuccess && (
-              <span className="text-sm text-green-400">
-                Global settings saved successfully!
-              </span>
+              <span className="text-sm text-green-400">Global settings saved successfully!</span>
             )}
             {updateSettings.isError && (
-              <span className="text-sm text-red-400">
-                Failed to save global settings.
-              </span>
+              <span className="text-sm text-red-400">Failed to save global settings.</span>
             )}
           </div>
         </form>

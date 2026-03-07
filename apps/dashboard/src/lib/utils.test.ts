@@ -4,8 +4,8 @@
  * Pure functions — no mocking needed.
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { isValidSeverity, severityWeight, formatRelativeTime } from './utils';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { formatRelativeTime, isValidSeverity, severityWeight } from './utils';
 
 describe('isValidSeverity', () => {
   it('returns true for valid severity strings', () => {

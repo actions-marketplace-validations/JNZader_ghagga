@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { parseReviewResponse, parseFindingsBlock } from './simple.js';
+import { describe, expect, it } from 'vitest';
+import { parseFindingsBlock, parseReviewResponse } from './simple.js';
 
 // ─── parseReviewResponse ────────────────────────────────────────
 
@@ -43,7 +43,8 @@ describe('parseReviewResponse', () => {
   });
 
   it('extracts summary text', () => {
-    const text = 'STATUS: PASSED\nSUMMARY: The code changes look good. No critical issues found.\nFINDINGS:\n';
+    const text =
+      'STATUS: PASSED\nSUMMARY: The code changes look good. No critical issues found.\nFINDINGS:\n';
     const result = callParse(text);
     expect(result.summary).toBe('The code changes look good. No critical issues found.');
   });
@@ -99,8 +100,8 @@ describe('parseReviewResponse', () => {
     expect(result.status).toBe('PASSED');
     expect(result.summary).toBe('The code changes look good. No critical issues found.');
     expect(result.findings).toHaveLength(1);
-    expect(result.findings[0]!.severity).toBe('low');
-    expect(result.findings[0]!.file).toBe('src/utils.ts');
+    expect(result.findings[0]?.severity).toBe('low');
+    expect(result.findings[0]?.file).toBe('src/utils.ts');
   });
 
   it('includes staticAnalysis skeleton with skipped tools', () => {
@@ -163,10 +164,10 @@ describe('parseFindingsBlock', () => {
     const findings = parseFindingsBlock(text);
 
     expect(findings).toHaveLength(2);
-    expect(findings[0]!.severity).toBe('high');
-    expect(findings[0]!.file).toBe('src/auth.ts');
-    expect(findings[1]!.severity).toBe('low');
-    expect(findings[1]!.file).toBe('src/utils.ts');
+    expect(findings[0]?.severity).toBe('high');
+    expect(findings[0]?.file).toBe('src/auth.ts');
+    expect(findings[1]?.severity).toBe('low');
+    expect(findings[1]?.file).toBe('src/utils.ts');
   });
 
   it('returns empty array when no findings match the pattern', () => {
@@ -189,7 +190,7 @@ describe('parseFindingsBlock', () => {
     const findings = parseFindingsBlock(text);
 
     expect(findings).toHaveLength(1);
-    expect(findings[0]!.line).toBeUndefined();
+    expect(findings[0]?.line).toBeUndefined();
   });
 
   it('maps unknown severity to info', () => {
@@ -206,7 +207,7 @@ describe('parseFindingsBlock', () => {
     const findings = parseFindingsBlock(text);
 
     expect(findings).toHaveLength(1);
-    expect(findings[0]!.severity).toBe('info');
+    expect(findings[0]?.severity).toBe('info');
   });
 
   it('handles text with no FINDINGS section', () => {
@@ -227,7 +228,7 @@ describe('parseFindingsBlock', () => {
     ].join('\n');
 
     const findings = parseFindingsBlock(text);
-    expect(findings[0]!.source).toBe('ai');
+    expect(findings[0]?.source).toBe('ai');
   });
 
   it('trims whitespace from all fields', () => {
@@ -244,10 +245,10 @@ describe('parseFindingsBlock', () => {
     const findings = parseFindingsBlock(text);
 
     expect(findings).toHaveLength(1);
-    expect(findings[0]!.category).toBe('performance');
-    expect(findings[0]!.file).toBe('src/heavy.ts');
-    expect(findings[0]!.line).toBe(77);
-    expect(findings[0]!.message).toBe('O(n^2) loop detected');
-    expect(findings[0]!.suggestion).toBe('Use a hash map for O(n) lookup');
+    expect(findings[0]?.category).toBe('performance');
+    expect(findings[0]?.file).toBe('src/heavy.ts');
+    expect(findings[0]?.line).toBe(77);
+    expect(findings[0]?.message).toBe('O(n^2) loop detected');
+    expect(findings[0]?.suggestion).toBe('Use a hash map for O(n) lookup');
   });
 });

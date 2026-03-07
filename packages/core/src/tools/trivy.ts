@@ -5,7 +5,7 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { ToolResult, ReviewFinding, FindingSeverity } from '../types.js';
+import type { FindingSeverity, ReviewFinding, ToolResult } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 const TIMEOUT_MS = 120_000; // Trivy can be slow on first run (downloading DB)
@@ -77,7 +77,9 @@ export async function runTrivy(scanPath: string): Promise<ToolResult> {
 
     for (const target of result.Results ?? []) {
       for (const vuln of target.Vulnerabilities ?? []) {
-        const fixInfo = vuln.FixedVersion ? ` (fix: upgrade to ${vuln.FixedVersion})` : ' (no fix available)';
+        const fixInfo = vuln.FixedVersion
+          ? ` (fix: upgrade to ${vuln.FixedVersion})`
+          : ' (no fix available)';
 
         findings.push({
           severity: mapSeverity(vuln.Severity),

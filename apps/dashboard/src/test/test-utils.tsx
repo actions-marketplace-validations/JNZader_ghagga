@@ -1,5 +1,5 @@
-import { type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 
 /**
  * Create a fresh QueryClient configured for tests (no retries, no GC).
@@ -24,10 +24,6 @@ export function createTestQueryClient() {
 export function createWrapper(queryClient?: QueryClient) {
   const client = queryClient ?? createTestQueryClient();
   return function Wrapper({ children }: { children: ReactNode }) {
-    return (
-      <QueryClientProvider client={client}>
-        {children}
-      </QueryClientProvider>
-    );
+    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
   };
 }

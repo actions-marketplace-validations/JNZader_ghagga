@@ -6,10 +6,10 @@
  * These tests verify the REAL parsers WITHOUT requiring the tools installed.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { parseCpdXml } from './cpd.js';
 import { mapSeverity as mapSemgrepSeverity } from './semgrep.js';
 import { mapSeverity as mapTrivySeverity } from './trivy.js';
-import { parseCpdXml } from './cpd.js';
 
 // ─── Semgrep Severity Mapping ───────────────────────────────────
 
@@ -102,28 +102,28 @@ describe('parseCpdXml', () => {
 
   it('extracts line count and token count into message', () => {
     const findings = parseCpdXml(CPD_XML, '/project');
-    expect(findings[0]!.message).toContain('15 lines');
-    expect(findings[0]!.message).toContain('120 tokens');
+    expect(findings[0]?.message).toContain('15 lines');
+    expect(findings[0]?.message).toContain('120 tokens');
   });
 
   it('strips base path from file paths', () => {
     const findings = parseCpdXml(CPD_XML, '/project');
-    expect(findings[0]!.file).toBe('src/serviceA.ts');
-    expect(findings[0]!.message).toContain('src/serviceA.ts');
-    expect(findings[0]!.message).toContain('src/serviceB.ts');
+    expect(findings[0]?.file).toBe('src/serviceA.ts');
+    expect(findings[0]?.message).toContain('src/serviceA.ts');
+    expect(findings[0]?.message).toContain('src/serviceB.ts');
   });
 
   it('uses first file as primary finding location', () => {
     const findings = parseCpdXml(CPD_XML, '/project');
-    expect(findings[0]!.file).toBe('src/serviceA.ts');
-    expect(findings[0]!.line).toBe(10);
+    expect(findings[0]?.file).toBe('src/serviceA.ts');
+    expect(findings[0]?.line).toBe(10);
   });
 
   it('handles 3+ file duplications', () => {
     const findings = parseCpdXml(CPD_XML, '/project');
-    expect(findings[1]!.message).toContain('src/utils/format.ts');
-    expect(findings[1]!.message).toContain('src/utils/display.ts');
-    expect(findings[1]!.message).toContain('src/utils/export.ts');
+    expect(findings[1]?.message).toContain('src/utils/format.ts');
+    expect(findings[1]?.message).toContain('src/utils/display.ts');
+    expect(findings[1]?.message).toContain('src/utils/export.ts');
   });
 
   it('sets severity to medium for all duplications', () => {
@@ -166,10 +166,10 @@ describe('parseCpdXml', () => {
 
   it('handles second duplication block independently', () => {
     const findings = parseCpdXml(CPD_XML, '/project');
-    expect(findings[1]!.file).toBe('src/utils/format.ts');
-    expect(findings[1]!.line).toBe(20);
-    expect(findings[1]!.message).toContain('8 lines');
-    expect(findings[1]!.message).toContain('75 tokens');
+    expect(findings[1]?.file).toBe('src/utils/format.ts');
+    expect(findings[1]?.line).toBe(20);
+    expect(findings[1]?.message).toContain('8 lines');
+    expect(findings[1]?.message).toContain('75 tokens');
   });
 
   it('category is duplication for all findings', () => {
@@ -188,6 +188,6 @@ describe('parseCpdXml', () => {
   </duplication>
 </pmd-cpd>`;
     const findings = parseCpdXml(xml, '/my-project');
-    expect(findings[0]!.file).toBe('src/a.ts');
+    expect(findings[0]?.file).toBe('src/a.ts');
   });
 });

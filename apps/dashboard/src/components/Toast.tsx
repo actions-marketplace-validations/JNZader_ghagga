@@ -1,11 +1,11 @@
 import {
   createContext,
-  useContext,
-  useState,
+  type ReactNode,
   useCallback,
+  useContext,
   useEffect,
   useRef,
-  type ReactNode,
+  useState,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/cn';
@@ -41,13 +41,7 @@ const typeStyles: Record<Toast['type'], string> = {
   info: 'border-blue-500/40 bg-blue-500/10 text-blue-400',
 };
 
-function ToastItem({
-  toast,
-  onDismiss,
-}: {
-  toast: Toast;
-  onDismiss: (id: string) => void;
-}) {
+function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
   const duration = toast.duration ?? 4000;
 
   useEffect(() => {

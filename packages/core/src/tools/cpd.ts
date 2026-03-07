@@ -5,7 +5,7 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { ToolResult, ReviewFinding } from '../types.js';
+import type { ReviewFinding, ToolResult } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 const TIMEOUT_MS = 60_000;
@@ -38,7 +38,7 @@ export function parseCpdXml(xml: string, basePath: string): ReviewFinding[] {
     fileRegex.lastIndex = 0;
     while ((fileMatch = fileRegex.exec(inner)) !== null) {
       files.push({
-        path: fileMatch[1]!.replace(basePath + '/', ''),
+        path: fileMatch[1]?.replace(`${basePath}/`, ''),
         line: parseInt(fileMatch[2]!, 10),
       });
     }
@@ -48,8 +48,8 @@ export function parseCpdXml(xml: string, basePath: string): ReviewFinding[] {
       findings.push({
         severity: 'medium',
         category: 'duplication',
-        file: files[0]!.path,
-        line: files[0]!.line,
+        file: files[0]?.path,
+        line: files[0]?.line,
         message: `Duplicated code block (${lines} lines, ${tokens} tokens) found in: ${locations}`,
         suggestion: 'Extract the duplicated code into a shared function or module.',
         source: 'cpd' as const,
@@ -116,9 +116,12 @@ export async function runCpd(
   try {
     const args = [
       ...binary.args,
-      '--format', 'xml',
-      '--minimum-tokens', String(minimumTokens),
-      '--dir', scanPath,
+      '--format',
+      'xml',
+      '--minimum-tokens',
+      String(minimumTokens),
+      '--dir',
+      scanPath,
       '--skip-lexical-errors',
     ];
 
@@ -138,7 +141,7 @@ export async function runCpd(
     // CPD exits with code 4 when duplications are found (not an error)
     if (error && typeof error === 'object' && 'stdout' in error) {
       const stdout = (error as { stdout: string }).stdout;
-      if (stdout && stdout.includes('<pmd-cpd')) {
+      if (stdout?.includes('<pmd-cpd')) {
         const findings = parseCpdXml(stdout, scanPath);
         return {
           status: 'success',

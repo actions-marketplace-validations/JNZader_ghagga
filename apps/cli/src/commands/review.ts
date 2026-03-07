@@ -7,30 +7,30 @@
  */
 
 import { execSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
-import {
-  reviewPipeline,
-  DEFAULT_SETTINGS,
-  SqliteMemoryStorage,
-  EngramMemoryStorage,
-} from 'ghagga-core';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import type {
-  ReviewMode,
   LLMProvider,
-  ReviewSettings,
-  ReviewResult,
-  ReviewStatus,
+  MemoryStorage,
   ProgressCallback,
   ProgressEvent,
-  MemoryStorage,
+  ReviewMode,
+  ReviewResult,
+  ReviewSettings,
+  ReviewStatus,
 } from 'ghagga-core';
-import { resolveProjectId, getStagedDiff } from '../lib/git.js';
+import {
+  DEFAULT_SETTINGS,
+  EngramMemoryStorage,
+  reviewPipeline,
+  SqliteMemoryStorage,
+} from 'ghagga-core';
 import { getConfigDir } from '../lib/config.js';
-import { reviewCommitMessage } from './review-commit-msg.js';
-import * as tui from '../ui/tui.js';
+import { getStagedDiff, resolveProjectId } from '../lib/git.js';
 import { formatMarkdownResult } from '../ui/format.js';
 import { resolveStepIcon } from '../ui/theme.js';
+import * as tui from '../ui/tui.js';
+import { reviewCommitMessage } from './review-commit-msg.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -69,10 +69,7 @@ interface GhaggaConfig {
 
 // ─── Main Command ───────────────────────────────────────────────
 
-export async function reviewCommand(
-  targetPath: string,
-  options: ReviewOptions,
-): Promise<void> {
+export async function reviewCommand(targetPath: string, options: ReviewOptions): Promise<void> {
   const repoPath = resolve(targetPath);
 
   let memoryStorage: MemoryStorage | undefined;
@@ -123,9 +120,7 @@ export async function reviewCommand(
     }
 
     // ── Step 1: Get the git diff ─────────────────────────────
-    const diff = options.staged
-      ? getStagedDiff(repoPath)
-      : getGitDiff(repoPath);
+    const diff = options.staged ? getStagedDiff(repoPath) : getGitDiff(repoPath);
 
     if (!diff || diff.trim().length === 0) {
       const msg = options.staged
@@ -144,7 +139,9 @@ export async function reviewCommand(
     // Step 4: Show progress
     if (options.format !== 'json') {
       tui.intro('🤖 GHAGGA Code Review');
-      tui.log.message(`   Mode: ${options.mode} | Provider: ${options.provider} | Model: ${options.model}`);
+      tui.log.message(
+        `   Mode: ${options.mode} | Provider: ${options.provider} | Model: ${options.model}`,
+      );
       if (options.staged) {
         tui.log.step('   Reviewing staged changes...\n');
       } else {
@@ -157,13 +154,14 @@ export async function reviewCommand(
 
     if (options.memory) {
       // Determine backend: CLI flag > env var > default ('sqlite')
-      const memoryBackend = options.memoryBackend
-        ?? (process.env['GHAGGA_MEMORY_BACKEND'] as 'sqlite' | 'engram' | undefined)
-        ?? 'sqlite';
+      const memoryBackend =
+        options.memoryBackend ??
+        (process.env.GHAGGA_MEMORY_BACKEND as 'sqlite' | 'engram' | undefined) ??
+        'sqlite';
 
       // Validate backend value
       const validBackends = ['sqlite', 'engram'] as const;
-      if (!validBackends.includes(memoryBackend as typeof validBackends[number])) {
+      if (!validBackends.includes(memoryBackend as (typeof validBackends)[number])) {
         tui.log.error(
           `❌ Invalid memory backend "${memoryBackend}". Choose from: ${validBackends.join(', ')}`,
         );
@@ -175,9 +173,9 @@ export async function reviewCommand(
 
         if (memoryBackend === 'engram') {
           // Try Engram; fall back to SQLite if unavailable
-          const engramHost = process.env['GHAGGA_ENGRAM_HOST'] ?? 'http://localhost:7437';
-          const engramTimeout = process.env['GHAGGA_ENGRAM_TIMEOUT']
-            ? Number(process.env['GHAGGA_ENGRAM_TIMEOUT']) * 1000
+          const engramHost = process.env.GHAGGA_ENGRAM_HOST ?? 'http://localhost:7437';
+          const engramTimeout = process.env.GHAGGA_ENGRAM_TIMEOUT
+            ? Number(process.env.GHAGGA_ENGRAM_TIMEOUT) * 1000
             : undefined;
 
           const engramStorage = await EngramMemoryStorage.create({
@@ -286,7 +284,7 @@ function getGitDiff(repoPath: string): string {
   } catch {
     throw new Error(
       `Could not get git diff from "${repoPath}". ` +
-      'Make sure the path is a git repository with changes.',
+        'Make sure the path is a git repository with changes.',
     );
   }
 }
@@ -297,9 +295,7 @@ function getGitDiff(repoPath: string): string {
  * Load and parse an optional .ghagga.json config file.
  */
 function loadConfigFile(repoPath: string, configPath?: string): GhaggaConfig {
-  const filePath = configPath
-    ? resolve(configPath)
-    : join(repoPath, '.ghagga.json');
+  const filePath = configPath ? resolve(configPath) : join(repoPath, '.ghagga.json');
 
   if (!existsSync(filePath)) {
     return {};
@@ -321,10 +317,7 @@ function loadConfigFile(repoPath: string, configPath?: string): GhaggaConfig {
  * Merge CLI options, config file, and defaults.
  * Priority: CLI options > config file > defaults.
  */
-function mergeSettings(
-  options: ReviewOptions,
-  fileConfig: GhaggaConfig,
-): ReviewSettings {
+function mergeSettings(options: ReviewOptions, fileConfig: GhaggaConfig): ReviewSettings {
   return {
     enableSemgrep: options.semgrep ?? fileConfig.enableSemgrep ?? DEFAULT_SETTINGS.enableSemgrep,
     enableTrivy: options.trivy ?? fileConfig.enableTrivy ?? DEFAULT_SETTINGS.enableTrivy,
@@ -332,7 +325,8 @@ function mergeSettings(
     enableMemory: options.memory ?? true, // Memory enabled by default, --no-memory disables
     customRules: fileConfig.customRules ?? DEFAULT_SETTINGS.customRules,
     ignorePatterns: fileConfig.ignorePatterns ?? DEFAULT_SETTINGS.ignorePatterns,
-    reviewLevel: (fileConfig.reviewLevel as ReviewSettings['reviewLevel']) ?? DEFAULT_SETTINGS.reviewLevel,
+    reviewLevel:
+      (fileConfig.reviewLevel as ReviewSettings['reviewLevel']) ?? DEFAULT_SETTINGS.reviewLevel,
   };
 }
 
@@ -370,10 +364,7 @@ function createProgressHandler(): ProgressCallback {
  * critical/high severity — returns 1 if any found, 0 otherwise.
  * When false, delegates to the default status-based exit code.
  */
-function resolveExitCode(
-  result: ReviewResult,
-  exitOnIssues: boolean,
-): number {
+function resolveExitCode(result: ReviewResult, exitOnIssues: boolean): number {
   if (exitOnIssues) {
     const hasBlockingIssues = result.findings.some(
       (f) => f.severity === 'critical' || f.severity === 'high',

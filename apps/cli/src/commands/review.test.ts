@@ -6,8 +6,8 @@
  * needing an actual LLM API key.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { ReviewResult, ReviewStatus, FindingSeverity } from 'ghagga-core';
+import type { FindingSeverity, ReviewResult, ReviewStatus } from 'ghagga-core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mock ghagga-core to prevent actual LLM calls ───────────────
 
@@ -272,9 +272,7 @@ describe('reviewCommand — functional tests', () => {
     await reviewCommand('.', defaultOptions());
 
     expect(exitSpy).toHaveBeenCalledWith(0);
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('No changes detected'),
-    );
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('No changes detected'));
   });
 
   it('should call reviewPipeline with correct arguments and exit 0 on PASSED', async () => {
@@ -309,9 +307,7 @@ describe('reviewCommand — functional tests', () => {
 
   it('should exit 1 when review status is NEEDS_HUMAN_REVIEW', async () => {
     mockExecSync.mockReturnValue('diff content' as never);
-    mockReviewPipeline.mockResolvedValue(
-      makeReviewResult({ status: 'NEEDS_HUMAN_REVIEW' }),
-    );
+    mockReviewPipeline.mockResolvedValue(makeReviewResult({ status: 'NEEDS_HUMAN_REVIEW' }));
 
     const { reviewCommand } = await import('./review.js');
     await reviewCommand('.', defaultOptions());
@@ -424,9 +420,7 @@ describe('reviewCommand — functional tests', () => {
     await reviewCommand('.', defaultOptions());
 
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('API rate limit exceeded'),
-    );
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('API rate limit exceeded'));
   });
 
   it('should exit 1 when execSync throws (no git repo)', async () => {
@@ -438,9 +432,7 @@ describe('reviewCommand — functional tests', () => {
     await reviewCommand('/tmp/not-a-repo', defaultOptions());
 
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Review failed'),
-    );
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Review failed'));
   });
 
   it('should load .ghagga.json config file when it exists', async () => {
@@ -460,7 +452,7 @@ describe('reviewCommand — functional tests', () => {
     await reviewCommand('.', defaultOptions());
 
     // reviewPipeline should have been called with settings that include the config
-    const callArgs = mockReviewPipeline.mock.calls[0]![0] as unknown as Record<string, unknown>;
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
     const settings = callArgs.settings as Record<string, unknown>;
     expect(settings.reviewLevel).toBe('strict');
     expect(settings.customRules).toEqual(['/rules/custom.yml']);
@@ -474,9 +466,7 @@ describe('reviewCommand — functional tests', () => {
     await reviewCommand('.', defaultOptions());
 
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('string error'),
-    );
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('string error'));
   });
 
   it('should use staged diff when available', async () => {
@@ -487,9 +477,7 @@ describe('reviewCommand — functional tests', () => {
     const { reviewCommand } = await import('./review.js');
     await reviewCommand('.', defaultOptions());
 
-    expect(mockReviewPipeline).toHaveBeenCalledWith(
-      expect.objectContaining({ diff: stagedDiff }),
-    );
+    expect(mockReviewPipeline).toHaveBeenCalledWith(expect.objectContaining({ diff: stagedDiff }));
   });
 
   it('should pass verbose progress handler when verbose is true', async () => {
@@ -499,7 +487,7 @@ describe('reviewCommand — functional tests', () => {
     const { reviewCommand } = await import('./review.js');
     await reviewCommand('.', defaultOptions({ verbose: true }));
 
-    const callArgs = mockReviewPipeline.mock.calls[0]![0] as unknown as Record<string, unknown>;
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
     expect(callArgs.onProgress).toBeTypeOf('function');
   });
 
@@ -510,7 +498,7 @@ describe('reviewCommand — functional tests', () => {
     const { reviewCommand } = await import('./review.js');
     await reviewCommand('.', defaultOptions({ verbose: false }));
 
-    const callArgs = mockReviewPipeline.mock.calls[0]![0] as unknown as Record<string, unknown>;
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
     expect(callArgs.onProgress).toBeUndefined();
   });
 
@@ -519,7 +507,10 @@ describe('reviewCommand — functional tests', () => {
     mockReviewPipeline.mockResolvedValue(makeReviewResult());
 
     const { reviewCommand } = await import('./review.js');
-    await reviewCommand('.', defaultOptions({ mode: 'workflow', provider: 'openai', model: 'gpt-4o' }));
+    await reviewCommand(
+      '.',
+      defaultOptions({ mode: 'workflow', provider: 'openai', model: 'gpt-4o' }),
+    );
 
     const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(allLogCalls.some((s: string) => s.includes('workflow'))).toBe(true);

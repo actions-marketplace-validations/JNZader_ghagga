@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Card } from '@/components/Card';
-import { StatusBadge } from '@/components/StatusBadge';
 import { SeverityBadge } from '@/components/SeverityBadge';
-import { useReviews, useRepositories } from '@/lib/api';
+import { StatusBadge } from '@/components/StatusBadge';
+import { useRepositories, useReviews } from '@/lib/api';
 import { useSelectedRepo } from '@/lib/repo-context';
 import type { Review, ReviewStatus } from '@/lib/types';
 
@@ -28,7 +28,13 @@ function ReviewDetail({ review, onClose }: { review: Review; onClose: () => void
             onClick={onClose}
             className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-secondary"
           >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <svg
+              className="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
             </svg>
           </button>
@@ -36,12 +42,8 @@ function ReviewDetail({ review, onClose }: { review: Review; onClose: () => void
 
         {/* Summary */}
         <div className="mb-6">
-          <h3 className="mb-2 text-sm font-medium text-text-secondary">
-            Summary
-          </h3>
-          <p className="whitespace-pre-wrap text-sm text-text-primary">
-            {review.summary}
-          </p>
+          <h3 className="mb-2 text-sm font-medium text-text-secondary">Summary</h3>
+          <p className="whitespace-pre-wrap text-sm text-text-primary">{review.summary}</p>
         </div>
 
         {/* Findings */}
@@ -54,44 +56,25 @@ function ReviewDetail({ review, onClose }: { review: Review; onClose: () => void
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-surface-border text-left">
-                    <th className="pb-2 pr-4 font-medium text-text-secondary">
-                      Severity
-                    </th>
-                    <th className="pb-2 pr-4 font-medium text-text-secondary">
-                      Category
-                    </th>
-                    <th className="pb-2 pr-4 font-medium text-text-secondary">
-                      Location
-                    </th>
-                    <th className="pb-2 pr-4 font-medium text-text-secondary">
-                      Message
-                    </th>
-                    <th className="pb-2 font-medium text-text-secondary">
-                      Suggestion
-                    </th>
+                    <th className="pb-2 pr-4 font-medium text-text-secondary">Severity</th>
+                    <th className="pb-2 pr-4 font-medium text-text-secondary">Category</th>
+                    <th className="pb-2 pr-4 font-medium text-text-secondary">Location</th>
+                    <th className="pb-2 pr-4 font-medium text-text-secondary">Message</th>
+                    <th className="pb-2 font-medium text-text-secondary">Suggestion</th>
                   </tr>
                 </thead>
                 <tbody>
                   {review.findings.map((finding, idx) => (
-                    <tr
-                      key={idx}
-                      className="border-b border-surface-border/50"
-                    >
+                    <tr key={idx} className="border-b border-surface-border/50">
                       <td className="py-2.5 pr-4">
                         <SeverityBadge severity={finding.severity} />
                       </td>
-                      <td className="py-2.5 pr-4 text-text-secondary">
-                        {finding.category}
-                      </td>
+                      <td className="py-2.5 pr-4 text-text-secondary">{finding.category}</td>
                       <td className="py-2.5 pr-4 font-mono text-xs text-primary-400">
                         {finding.file}:{finding.line}
                       </td>
-                      <td className="py-2.5 pr-4 text-text-primary">
-                        {finding.message}
-                      </td>
-                      <td className="py-2.5 text-text-secondary">
-                        {finding.suggestion || '—'}
-                      </td>
+                      <td className="py-2.5 pr-4 text-text-primary">{finding.message}</td>
+                      <td className="py-2.5 text-text-secondary">{finding.suggestion || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -138,9 +121,7 @@ export function Reviews() {
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-text-primary">Reviews</h1>
-        <p className="mt-1 text-text-secondary">
-          Browse your code review history
-        </p>
+        <p className="mt-1 text-text-secondary">Browse your code review history</p>
       </div>
 
       {/* Filters */}
@@ -188,21 +169,11 @@ export function Reviews() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-surface-border text-left">
-                <th className="px-6 py-3 font-medium text-text-secondary">
-                  Status
-                </th>
-                <th className="px-6 py-3 font-medium text-text-secondary">
-                  Repository
-                </th>
-                <th className="px-6 py-3 font-medium text-text-secondary">
-                  PR #
-                </th>
-                <th className="px-6 py-3 font-medium text-text-secondary">
-                  Mode
-                </th>
-                <th className="px-6 py-3 font-medium text-text-secondary">
-                  Date
-                </th>
+                <th className="px-6 py-3 font-medium text-text-secondary">Status</th>
+                <th className="px-6 py-3 font-medium text-text-secondary">Repository</th>
+                <th className="px-6 py-3 font-medium text-text-secondary">PR #</th>
+                <th className="px-6 py-3 font-medium text-text-secondary">Mode</th>
+                <th className="px-6 py-3 font-medium text-text-secondary">Date</th>
               </tr>
             </thead>
             <tbody>
@@ -214,10 +185,7 @@ export function Reviews() {
                 </tr>
               ) : filteredReviews.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={5}
-                    className="px-6 py-12 text-center text-text-secondary"
-                  >
+                  <td colSpan={5} className="px-6 py-12 text-center text-text-secondary">
                     No reviews found.
                   </td>
                 </tr>
@@ -231,15 +199,9 @@ export function Reviews() {
                     <td className="px-6 py-3">
                       <StatusBadge status={review.status} />
                     </td>
-                    <td className="px-6 py-3 font-medium text-text-primary">
-                      {review.repo}
-                    </td>
-                    <td className="px-6 py-3 text-primary-400">
-                      #{review.prNumber}
-                    </td>
-                    <td className="px-6 py-3 capitalize text-text-secondary">
-                      {review.mode}
-                    </td>
+                    <td className="px-6 py-3 font-medium text-text-primary">{review.repo}</td>
+                    <td className="px-6 py-3 text-primary-400">#{review.prNumber}</td>
+                    <td className="px-6 py-3 capitalize text-text-secondary">{review.mode}</td>
                     <td className="px-6 py-3 text-text-secondary">
                       {new Date(review.createdAt).toLocaleDateString()}
                     </td>
@@ -278,10 +240,7 @@ export function Reviews() {
 
       {/* Detail Modal */}
       {selectedReview && (
-        <ReviewDetail
-          review={selectedReview}
-          onClose={() => setSelectedReview(null)}
-        />
+        <ReviewDetail review={selectedReview} onClose={() => setSelectedReview(null)} />
       )}
     </div>
   );

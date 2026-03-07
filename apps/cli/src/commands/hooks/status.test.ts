@@ -8,8 +8,8 @@
  * @see Phase 4, Test 6
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Command } from 'commander';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -34,8 +34,8 @@ vi.mock('../../ui/tui.js', () => ({
   },
 }));
 
-import { registerStatusCommand } from './status.js';
 import * as tui from '../../ui/tui.js';
+import { registerStatusCommand } from './status.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -62,11 +62,9 @@ let exitSpy: any;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  exitSpy = vi
-    .spyOn(process, 'exit')
-    .mockImplementation(((code?: number) => {
-      throw new ProcessExitError(code);
-    }) as never);
+  exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+    throw new ProcessExitError(code);
+  }) as never);
 
   mockIsGitRepo.mockReturnValue(true);
   mockGetHooksDir.mockReturnValue('/repo/.git/hooks');
@@ -81,8 +79,18 @@ afterEach(() => {
 describe('ghagga hooks status', () => {
   it('shows status for both pre-commit and commit-msg hooks', async () => {
     mockGetHookStatus
-      .mockReturnValueOnce({ type: 'pre-commit', installed: true, managedByGhagga: true, path: '/repo/.git/hooks/pre-commit' })
-      .mockReturnValueOnce({ type: 'commit-msg', installed: false, managedByGhagga: false, path: '/repo/.git/hooks/commit-msg' });
+      .mockReturnValueOnce({
+        type: 'pre-commit',
+        installed: true,
+        managedByGhagga: true,
+        path: '/repo/.git/hooks/pre-commit',
+      })
+      .mockReturnValueOnce({
+        type: 'commit-msg',
+        installed: false,
+        managedByGhagga: false,
+        path: '/repo/.git/hooks/commit-msg',
+      });
 
     await runStatusCommand();
 
@@ -97,72 +105,80 @@ describe('ghagga hooks status', () => {
     await runStatusCommand();
 
     expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(tui.log.error).toHaveBeenCalledWith(
-      expect.stringContaining('Not a git repository'),
-    );
+    expect(tui.log.error).toHaveBeenCalledWith(expect.stringContaining('Not a git repository'));
     expect(mockGetHookStatus).not.toHaveBeenCalled();
   });
 
   it('shows "not installed" for hooks that do not exist', async () => {
     mockGetHookStatus.mockReturnValue({
-      type: 'pre-commit', installed: false, managedByGhagga: false, path: '/repo/.git/hooks/pre-commit',
+      type: 'pre-commit',
+      installed: false,
+      managedByGhagga: false,
+      path: '/repo/.git/hooks/pre-commit',
     });
 
     await runStatusCommand();
 
-    expect(tui.log.info).toHaveBeenCalledWith(
-      expect.stringContaining('not installed'),
-    );
+    expect(tui.log.info).toHaveBeenCalledWith(expect.stringContaining('not installed'));
   });
 
   it('shows "GHAGGA-managed" for installed GHAGGA hooks', async () => {
     mockGetHookStatus.mockReturnValue({
-      type: 'pre-commit', installed: true, managedByGhagga: true, path: '/repo/.git/hooks/pre-commit',
+      type: 'pre-commit',
+      installed: true,
+      managedByGhagga: true,
+      path: '/repo/.git/hooks/pre-commit',
     });
 
     await runStatusCommand();
 
-    expect(tui.log.success).toHaveBeenCalledWith(
-      expect.stringContaining('GHAGGA-managed'),
-    );
+    expect(tui.log.success).toHaveBeenCalledWith(expect.stringContaining('GHAGGA-managed'));
   });
 
   it('shows "external" for installed non-GHAGGA hooks', async () => {
     mockGetHookStatus.mockReturnValue({
-      type: 'pre-commit', installed: true, managedByGhagga: false, path: '/repo/.git/hooks/pre-commit',
+      type: 'pre-commit',
+      installed: true,
+      managedByGhagga: false,
+      path: '/repo/.git/hooks/pre-commit',
     });
 
     await runStatusCommand();
 
-    expect(tui.log.warn).toHaveBeenCalledWith(
-      expect.stringContaining('external'),
-    );
+    expect(tui.log.warn).toHaveBeenCalledWith(expect.stringContaining('external'));
   });
 
   it('shows hooks directory path', async () => {
     mockGetHookStatus.mockReturnValue({
-      type: 'pre-commit', installed: false, managedByGhagga: false, path: '/repo/.git/hooks/pre-commit',
+      type: 'pre-commit',
+      installed: false,
+      managedByGhagga: false,
+      path: '/repo/.git/hooks/pre-commit',
     });
 
     await runStatusCommand();
 
-    expect(tui.log.info).toHaveBeenCalledWith(
-      expect.stringContaining('/repo/.git/hooks'),
-    );
+    expect(tui.log.info).toHaveBeenCalledWith(expect.stringContaining('/repo/.git/hooks'));
   });
 
   it('shows mixed status for different hooks', async () => {
     mockGetHookStatus
-      .mockReturnValueOnce({ type: 'pre-commit', installed: true, managedByGhagga: true, path: '/repo/.git/hooks/pre-commit' })
-      .mockReturnValueOnce({ type: 'commit-msg', installed: true, managedByGhagga: false, path: '/repo/.git/hooks/commit-msg' });
+      .mockReturnValueOnce({
+        type: 'pre-commit',
+        installed: true,
+        managedByGhagga: true,
+        path: '/repo/.git/hooks/pre-commit',
+      })
+      .mockReturnValueOnce({
+        type: 'commit-msg',
+        installed: true,
+        managedByGhagga: false,
+        path: '/repo/.git/hooks/commit-msg',
+      });
 
     await runStatusCommand();
 
-    expect(tui.log.success).toHaveBeenCalledWith(
-      expect.stringContaining('pre-commit'),
-    );
-    expect(tui.log.warn).toHaveBeenCalledWith(
-      expect.stringContaining('commit-msg'),
-    );
+    expect(tui.log.success).toHaveBeenCalledWith(expect.stringContaining('pre-commit'));
+    expect(tui.log.warn).toHaveBeenCalledWith(expect.stringContaining('commit-msg'));
   });
 });

@@ -4,7 +4,7 @@
  * Pure constant — no mocking needed.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { DEFAULT_REPO_SETTINGS } from './schema.js';
 
 // ─── DEFAULT_REPO_SETTINGS ──────────────────────────────────────
@@ -23,8 +23,12 @@ describe('DEFAULT_REPO_SETTINGS', () => {
   });
 
   it('should have the expected default ignorePatterns', () => {
-    expect(DEFAULT_REPO_SETTINGS.ignorePatterns).toEqual(
-      ['*.md', '*.txt', '.gitignore', 'LICENSE', '*.lock'],
-    );
+    expect(DEFAULT_REPO_SETTINGS.ignorePatterns).toEqual([
+      '*.md',
+      '*.txt',
+      '.gitignore',
+      'LICENSE',
+      '*.lock',
+    ]);
   });
 });

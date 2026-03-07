@@ -6,9 +6,9 @@
  * @see R9, S13–S16
  */
 
-import { Command } from 'commander';
-import { openMemoryOrExit } from './utils.js';
+import type { Command } from 'commander';
 import * as tui from '../../ui/tui.js';
+import { openMemoryOrExit } from './utils.js';
 
 export function registerShowCommand(parent: Command): void {
   parent
@@ -16,7 +16,7 @@ export function registerShowCommand(parent: Command): void {
     .description('Show full observation details')
     .action(async (idArg: string) => {
       const id = parseInt(idArg, 10);
-      if (isNaN(id)) {
+      if (Number.isNaN(id)) {
         tui.log.info(`Invalid observation ID: "${idArg}". Expected a number.`);
         process.exit(1);
       }
@@ -35,21 +35,13 @@ export function registerShowCommand(parent: Command): void {
         tui.log.message(`${label('Type')}${obs.type}`);
         tui.log.message(`${label('Title')}${obs.title}`);
         tui.log.message(`${label('Project')}${obs.project}`);
-        tui.log.message(
-          `${label('Topic Key')}${obs.topicKey ?? '(none)'}`,
-        );
+        tui.log.message(`${label('Topic Key')}${obs.topicKey ?? '(none)'}`);
         tui.log.message(`${label('Revision Count')}${obs.revisionCount}`);
-        tui.log.message(
-          `${label('Created')}${obs.createdAt.replace('T', ' ').replace('Z', '')}`,
-        );
-        tui.log.message(
-          `${label('Updated')}${obs.updatedAt.replace('T', ' ').replace('Z', '')}`,
-        );
+        tui.log.message(`${label('Created')}${obs.createdAt.replace('T', ' ').replace('Z', '')}`);
+        tui.log.message(`${label('Updated')}${obs.updatedAt.replace('T', ' ').replace('Z', '')}`);
 
         const filePaths =
-          obs.filePaths && obs.filePaths.length > 0
-            ? obs.filePaths.join(', ')
-            : '(none)';
+          obs.filePaths && obs.filePaths.length > 0 ? obs.filePaths.join(', ') : '(none)';
         tui.log.message(`${label('File Paths')}${filePaths}`);
 
         tui.log.message('Content:');

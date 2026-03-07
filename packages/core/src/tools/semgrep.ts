@@ -4,13 +4,12 @@
  */
 
 import { execFile } from 'node:child_process';
-import { writeFile, mkdtemp, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { promisify } from 'node:util';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { dirname } from 'node:path';
-import type { ToolResult, ReviewFinding, FindingSeverity } from '../types.js';
+import { promisify } from 'node:util';
+import type { FindingSeverity, ReviewFinding, ToolResult } from '../types.js';
 
 const execFileAsync = promisify(execFile);
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -73,7 +72,9 @@ export async function runSemgrep(
     const stderr = err?.stderr ?? '';
     const code = err?.code ?? '';
     const signal = err?.signal ?? '';
-    console.error(`[ghagga:semgrep] Version check FAILED (${semgrepBin}): code=${code} signal=${signal} stderr=${stderr} message=${err?.message}`);
+    console.error(
+      `[ghagga:semgrep] Version check FAILED (${semgrepBin}): code=${code} signal=${signal} stderr=${stderr} message=${err?.message}`,
+    );
     return {
       status: 'skipped',
       findings: [],
@@ -99,24 +100,25 @@ export async function runSemgrep(
     }
 
     // Run semgrep
-    console.log(`[ghagga:semgrep] Scanning ${files.size} files in ${tempDir}, rules: ${RULES_PATH}`);
+    console.log(
+      `[ghagga:semgrep] Scanning ${files.size} files in ${tempDir}, rules: ${RULES_PATH}`,
+    );
     const configArgs = ['--config', RULES_PATH];
     if (customRulesPath) {
       configArgs.push('--config', customRulesPath);
     }
 
-    const { stdout } = await execFileAsync(
-      semgrepBin,
-      ['--json', ...configArgs, tempDir],
-      { timeout: TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
-    );
+    const { stdout } = await execFileAsync(semgrepBin, ['--json', ...configArgs, tempDir], {
+      timeout: TIMEOUT_MS,
+      maxBuffer: 10 * 1024 * 1024,
+    });
 
     const result: SemgrepResult = JSON.parse(stdout);
 
     const findings: ReviewFinding[] = result.results.map((r) => ({
       severity: mapSeverity(r.extra.severity),
       category: 'security',
-      file: r.path.replace(tempDir + '/', ''),
+      file: r.path.replace(`${tempDir}/`, ''),
       line: r.start.line,
       message: r.extra.message,
       suggestion: undefined,
@@ -131,7 +133,9 @@ export async function runSemgrep(
   } catch (error: any) {
     const stderr = error?.stderr ?? '';
     const stdout = error?.stdout ?? '';
-    console.error(`[ghagga:semgrep] Scan FAILED: ${error?.message}\n  stderr: ${stderr.substring(0, 500)}\n  stdout: ${stdout.substring(0, 500)}`);
+    console.error(
+      `[ghagga:semgrep] Scan FAILED: ${error?.message}\n  stderr: ${stderr.substring(0, 500)}\n  stdout: ${stdout.substring(0, 500)}`,
+    );
     return {
       status: 'error',
       findings: [],

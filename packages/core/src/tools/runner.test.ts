@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { ReviewFinding, StaticAnalysisResult } from '../types.js';
 import { formatStaticAnalysisContext } from './runner.js';
-import type { StaticAnalysisResult, ReviewFinding } from '../types.js';
 
 /** Helper to create an empty ToolResult */
 function emptyToolResult() {

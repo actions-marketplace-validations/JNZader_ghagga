@@ -4,9 +4,9 @@
  * success/error flows, empty states, and loading states.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '@/components/Toast';
 
 // ─── Mock modules ───────────────────────────────────────────────
@@ -200,9 +200,7 @@ describe('Memory page — basic rendering', () => {
 
     renderMemory();
 
-    expect(
-      screen.getByText('No memory stored for this repository.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('No memory stored for this repository.')).toBeInTheDocument();
   });
 });
 
@@ -292,11 +290,9 @@ describe('Memory page — Tier 1 (delete observation)', () => {
 
   it('shows success toast after delete succeeds', () => {
     // Make mutate call the onSuccess immediately
-    mockDeleteMutate.mockImplementation(
-      (_vars: unknown, opts: { onSuccess: () => void }) => {
-        opts.onSuccess();
-      },
-    );
+    mockDeleteMutate.mockImplementation((_vars: unknown, opts: { onSuccess: () => void }) => {
+      opts.onSuccess();
+    });
 
     renderMemory();
 
@@ -350,9 +346,7 @@ describe('Memory page — Tier 2 (clear repo memory)', () => {
 
     fireEvent.click(screen.getByText('Clear Memory'));
 
-    expect(
-      screen.getByText('Clear all memory for acme/widgets'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Clear all memory for acme/widgets')).toBeInTheDocument();
     expect(screen.getByLabelText('Confirmation text')).toBeInTheDocument();
   });
 
@@ -362,9 +356,7 @@ describe('Memory page — Tier 2 (clear repo memory)', () => {
     fireEvent.click(screen.getByText('Clear Memory'));
 
     // "Clear Memory" appears as both the trigger button and the dialog confirm label
-    const dialogConfirmBtn = screen
-      .getByRole('dialog')
-      .querySelector('button:last-child')!;
+    const dialogConfirmBtn = screen.getByRole('dialog').querySelector('button:last-child')!;
     expect(dialogConfirmBtn).toBeDisabled();
 
     // Type wrong text
@@ -389,9 +381,7 @@ describe('Memory page — Tier 2 (clear repo memory)', () => {
       target: { value: 'acme/widgets' },
     });
 
-    const dialogConfirmBtn = screen
-      .getByRole('dialog')
-      .querySelector('button:last-child')!;
+    const dialogConfirmBtn = screen.getByRole('dialog').querySelector('button:last-child')!;
     fireEvent.click(dialogConfirmBtn);
 
     expect(mockClearMutate).toHaveBeenCalledWith(
@@ -418,14 +408,10 @@ describe('Memory page — Tier 2 (clear repo memory)', () => {
       target: { value: 'acme/widgets' },
     });
 
-    const dialogConfirmBtn = screen
-      .getByRole('dialog')
-      .querySelector('button:last-child')!;
+    const dialogConfirmBtn = screen.getByRole('dialog').querySelector('button:last-child')!;
     fireEvent.click(dialogConfirmBtn);
 
-    expect(
-      screen.getByText('Cleared 15 observations from acme/widgets'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Cleared 15 observations from acme/widgets')).toBeInTheDocument();
   });
 });
 
@@ -473,9 +459,7 @@ describe('Memory page — Tier 3 (purge all memory)', () => {
 
     fireEvent.click(screen.getByText('Purge All Memory'));
 
-    const dialogConfirmBtn = screen
-      .getByRole('dialog')
-      .querySelector('button:last-child')!;
+    const dialogConfirmBtn = screen.getByRole('dialog').querySelector('button:last-child')!;
 
     // Type correct text, but countdown still active
     fireEvent.change(screen.getByLabelText('Confirmation text'), {
@@ -500,9 +484,7 @@ describe('Memory page — Tier 3 (purge all memory)', () => {
 
     act(() => vi.advanceTimersByTime(5000));
 
-    const dialogConfirmBtn = screen
-      .getByRole('dialog')
-      .querySelector('button:last-child')!;
+    const dialogConfirmBtn = screen.getByRole('dialog').querySelector('button:last-child')!;
     fireEvent.click(dialogConfirmBtn);
 
     expect(mockPurgeMutate).toHaveBeenCalledWith(
@@ -531,14 +513,10 @@ describe('Memory page — Tier 3 (purge all memory)', () => {
 
     act(() => vi.advanceTimersByTime(5000));
 
-    const dialogConfirmBtn = screen
-      .getByRole('dialog')
-      .querySelector('button:last-child')!;
+    const dialogConfirmBtn = screen.getByRole('dialog').querySelector('button:last-child')!;
     fireEvent.click(dialogConfirmBtn);
 
-    expect(
-      screen.getByText('Purged 50 observations from all repositories'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Purged 50 observations from all repositories')).toBeInTheDocument();
   });
 });
 
@@ -559,9 +537,7 @@ describe('Memory page — empty states', () => {
 
     renderMemory();
 
-    expect(
-      screen.getByText('No memory stored for this repository.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('No memory stored for this repository.')).toBeInTheDocument();
   });
 
   it('shows empty observations message when session has no observations', () => {
@@ -595,9 +571,7 @@ describe('Memory page — empty states', () => {
     // Select the session
     fireEvent.click(screen.getByText('PR #42'));
 
-    expect(
-      screen.getByText('No observations in this session.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('No observations in this session.')).toBeInTheDocument();
   });
 });
 
@@ -772,10 +746,7 @@ describe('Memory page — SessionItem enhancements', () => {
 
     const prLink = screen.getByTitle('Open PR #42 on GitHub');
     expect(prLink).toBeInTheDocument();
-    expect(prLink).toHaveAttribute(
-      'href',
-      'https://github.com/acme/widgets/pull/42',
-    );
+    expect(prLink).toHaveAttribute('href', 'https://github.com/acme/widgets/pull/42');
     expect(prLink).toHaveAttribute('target', '_blank');
   });
 

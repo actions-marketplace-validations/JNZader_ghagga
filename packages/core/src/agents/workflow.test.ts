@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -18,7 +18,7 @@ vi.mock('./prompts.js', () => ({
   WORKFLOW_PERFORMANCE_SYSTEM: 'PERFORMANCE_SYSTEM',
   WORKFLOW_SYNTHESIS_SYSTEM: 'SYNTHESIS_SYSTEM',
   REVIEW_CALIBRATION: 'REVIEW_CALIBRATION_BLOCK',
-  buildMemoryContext: vi.fn((ctx: string | null) => ctx ? `MEMORY:${ctx}` : ''),
+  buildMemoryContext: vi.fn((ctx: string | null) => (ctx ? `MEMORY:${ctx}` : '')),
   buildReviewLevelInstruction: vi.fn((level: string) => `REVIEW_LEVEL:${level}`),
 }));
 
@@ -28,10 +28,10 @@ vi.mock('./simple.js', () => ({
 
 import { generateText } from 'ai';
 import { createModel } from '../providers/index.js';
-import { parseReviewResponse } from './simple.js';
-import { runWorkflowReview } from './workflow.js';
-import type { WorkflowReviewInput } from './workflow.js';
 import type { ReviewResult } from '../types.js';
+import { parseReviewResponse } from './simple.js';
+import type { WorkflowReviewInput } from './workflow.js';
+import { runWorkflowReview } from './workflow.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -91,9 +91,7 @@ describe('runWorkflowReview', () => {
     vi.clearAllMocks();
 
     // Default: all generateText calls succeed
-    mockGenerateText.mockResolvedValue(
-      makeSpecialistResult('Specialist output') as any,
-    );
+    mockGenerateText.mockResolvedValue(makeSpecialistResult('Specialist output') as any);
 
     // Default: parseReviewResponse returns a valid result
     mockParseReviewResponse.mockReturnValue(makeParsedResult());
@@ -102,11 +100,13 @@ describe('runWorkflowReview', () => {
   // ── Model creation ──
 
   it('creates the language model with the correct provider, model, and apiKey', async () => {
-    await runWorkflowReview(makeInput({
-      provider: 'openai',
-      model: 'gpt-4o',
-      apiKey: 'sk-openai-key',
-    }));
+    await runWorkflowReview(
+      makeInput({
+        provider: 'openai',
+        model: 'gpt-4o',
+        apiKey: 'sk-openai-key',
+      }),
+    );
 
     expect(mockCreateModel).toHaveBeenCalledWith('openai', 'gpt-4o', 'sk-openai-key');
   });
@@ -125,7 +125,7 @@ describe('runWorkflowReview', () => {
 
     // First 5 calls are specialists
     for (let i = 0; i < 5; i++) {
-      const call = mockGenerateText.mock.calls[i]![0] as any;
+      const call = mockGenerateText.mock.calls[i]?.[0] as any;
       expect(call.temperature).toBe(0.3);
       expect(call.prompt).toContain('my-diff-content');
     }
@@ -139,7 +139,7 @@ describe('runWorkflowReview', () => {
     await runWorkflowReview(input);
 
     // Check the first specialist call
-    const call = mockGenerateText.mock.calls[0]![0] as any;
+    const call = mockGenerateText.mock.calls[0]?.[0] as any;
     expect(call.system).toContain('STATIC_CONTEXT_DATA');
     expect(call.system).toContain('STACK_HINTS_DATA');
   });
@@ -148,7 +148,7 @@ describe('runWorkflowReview', () => {
     const input = makeInput({ memoryContext: 'past-review-data' });
     await runWorkflowReview(input);
 
-    const call = mockGenerateText.mock.calls[0]![0] as any;
+    const call = mockGenerateText.mock.calls[0]?.[0] as any;
     expect(call.system).toContain('MEMORY:past-review-data');
   });
 
@@ -157,7 +157,7 @@ describe('runWorkflowReview', () => {
   it('passes SYNTHESIS_SYSTEM with review-level and calibration in system prompt for the 6th call', async () => {
     await runWorkflowReview(makeInput());
 
-    const synthesisCall = mockGenerateText.mock.calls[5]![0] as any;
+    const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
     expect(synthesisCall.system).toContain('SYNTHESIS_SYSTEM');
     expect(synthesisCall.system).toContain('REVIEW_LEVEL:normal');
     expect(synthesisCall.system).toContain('REVIEW_CALIBRATION_BLOCK');
@@ -176,7 +176,7 @@ describe('runWorkflowReview', () => {
 
     await runWorkflowReview(makeInput());
 
-    const synthesisCall = mockGenerateText.mock.calls[5]![0] as any;
+    const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
     expect(synthesisCall.prompt).toContain('Scope output');
     expect(synthesisCall.prompt).toContain('Standards output');
     expect(synthesisCall.prompt).toContain('Errors output');
@@ -197,7 +197,7 @@ describe('runWorkflowReview', () => {
 
     await runWorkflowReview(makeInput());
 
-    const synthesisCall = mockGenerateText.mock.calls[5]![0] as any;
+    const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
     expect(synthesisCall.prompt).toContain('[FAILED]');
     expect(synthesisCall.prompt).toContain('Standards LLM timeout');
   });
@@ -221,11 +221,11 @@ describe('runWorkflowReview', () => {
 
   it('aggregates tokens from all successful specialists and synthesis', async () => {
     mockGenerateText
-      .mockResolvedValueOnce(makeSpecialistResult('s1', 100, 50) as any)   // 150
-      .mockResolvedValueOnce(makeSpecialistResult('s2', 200, 100) as any)  // 300
-      .mockResolvedValueOnce(makeSpecialistResult('s3', 150, 75) as any)   // 225
-      .mockResolvedValueOnce(makeSpecialistResult('s4', 180, 90) as any)   // 270
-      .mockResolvedValueOnce(makeSpecialistResult('s5', 120, 60) as any)   // 180
+      .mockResolvedValueOnce(makeSpecialistResult('s1', 100, 50) as any) // 150
+      .mockResolvedValueOnce(makeSpecialistResult('s2', 200, 100) as any) // 300
+      .mockResolvedValueOnce(makeSpecialistResult('s3', 150, 75) as any) // 225
+      .mockResolvedValueOnce(makeSpecialistResult('s4', 180, 90) as any) // 270
+      .mockResolvedValueOnce(makeSpecialistResult('s5', 120, 60) as any) // 180
       .mockResolvedValueOnce(makeSpecialistResult('syn', 300, 200) as any); // 500
 
     await runWorkflowReview(makeInput());
@@ -243,11 +243,11 @@ describe('runWorkflowReview', () => {
 
   it('does not count tokens from failed specialists', async () => {
     mockGenerateText
-      .mockResolvedValueOnce(makeSpecialistResult('s1', 100, 50) as any)   // 150
-      .mockRejectedValueOnce(new Error('fail'))                            // 0
-      .mockResolvedValueOnce(makeSpecialistResult('s3', 100, 50) as any)   // 150
-      .mockResolvedValueOnce(makeSpecialistResult('s4', 100, 50) as any)   // 150
-      .mockResolvedValueOnce(makeSpecialistResult('s5', 100, 50) as any)   // 150
+      .mockResolvedValueOnce(makeSpecialistResult('s1', 100, 50) as any) // 150
+      .mockRejectedValueOnce(new Error('fail')) // 0
+      .mockResolvedValueOnce(makeSpecialistResult('s3', 100, 50) as any) // 150
+      .mockResolvedValueOnce(makeSpecialistResult('s4', 100, 50) as any) // 150
+      .mockResolvedValueOnce(makeSpecialistResult('s5', 100, 50) as any) // 150
       .mockResolvedValueOnce(makeSpecialistResult('syn', 100, 50) as any); // 150
 
     await runWorkflowReview(makeInput());
@@ -321,17 +321,19 @@ describe('runWorkflowReview', () => {
   // ── Metadata override ──
 
   it('overrides metadata.mode to "workflow"', async () => {
-    mockParseReviewResponse.mockReturnValue(makeParsedResult({
-      metadata: {
-        mode: 'simple',
-        provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
-        tokensUsed: 100,
-        executionTimeMs: 500,
-        toolsRun: [],
-        toolsSkipped: [],
-      },
-    }));
+    mockParseReviewResponse.mockReturnValue(
+      makeParsedResult({
+        metadata: {
+          mode: 'simple',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-20250514',
+          tokensUsed: 100,
+          executionTimeMs: 500,
+          toolsRun: [],
+          toolsSkipped: [],
+        },
+      }),
+    );
 
     const result = await runWorkflowReview(makeInput());
 
@@ -387,7 +389,7 @@ describe('runWorkflowReview', () => {
       ([event]: [any]) => event.step.startsWith('specialist-') && event.message.includes('✗'),
     );
     expect(failedCalls).toHaveLength(1);
-    expect(failedCalls[0]![0].message).toContain('FAILED');
+    expect(failedCalls[0]?.[0].message).toContain('FAILED');
   });
 
   it('calls onProgress for workflow-synthesis step', async () => {
@@ -413,7 +415,7 @@ describe('runWorkflowReview', () => {
 
     // All 5 specialist calls should contain the review level instruction
     for (let i = 0; i < 5; i++) {
-      const call = mockGenerateText.mock.calls[i]![0] as any;
+      const call = mockGenerateText.mock.calls[i]?.[0] as any;
       expect(call.system).toContain('REVIEW_LEVEL:soft');
     }
   });
@@ -422,7 +424,7 @@ describe('runWorkflowReview', () => {
     await runWorkflowReview(makeInput());
 
     for (let i = 0; i < 5; i++) {
-      const call = mockGenerateText.mock.calls[i]![0] as any;
+      const call = mockGenerateText.mock.calls[i]?.[0] as any;
       expect(call.system).toContain('REVIEW_CALIBRATION_BLOCK');
     }
   });
@@ -430,14 +432,14 @@ describe('runWorkflowReview', () => {
   it('includes review-level instruction in synthesis system prompt', async () => {
     await runWorkflowReview(makeInput({ reviewLevel: 'strict' }));
 
-    const synthesisCall = mockGenerateText.mock.calls[5]![0] as any;
+    const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
     expect(synthesisCall.system).toContain('REVIEW_LEVEL:strict');
   });
 
   it('includes REVIEW_CALIBRATION in synthesis system prompt', async () => {
     await runWorkflowReview(makeInput());
 
-    const synthesisCall = mockGenerateText.mock.calls[5]![0] as any;
+    const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
     expect(synthesisCall.system).toContain('REVIEW_CALIBRATION_BLOCK');
   });
 });

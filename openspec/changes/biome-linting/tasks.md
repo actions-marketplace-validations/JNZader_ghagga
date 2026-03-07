@@ -8,7 +8,7 @@
 
 ## Phase 1: Setup
 
-- [ ] **1.1** Install `@biomejs/biome` as root dev dependency
+- [x] **1.1** Install `@biomejs/biome` as root dev dependency
   - Run `pnpm add -D -w @biomejs/biome`
   - Verify it appears in root `package.json` under `devDependencies`
   - **Satisfies**: R1 prerequisite
@@ -16,7 +16,7 @@
   - **Effort**: 5 min
   - **Dependencies**: None
 
-- [ ] **1.2** Create `biome.json` at repository root with recommended config
+- [x] **1.2** Create `biome.json` at repository root with recommended config
   - Run `pnpm biome init` to scaffold, then edit to match spec:
     - Linter: `recommended` rules enabled
     - Rules: `noUnusedVariables` → `warn`, `noUnusedImports` → `warn`, `noExplicitAny` → `warn`
@@ -28,7 +28,7 @@
   - **Effort**: 10 min
   - **Dependencies**: 1.1
 
-- [ ] **1.3** Add `lint` and `lint:fix` scripts to root `package.json`
+- [x] **1.3** Add `lint` and `lint:fix` scripts to root `package.json`
   - Change existing `"lint": "turbo run lint"` to `"lint": "biome check ."`
   - Add `"lint:fix": "biome check --write ."`
   - Keep `"lint:ci"` as an alias if needed for CI, or just use `pnpm lint`
@@ -37,7 +37,7 @@
   - **Effort**: 5 min
   - **Dependencies**: 1.2
 
-- [ ] **1.4** Update `turbo.json` pipeline for lint task
+- [x] **1.4** Update `turbo.json` pipeline for lint task
   - Modify the existing `lint` task to remove `dependsOn: ["^build"]` (Biome works on source files, no build needed)
   - Set `"cache": false` since biome check is fast and should always run fresh
   - Alternatively: remove `lint` from turbo tasks entirely since `biome check .` at root covers all packages
@@ -50,7 +50,7 @@
 
 ## Phase 2: Initial Fix
 
-- [ ] **2.1** Run `pnpm lint` to see initial errors and warnings
+- [x] **2.1** Run `pnpm lint` to see initial errors and warnings
   - Execute `pnpm lint` and capture the output
   - Categorize issues: formatting vs lint errors vs lint warnings
   - Note how many are auto-fixable vs manual
@@ -59,7 +59,7 @@
   - **Effort**: 5 min
   - **Dependencies**: 1.4
 
-- [ ] **2.2** Run `pnpm lint:fix` to auto-fix all auto-fixable issues
+- [x] **2.2** Run `pnpm lint:fix` to auto-fix all auto-fixable issues
   - Execute `pnpm lint:fix`
   - Review the diff to ensure auto-fixes are sensible (formatting, unused imports removal, etc.)
   - Stage all changes
@@ -68,7 +68,7 @@
   - **Effort**: 10 min
   - **Dependencies**: 2.1
 
-- [ ] **2.3** Manually fix remaining lint errors that can't be auto-fixed
+- [x] **2.3** Manually fix remaining lint errors that can't be auto-fixed
   - Run `pnpm lint` again after auto-fix
   - For each remaining error/warning:
     - Fix the code if straightforward
@@ -83,7 +83,7 @@
 
 ## Phase 3: Audit Quick Fixes
 
-- [ ] **3.1** Replace `console.error` with `pino` logger in `apps/server/src/routes/oauth.ts`
+- [x] **3.1** Replace `console.error` with `pino` logger in `apps/server/src/routes/oauth.ts`
   - Import the existing `pino` logger (check how other route files import it)
   - Create a child logger: `const logger = parentLogger.child({ module: 'oauth' })`
   - Replace all `console.error(...)` calls with `logger.error(...)` preserving the error context
@@ -93,7 +93,7 @@
   - **Effort**: 10 min
   - **Dependencies**: None (can run in parallel with Phase 1-2)
 
-- [ ] **3.2** Move OAuth Client ID to env var in server
+- [x] **3.2** Move OAuth Client ID to env var in server
   - Find the hardcoded GitHub Client ID in `apps/server/src/routes/oauth.ts`
   - Replace with `process.env.GITHUB_CLIENT_ID ?? '<current-hardcoded-value>'`
   - Document `GITHUB_CLIENT_ID` in `.env.example` if it exists
@@ -102,7 +102,7 @@
   - **Effort**: 10 min
   - **Dependencies**: None
 
-- [ ] **3.3** Move OAuth Client ID to env var in dashboard
+- [x] **3.3** Move OAuth Client ID to env var in dashboard
   - Find the hardcoded GitHub Client ID in dashboard source (likely in an auth/login component)
   - Replace with `import.meta.env.VITE_GITHUB_CLIENT_ID ?? '<current-hardcoded-value>'`
   - Document `VITE_GITHUB_CLIENT_ID` in dashboard's `.env.example` if it exists
@@ -115,7 +115,7 @@
 
 ## Phase 4: CI Integration
 
-- [ ] **4.1** Add lint step to `.github/workflows/ci.yml`
+- [x] **4.1** Add lint step to `.github/workflows/ci.yml`
   - Add a new `lint` job that runs BEFORE the `test` job:
     ```yaml
     lint:
@@ -140,7 +140,7 @@
 
 ## Phase 5: Verification
 
-- [ ] **5.1** Run full lint — must exit 0
+- [x] **5.1** Run full lint — must exit 0
   - Execute `pnpm lint`
   - Verify exit code is 0
   - Verify no errors reported (warnings acceptable)
@@ -149,7 +149,7 @@
   - **Effort**: 5 min
   - **Dependencies**: 2.3, 3.1, 3.2, 3.3
 
-- [ ] **5.2** Run full test suite — no regressions
+- [x] **5.2** Run full test suite — no regressions
   - Execute `pnpm test`
   - Verify all tests pass
   - Pay attention to OAuth-related tests after the logger and env var changes
@@ -158,7 +158,7 @@
   - **Effort**: 10 min
   - **Dependencies**: 5.1
 
-- [ ] **5.3** Verify CI config is valid
+- [x] **5.3** Verify CI config is valid
   - Review `.github/workflows/ci.yml` for YAML syntax
   - Verify the `needs` dependency graph is correct (lint and check run in parallel, test depends on both)
   - Optionally run `actionlint` if available

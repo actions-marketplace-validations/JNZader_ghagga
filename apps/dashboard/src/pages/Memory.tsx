@@ -1,24 +1,24 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '@/components/Card';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { SeverityBadge } from '@/components/SeverityBadge';
 import { ObservationDetailModal } from '@/components/ObservationDetailModal';
+import { SeverityBadge } from '@/components/SeverityBadge';
 import { useToast } from '@/components/Toast';
-import { cn } from '@/lib/cn';
-import { isValidSeverity, severityWeight, formatRelativeTime } from '@/lib/utils';
 import {
-  useRepositories,
+  ApiError,
+  useCleanupEmptySessions,
+  useClearRepoMemory,
+  useDeleteObservation,
+  useDeleteSession,
   useMemorySessions,
   useObservations,
-  useDeleteObservation,
-  useClearRepoMemory,
   usePurgeAllMemory,
-  useDeleteSession,
-  useCleanupEmptySessions,
-  ApiError,
+  useRepositories,
 } from '@/lib/api';
+import { cn } from '@/lib/cn';
 import { useSelectedRepo } from '@/lib/repo-context';
 import type { MemorySession, Observation } from '@/lib/types';
+import { formatRelativeTime, isValidSeverity, severityWeight } from '@/lib/utils';
 
 // ─── Constants ──────────────────────────────────────────────────
 
@@ -36,10 +36,7 @@ const sortLabels: Record<SortOption, string> = {
 
 // ─── Observation Type Config ────────────────────────────────────
 
-const observationTypeConfig: Record<
-  Observation['type'],
-  { label: string; classes: string }
-> = {
+const observationTypeConfig: Record<Observation['type'], { label: string; classes: string }> = {
   pattern: {
     label: 'Pattern',
     classes: 'bg-purple-500/15 text-purple-400 border-purple-500/25',
@@ -114,9 +111,7 @@ function SessionItem({
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-primary-400">
-            PR #{session.prNumber}
-          </span>
+          <span className="text-sm font-medium text-primary-400">PR #{session.prNumber}</span>
           {session.prNumber > 0 && (
             <a
               href={`https://github.com/${session.project}/pull/${session.prNumber}`}
@@ -131,9 +126,7 @@ function SessionItem({
           )}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-xs text-text-muted">
-            {session.observationCount} obs
-          </span>
+          <span className="text-xs text-text-muted">{session.observationCount} obs</span>
           <span
             role="button"
             tabIndex={0}
@@ -180,9 +173,7 @@ function SessionItem({
         </div>
       )}
 
-      <p className="mt-1 line-clamp-2 text-sm text-text-secondary">
-        {session.summary}
-      </p>
+      <p className="mt-1 line-clamp-2 text-sm text-text-secondary">{session.summary}</p>
       <p className="mt-1 text-xs text-text-muted">
         {new Date(session.createdAt).toLocaleDateString()}
       </p>
@@ -261,10 +252,7 @@ function ObservationCard({
   return (
     <Card className="cursor-pointer transition-colors hover:border-primary-500/30">
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-      <div
-        className="relative flex items-start gap-3"
-        onClick={() => onClick(observation)}
-      >
+      <div className="relative flex items-start gap-3" onClick={() => onClick(observation)}>
         <div className="flex flex-col gap-1.5">
           <TypeBadge type={observation.type} />
           {isValidSeverity(observation.severity) && (
@@ -272,9 +260,7 @@ function ObservationCard({
           )}
         </div>
         <div className="flex-1">
-          <h4 className="text-sm font-medium text-text-primary">
-            {observation.title}
-          </h4>
+          <h4 className="text-sm font-medium text-text-primary">{observation.title}</h4>
           <p className="mt-2 whitespace-pre-wrap font-mono text-sm text-text-secondary line-clamp-4">
             {observation.content}
           </p>
@@ -357,13 +343,9 @@ function StatsBar({ observations }: { observations: Observation[] }) {
       {/* Severity chips */}
       {Object.entries(stats.bySeverity)
         .sort(([a], [b]) => severityWeight(b) - severityWeight(a))
-        .map(([severity, count]) =>
+        .map(([severity, _count]) =>
           isValidSeverity(severity) ? (
-            <SeverityBadge
-              key={severity}
-              severity={severity}
-              className="gap-1"
-            />
+            <SeverityBadge key={severity} severity={severity} className="gap-1" />
           ) : null,
         )
         .filter(Boolean).length > 0 && (
@@ -389,10 +371,7 @@ function StatsBar({ observations }: { observations: Observation[] }) {
         const config = observationTypeConfig[type as Observation['type']];
         if (!config) return null;
         return (
-          <span
-            key={type}
-            className="inline-flex items-center gap-1 text-xs text-text-muted"
-          >
+          <span key={type} className="inline-flex items-center gap-1 text-xs text-text-muted">
             <span
               className={cn(
                 'inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-medium',
@@ -454,10 +433,10 @@ export function Memory() {
 
   // ── Data queries ──────────────────────────────────────────────
   const { data: repos } = useRepositories();
-  const { data: sessions, isLoading: sessionsLoading } =
-    useMemorySessions(selectedRepo);
-  const { data: observations, isLoading: observationsLoading } =
-    useObservations(selectedSessionId ?? 0);
+  const { data: sessions, isLoading: sessionsLoading } = useMemorySessions(selectedRepo);
+  const { data: observations, isLoading: observationsLoading } = useObservations(
+    selectedSessionId ?? 0,
+  );
 
   // ── Mutations ─────────────────────────────────────────────────
   const deleteObservation = useDeleteObservation();
@@ -494,8 +473,7 @@ export function Memory() {
   }, [selectedRepo]);
 
   // ── Computed values ───────────────────────────────────────────
-  const totalObservationCount =
-    sessions?.reduce((sum, s) => sum + s.observationCount, 0) ?? 0;
+  const totalObservationCount = sessions?.reduce((sum, s) => sum + s.observationCount, 0) ?? 0;
 
   const hasEmptySessions = sessions?.some((s) => s.observationCount === 0) ?? false;
 
@@ -544,10 +522,7 @@ export function Memory() {
   const filteredSessions = sessions?.filter((session) => {
     if (!debouncedSearch) return true;
     const q = debouncedSearch.toLowerCase();
-    return (
-      session.summary.toLowerCase().includes(q) ||
-      String(session.prNumber).includes(q)
-    );
+    return session.summary.toLowerCase().includes(q) || String(session.prNumber).includes(q);
   });
 
   // ── Handlers ──────────────────────────────────────────────────
@@ -659,9 +634,7 @@ export function Memory() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">Memory</h1>
-          <p className="mt-1 text-text-secondary">
-            Browse learned patterns and observations
-          </p>
+          <p className="mt-1 text-text-secondary">Browse learned patterns and observations</p>
         </div>
 
         <div className="flex items-center gap-3">
@@ -698,12 +671,10 @@ export function Memory() {
       {!selectedRepo ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="mb-4 text-5xl">🧠</div>
-          <h2 className="mb-2 text-xl font-semibold text-text-primary">
-            Select a Repository
-          </h2>
+          <h2 className="mb-2 text-xl font-semibold text-text-primary">Select a Repository</h2>
           <p className="max-w-md text-text-secondary">
-            Choose a repository to browse memory sessions and observations
-            learned from past reviews.
+            Choose a repository to browse memory sessions and observations learned from past
+            reviews.
           </p>
         </div>
       ) : (
@@ -738,13 +709,11 @@ export function Memory() {
                   className="select-field"
                   aria-label="Sort observations"
                 >
-                  {(Object.entries(sortLabels) as [SortOption, string][]).map(
-                    ([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ),
-                  )}
+                  {(Object.entries(sortLabels) as [SortOption, string][]).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
                 </select>
               </>
             )}
@@ -803,11 +772,9 @@ export function Memory() {
                 <div className="flex items-center justify-center py-12">
                   <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
                 </div>
-              ) : (filteredObservations.length) === 0 ? (
+              ) : filteredObservations.length === 0 ? (
                 <div className="flex items-center justify-center py-20 text-center">
-                  <p className="text-text-secondary">
-                    No observations in this session.
-                  </p>
+                  <p className="text-text-secondary">No observations in this session.</p>
                 </div>
               ) : (
                 <>
@@ -837,9 +804,7 @@ export function Memory() {
               <div className="flex items-center gap-3">
                 <WarningIcon className="text-red-400" />
                 <div>
-                  <h3 className="text-sm font-semibold text-red-400">
-                    Danger Zone
-                  </h3>
+                  <h3 className="text-sm font-semibold text-red-400">Danger Zone</h3>
                   <p className="text-sm text-text-secondary">
                     Permanently delete all memory across all repositories.
                   </p>

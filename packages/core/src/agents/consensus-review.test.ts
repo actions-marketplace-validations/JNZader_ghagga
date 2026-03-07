@@ -6,7 +6,7 @@
  * containing the review-level instruction and REVIEW_CALIBRATION block.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -28,8 +28,8 @@ vi.mock('./prompts.js', () => ({
 }));
 
 import { generateText } from 'ai';
-import { runConsensusReview } from './consensus.js';
 import type { ConsensusReviewInput } from './consensus.js';
+import { runConsensusReview } from './consensus.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -39,9 +39,24 @@ function makeInput(overrides: Partial<ConsensusReviewInput> = {}): ConsensusRevi
   return {
     diff: '--- a/file.ts\n+++ b/file.ts\n@@ -1,3 +1,3 @@\n-old\n+new',
     models: [
-      { provider: 'anthropic', model: 'claude-sonnet-4-20250514', apiKey: 'sk-test', stance: 'for' },
-      { provider: 'anthropic', model: 'claude-sonnet-4-20250514', apiKey: 'sk-test', stance: 'against' },
-      { provider: 'anthropic', model: 'claude-sonnet-4-20250514', apiKey: 'sk-test', stance: 'neutral' },
+      {
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+        apiKey: 'sk-test',
+        stance: 'for',
+      },
+      {
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+        apiKey: 'sk-test',
+        stance: 'against',
+      },
+      {
+        provider: 'anthropic',
+        model: 'claude-sonnet-4-20250514',
+        apiKey: 'sk-test',
+        stance: 'neutral',
+      },
     ],
     staticContext: '',
     memoryContext: null,
@@ -71,7 +86,7 @@ describe('runConsensusReview reviewLevel injection', () => {
 
     expect(mockGenerateText).toHaveBeenCalledTimes(3);
     for (let i = 0; i < 3; i++) {
-      const call = mockGenerateText.mock.calls[i]![0] as any;
+      const call = mockGenerateText.mock.calls[i]?.[0] as any;
       expect(call.system).toContain('REVIEW_LEVEL:soft');
     }
   });
@@ -81,7 +96,7 @@ describe('runConsensusReview reviewLevel injection', () => {
 
     expect(mockGenerateText).toHaveBeenCalledTimes(3);
     for (let i = 0; i < 3; i++) {
-      const call = mockGenerateText.mock.calls[i]![0] as any;
+      const call = mockGenerateText.mock.calls[i]?.[0] as any;
       expect(call.system).toContain('REVIEW_LEVEL:normal');
     }
   });
@@ -91,7 +106,7 @@ describe('runConsensusReview reviewLevel injection', () => {
 
     expect(mockGenerateText).toHaveBeenCalledTimes(3);
     for (let i = 0; i < 3; i++) {
-      const call = mockGenerateText.mock.calls[i]![0] as any;
+      const call = mockGenerateText.mock.calls[i]?.[0] as any;
       expect(call.system).toContain('REVIEW_LEVEL:strict');
     }
   });
@@ -100,7 +115,7 @@ describe('runConsensusReview reviewLevel injection', () => {
     await runConsensusReview(makeInput());
 
     for (let i = 0; i < 3; i++) {
-      const call = mockGenerateText.mock.calls[i]![0] as any;
+      const call = mockGenerateText.mock.calls[i]?.[0] as any;
       expect(call.system).toContain('REVIEW_CALIBRATION_BLOCK');
     }
   });

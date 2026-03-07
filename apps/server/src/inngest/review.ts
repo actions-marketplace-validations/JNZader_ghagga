@@ -9,24 +9,32 @@
  *   5. React to trigger comment (if applicable)
  */
 
-import { inngest } from './client.js';
-import type { RunnerCompletedData } from './client.js';
+import { formatReviewComment, reviewPipeline } from 'ghagga-core';
 import {
+  addCommentReaction,
   fetchPRDiff,
+  getInstallationToken,
   getPRCommitMessages,
   getPRFileList,
-  getInstallationToken,
   postComment,
-  addCommentReaction,
 } from '../github/client.js';
 import { discoverRunnerRepo, dispatchWorkflow } from '../github/runner.js';
 import { logger as rootLogger } from '../lib/logger.js';
-import { reviewPipeline, formatReviewComment } from 'ghagga-core';
+import type { RunnerCompletedData } from './client.js';
+import { inngest } from './client.js';
 
 const logger = rootLogger.child({ module: 'review' });
-import type { ReviewInput, ReviewMode, LLMProvider, ReviewLevel, ProviderChainEntry, StaticAnalysisResult } from 'ghagga-core';
-import { createDatabaseFromEnv, saveReview, decrypt } from 'ghagga-db';
+
+import type {
+  LLMProvider,
+  ProviderChainEntry,
+  ReviewInput,
+  ReviewLevel,
+  ReviewMode,
+  StaticAnalysisResult,
+} from 'ghagga-core';
 import type { Database, DbProviderChainEntry } from 'ghagga-db';
+import { createDatabaseFromEnv, decrypt, saveReview } from 'ghagga-db';
 import { PostgresMemoryStorage } from '../memory/postgres.js';
 
 // ─── Inngest Function ───────────────────────────────────────────
@@ -86,7 +94,10 @@ export const reviewFunction = inngest.createFunction(
       // Check if any static analysis tool is enabled
       const anyToolEnabled = settings.enableSemgrep || settings.enableTrivy || settings.enableCpd;
       if (!anyToolEnabled) {
-        logger.info({ repoFullName, prNumber }, 'No static analysis tools enabled — skipping runner');
+        logger.info(
+          { repoFullName, prNumber },
+          'No static analysis tools enabled — skipping runner',
+        );
         return { dispatched: false as const, callbackId: null };
       }
 
@@ -114,7 +125,10 @@ export const reviewFunction = inngest.createFunction(
       const baseBranch = eventBaseBranch ?? 'main';
 
       // Build callback URL
-      const serverUrl = process.env.RENDER_EXTERNAL_URL ?? process.env.SERVER_URL ?? `http://localhost:${process.env.PORT ?? '3000'}`;
+      const serverUrl =
+        process.env.RENDER_EXTERNAL_URL ??
+        process.env.SERVER_URL ??
+        `http://localhost:${process.env.PORT ?? '3000'}`;
       const callbackUrl = `${serverUrl}/runner/callback`;
 
       try {
@@ -195,9 +209,7 @@ export const reviewFunction = inngest.createFunction(
           .map((entry) => ({
             provider: entry.provider,
             model: entry.model,
-            apiKey: entry.encryptedApiKey
-              ? decrypt(entry.encryptedApiKey)
-              : '',
+            apiKey: entry.encryptedApiKey ? decrypt(entry.encryptedApiKey) : '',
           }));
 
         // If all providers were filtered out, clear the chain so we fall through
@@ -232,7 +244,7 @@ export const reviewFunction = inngest.createFunction(
           if (!envKey) {
             throw new Error(
               `No API key configured for provider ${llmProvider}. ` +
-              `Set a per-repo key or the ${llmProvider?.toUpperCase()}_API_KEY env var.`,
+                `Set a per-repo key or the ${llmProvider?.toUpperCase()}_API_KEY env var.`,
             );
           }
           legacyApiKey = envKey;
@@ -326,7 +338,10 @@ export const reviewFunction = inngest.createFunction(
           await addCommentReaction(owner, repo, triggerCommentId, 'rocket', token);
         } catch (error) {
           // Non-critical — don't fail the review
-          logger.warn({ repoFullName, prNumber, error: String(error) }, 'Failed to add completion reaction');
+          logger.warn(
+            { repoFullName, prNumber, error: String(error) },
+            'Failed to add completion reaction',
+          );
         }
       });
     }

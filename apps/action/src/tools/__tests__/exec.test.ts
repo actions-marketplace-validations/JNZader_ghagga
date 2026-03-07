@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -85,26 +85,22 @@ describe('execWithTimeout', () => {
   it('throws on non-zero exit code by default', async () => {
     simulateExec(1, '', 'error: file not found');
 
-    await expect(
-      execWithTimeout('cat', ['missing.txt']),
-    ).rejects.toThrow('Command failed with exit code 1');
+    await expect(execWithTimeout('cat', ['missing.txt'])).rejects.toThrow(
+      'Command failed with exit code 1',
+    );
   });
 
   it('includes stderr in error message for non-zero exit code', async () => {
     simulateExec(2, '', 'Permission denied');
 
-    await expect(
-      execWithTimeout('rm', ['protected']),
-    ).rejects.toThrow('Permission denied');
+    await expect(execWithTimeout('rm', ['protected'])).rejects.toThrow('Permission denied');
   });
 
   it('truncates stderr to 500 chars in error message', async () => {
     const longStderr = 'x'.repeat(1000);
     simulateExec(1, '', longStderr);
 
-    await expect(execWithTimeout('fail', [])).rejects.toThrow(
-      /Command failed with exit code 1/,
-    );
+    await expect(execWithTimeout('fail', [])).rejects.toThrow(/Command failed with exit code 1/);
 
     try {
       simulateExec(1, '', longStderr);
@@ -145,9 +141,9 @@ describe('execWithTimeout', () => {
       () => new Promise((resolve) => setTimeout(() => resolve(0), 500)),
     );
 
-    await expect(
-      execWithTimeout('sleep', ['10'], { timeoutMs: 50 }),
-    ).rejects.toThrow('Timed out after 50ms');
+    await expect(execWithTimeout('sleep', ['10'], { timeoutMs: 50 })).rejects.toThrow(
+      'Timed out after 50ms',
+    );
   });
 
   it('uses TOOL_TIMEOUT_MS as default timeout', async () => {
@@ -190,11 +186,7 @@ describe('execWithTimeout', () => {
 
     await execWithTimeout('ls', []);
 
-    expect(mockExec).toHaveBeenCalledWith(
-      'ls',
-      [],
-      expect.objectContaining({ cwd: undefined }),
-    );
+    expect(mockExec).toHaveBeenCalledWith('ls', [], expect.objectContaining({ cwd: undefined }));
   });
 
   // ── exec options ──
@@ -204,11 +196,7 @@ describe('execWithTimeout', () => {
 
     await execWithTimeout('cmd', []);
 
-    expect(mockExec).toHaveBeenCalledWith(
-      'cmd',
-      [],
-      expect.objectContaining({ silent: true }),
-    );
+    expect(mockExec).toHaveBeenCalledWith('cmd', [], expect.objectContaining({ silent: true }));
   });
 
   it('sets ignoreReturnCode: true to handle exit codes manually', async () => {

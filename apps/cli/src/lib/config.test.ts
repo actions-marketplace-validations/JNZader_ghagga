@@ -6,7 +6,7 @@
  * getStoredToken, and getConfigFilePath.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ─────────────────────────────────────────────────────
 
@@ -24,12 +24,12 @@ vi.mock('node:os', () => ({
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import {
+  clearConfig,
+  getConfigFilePath,
+  getStoredToken,
+  isLoggedIn,
   loadConfig,
   saveConfig,
-  clearConfig,
-  isLoggedIn,
-  getStoredToken,
-  getConfigFilePath,
 } from './config.js';
 
 const mockExistsSync = vi.mocked(existsSync);
@@ -44,11 +44,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockHomedir.mockReturnValue('/mock-home');
   // Clear XDG override so getConfigDir uses homedir()
-  delete process.env['XDG_CONFIG_HOME'];
+  delete process.env.XDG_CONFIG_HOME;
 });
 
 afterEach(() => {
-  delete process.env['XDG_CONFIG_HOME'];
+  delete process.env.XDG_CONFIG_HOME;
 });
 
 // ─── loadConfig ────────────────────────────────────────────────
@@ -60,9 +60,7 @@ describe('loadConfig', () => {
     const config = loadConfig();
 
     expect(config).toEqual({});
-    expect(mockExistsSync).toHaveBeenCalledWith(
-      expect.stringContaining('config.json'),
-    );
+    expect(mockExistsSync).toHaveBeenCalledWith(expect.stringContaining('config.json'));
   });
 
   it('should parse and return valid JSON config', () => {
@@ -73,10 +71,7 @@ describe('loadConfig', () => {
     const config = loadConfig();
 
     expect(config).toEqual(stored);
-    expect(mockReadFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('config.json'),
-      'utf-8',
-    );
+    expect(mockReadFileSync).toHaveBeenCalledWith(expect.stringContaining('config.json'), 'utf-8');
   });
 
   it('should return empty object when file contains invalid JSON', () => {
@@ -100,7 +95,7 @@ describe('loadConfig', () => {
   });
 
   it('should use XDG_CONFIG_HOME when set', () => {
-    process.env['XDG_CONFIG_HOME'] = '/custom/config';
+    process.env.XDG_CONFIG_HOME = '/custom/config';
     mockExistsSync.mockReturnValue(false);
 
     loadConfig();
@@ -129,10 +124,9 @@ describe('saveConfig', () => {
 
     saveConfig({ githubToken: 'gho_token' });
 
-    expect(mockMkdirSync).toHaveBeenCalledWith(
-      expect.stringContaining('ghagga'),
-      { recursive: true },
-    );
+    expect(mockMkdirSync).toHaveBeenCalledWith(expect.stringContaining('ghagga'), {
+      recursive: true,
+    });
   });
 
   it('should not create directory if it already exists', () => {
@@ -151,7 +145,7 @@ describe('saveConfig', () => {
 
     expect(mockWriteFileSync).toHaveBeenCalledWith(
       expect.stringContaining('config.json'),
-      JSON.stringify(config, null, 2) + '\n',
+      `${JSON.stringify(config, null, 2)}\n`,
       'utf-8',
     );
   });
@@ -179,7 +173,7 @@ describe('saveConfig', () => {
 
     saveConfig(config);
 
-    const writtenJson = mockWriteFileSync.mock.calls[0]![1] as string;
+    const writtenJson = mockWriteFileSync.mock.calls[0]?.[1] as string;
     const parsed = JSON.parse(writtenJson);
     expect(parsed).toEqual(config);
   });
@@ -274,7 +268,7 @@ describe('getConfigFilePath', () => {
   });
 
   it('should respect XDG_CONFIG_HOME', () => {
-    process.env['XDG_CONFIG_HOME'] = '/xdg/path';
+    process.env.XDG_CONFIG_HOME = '/xdg/path';
 
     const path = getConfigFilePath();
 

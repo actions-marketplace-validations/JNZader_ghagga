@@ -39,9 +39,7 @@ export function CardHeader({ title, description, action }: CardHeaderProps) {
     <div className="mb-4 flex items-center justify-between">
       <div>
         <h3 className="text-lg font-semibold text-text-primary">{title}</h3>
-        {description && (
-          <p className="mt-1 text-sm text-text-secondary">{description}</p>
-        )}
+        {description && <p className="mt-1 text-sm text-text-secondary">{description}</p>}
       </div>
       {action && <div>{action}</div>}
     </div>

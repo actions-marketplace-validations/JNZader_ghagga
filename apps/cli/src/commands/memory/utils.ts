@@ -10,18 +10,17 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { SqliteMemoryStorage } from 'ghagga-core';
 import { getConfigDir } from '../../lib/config.js';
-import * as tui from '../../ui/tui.js';
 import {
-  formatTable as _formatTable,
-  formatSize as _formatSize,
   formatId as _formatId,
+  formatSize as _formatSize,
+  formatTable as _formatTable,
   truncate as _truncate,
 } from '../../ui/format.js';
+import * as tui from '../../ui/tui.js';
 
 // ─── Database Lifecycle ─────────────────────────────────────────
 
-const NO_DB_MESSAGE =
-  'No memory database found. Run "ghagga review" first to build memory.';
+const NO_DB_MESSAGE = 'No memory database found. Run "ghagga review" first to build memory.';
 
 /**
  * Resolve the DB path, check existence, and open storage.
@@ -53,16 +52,11 @@ export async function openMemoryOrExit(): Promise<{
  * - Non-TTY without force: prints error, exits 1
  * - TTY without force: prompts, exits 0 on cancel
  */
-export async function confirmOrExit(
-  message: string,
-  force: boolean,
-): Promise<void> {
+export async function confirmOrExit(message: string, force: boolean): Promise<void> {
   if (force) return;
 
   if (!process.stdin.isTTY) {
-    tui.log.error(
-      'Error: Destructive operation requires --force in non-interactive mode.',
-    );
+    tui.log.error('Error: Destructive operation requires --force in non-interactive mode.');
     process.exit(1);
   }
 
@@ -88,11 +82,7 @@ export async function confirmOrExit(
  * Format a plain-text table with headers, separator, and padded columns.
  * No ANSI colors — plain text only (CC3).
  */
-export function formatTable(
-  headers: string[],
-  rows: string[][],
-  widths: number[],
-): string {
+export function formatTable(headers: string[], rows: string[][], widths: number[]): string {
   return _formatTable(headers, rows, widths);
 }
 

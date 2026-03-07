@@ -5,8 +5,8 @@
  * and Inngest event dispatching.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Hono } from 'hono';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -60,11 +60,7 @@ const VALID_PAYLOAD = {
   },
 };
 
-function postCallback(
-  app: Hono,
-  body: string,
-  headers: Record<string, string> = {},
-) {
+function postCallback(app: Hono, body: string, headers: Record<string, string> = {}) {
   return app.request('/runner/callback', {
     method: 'POST',
     headers: {
@@ -340,9 +336,7 @@ describe('POST /runner/callback', () => {
         'x-ghagga-signature': 'sha256=abc',
       });
 
-      expect(mockLoggerChild.warn).toHaveBeenCalledWith(
-        'Runner callback: invalid JSON body',
-      );
+      expect(mockLoggerChild.warn).toHaveBeenCalledWith('Runner callback: invalid JSON body');
     });
 
     it('error field is exactly "Invalid JSON body"', async () => {

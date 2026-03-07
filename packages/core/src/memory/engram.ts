@@ -12,17 +12,17 @@
  */
 
 import type {
-  MemoryStorage,
-  MemoryObservationRow,
-  MemoryObservationDetail,
-  MemoryStats,
   ListObservationsOptions,
+  MemoryObservationDetail,
+  MemoryObservationRow,
+  MemoryStats,
+  MemoryStorage,
 } from '../types.js';
 import { EngramClient } from './engram-client.js';
 import {
-  toMemoryObservationRow,
-  toMemoryObservationDetail,
   toEngramSaveData,
+  toMemoryObservationDetail,
+  toMemoryObservationRow,
 } from './engram-mapping.js';
 import type { EngramConfig } from './engram-types.js';
 
@@ -35,7 +35,6 @@ export class EngramMemoryStorage implements MemoryStorage {
    * Used by getObservation() and deleteObservation() to resolve the real Engram ID.
    */
   private idMap = new Map<number, string | number>();
-  private nextId = 1;
 
   private constructor(client: EngramClient) {
     this.client = client;
@@ -131,10 +130,7 @@ export class EngramMemoryStorage implements MemoryStorage {
 
   // ─── Session methods ────────────────────────────────────────────
 
-  async createSession(data: {
-    project: string;
-    prNumber?: number;
-  }): Promise<{ id: number }> {
+  async createSession(data: { project: string; prNumber?: number }): Promise<{ id: number }> {
     const sessionId = await this.client.createSession(data.project);
 
     if (sessionId == null) {
@@ -159,7 +155,9 @@ export class EngramMemoryStorage implements MemoryStorage {
 
   // ─── Management methods ─────────────────────────────────────────
 
-  async listObservations(options: ListObservationsOptions = {}): Promise<MemoryObservationDetail[]> {
+  async listObservations(
+    options: ListObservationsOptions = {},
+  ): Promise<MemoryObservationDetail[]> {
     const { project, type, limit = 20 } = options;
 
     // Use search with empty query to list all observations
@@ -190,7 +188,7 @@ export class EngramMemoryStorage implements MemoryStorage {
     if (realId == null) {
       console.warn(
         '[ghagga:engram] getObservation: ID %d not found in local map. ' +
-        'Run searchObservations or listObservations first.',
+          'Run searchObservations or listObservations first.',
         id,
       );
       return null;
@@ -206,10 +204,7 @@ export class EngramMemoryStorage implements MemoryStorage {
     const realId = this.idMap.get(id);
 
     if (realId == null) {
-      console.warn(
-        '[ghagga:engram] deleteObservation: ID %d not found in local map.',
-        id,
-      );
+      console.warn('[ghagga:engram] deleteObservation: ID %d not found in local map.', id);
       return false;
     }
 
@@ -243,10 +238,10 @@ export class EngramMemoryStorage implements MemoryStorage {
 
     return {
       totalObservations: stats.total_observations,
-      byType: {},          // Engram stats endpoint doesn't break down by type
+      byType: {}, // Engram stats endpoint doesn't break down by type
       byProject,
-      oldestObservation: null,  // Not provided by Engram stats
-      newestObservation: null,  // Not provided by Engram stats
+      oldestObservation: null, // Not provided by Engram stats
+      newestObservation: null, // Not provided by Engram stats
     };
   }
 
@@ -257,7 +252,7 @@ export class EngramMemoryStorage implements MemoryStorage {
   async clearObservations(_options?: { project?: string }): Promise<number> {
     console.warn(
       '[ghagga:engram] clearObservations is not supported with the Engram backend. ' +
-      'Use the "engram" CLI directly for bulk deletion.',
+        'Use the "engram" CLI directly for bulk deletion.',
     );
     return 0;
   }

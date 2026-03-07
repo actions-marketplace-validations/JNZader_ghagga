@@ -6,8 +6,8 @@
  */
 
 import * as exec from '@actions/exec';
-import { TOOL_TIMEOUT_MS } from './types.js';
 import type { ExecResult } from './types.js';
+import { TOOL_TIMEOUT_MS } from './types.js';
 
 /**
  * Execute a command with timeout and captured output.
@@ -42,18 +42,13 @@ export async function execWithTimeout(
   });
 
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(
-      () => reject(new Error(`Timed out after ${timeoutMs}ms`)),
-      timeoutMs,
-    );
+    setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
   });
 
   const exitCode = await Promise.race([execPromise, timeoutPromise]);
 
   if (!options.allowNonZero && exitCode !== 0) {
-    throw new Error(
-      `Command failed with exit code ${exitCode}: ${stderr.slice(0, 500)}`,
-    );
+    throw new Error(`Command failed with exit code ${exitCode}: ${stderr.slice(0, 500)}`);
   }
 
   return { exitCode, stdout, stderr };

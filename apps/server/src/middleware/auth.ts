@@ -7,15 +7,15 @@
  * user's GitHub login with installation account_login in our DB.
  */
 
-import { createMiddleware } from 'hono/factory';
 import type { Database } from 'ghagga-db';
 import {
-  getInstallationsByUserId,
-  getInstallationsByAccountLogin,
-  upsertUserMapping,
-  getRawMappingsByUserId,
   deleteStaleUserMappings,
+  getInstallationsByAccountLogin,
+  getInstallationsByUserId,
+  getRawMappingsByUserId,
+  upsertUserMapping,
 } from 'ghagga-db';
+import { createMiddleware } from 'hono/factory';
 import { logger as rootLogger } from '../lib/logger.js';
 
 const logger = rootLogger.child({ module: 'auth' });
@@ -98,7 +98,10 @@ export function authMiddleware(db: Database) {
 
       if (rawMappings.length === 0) {
         // No mappings at all → auto-discover
-        logger.info({ githubLogin, githubUserId }, 'No mappings found, auto-discovering installations');
+        logger.info(
+          { githubLogin, githubUserId },
+          'No mappings found, auto-discovering installations',
+        );
         userInstallations = await discoverAndMapInstallations(db, githubUserId, githubLogin);
       } else {
         // Step 2: Get active installations (JOIN filters by is_active = true)
@@ -106,7 +109,9 @@ export function authMiddleware(db: Database) {
 
         // Step 3: Detect stale mappings
         const activeInstallationIds = new Set(userInstallations.map((inst) => inst.id));
-        const staleMappings = rawMappings.filter((m) => !activeInstallationIds.has(m.installationId));
+        const staleMappings = rawMappings.filter(
+          (m) => !activeInstallationIds.has(m.installationId),
+        );
 
         if (staleMappings.length > 0) {
           const staleIds = staleMappings.map((m) => m.id);
@@ -118,7 +123,10 @@ export function authMiddleware(db: Database) {
 
           // Step 4: If no active installations remain, re-discover
           if (userInstallations.length === 0) {
-            logger.info({ githubLogin, githubUserId }, 'All mappings were stale, re-discovering installations');
+            logger.info(
+              { githubLogin, githubUserId },
+              'All mappings were stale, re-discovering installations',
+            );
             userInstallations = await discoverAndMapInstallations(db, githubUserId, githubLogin);
           }
         }

@@ -4,16 +4,16 @@
  * All functions are pure (string in, string out) — no mocking needed.
  */
 
-import { describe, it, expect } from 'vitest';
+import type { ReviewResult } from 'ghagga-core';
+import { describe, expect, it } from 'vitest';
 import {
-  formatTable,
-  formatSize,
   formatId,
-  truncate,
   formatKeyValue,
   formatMarkdownResult,
+  formatSize,
+  formatTable,
+  truncate,
 } from '../format.js';
-import type { ReviewResult } from 'ghagga-core';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -47,7 +47,10 @@ describe('formatTable', () => {
   it('should format a table with headers, separator, and data rows', () => {
     const result = formatTable(
       ['Name', 'Age'],
-      [['Alice', '30'], ['Bob', '25']],
+      [
+        ['Alice', '30'],
+        ['Bob', '25'],
+      ],
       [10, 5],
     );
     const lines = result.split('\n');
@@ -197,12 +200,26 @@ describe('formatMarkdownResult', () => {
   });
 
   it('should group findings by source in render order', () => {
-    const result = formatMarkdownResult(makeResult({
-      findings: [
-        { severity: 'high', category: 'security', file: 'a.ts', message: 'AI issue', source: 'ai' },
-        { severity: 'medium', category: 'style', file: 'b.ts', message: 'Semgrep issue', source: 'semgrep' },
-      ],
-    }));
+    const result = formatMarkdownResult(
+      makeResult({
+        findings: [
+          {
+            severity: 'high',
+            category: 'security',
+            file: 'a.ts',
+            message: 'AI issue',
+            source: 'ai',
+          },
+          {
+            severity: 'medium',
+            category: 'style',
+            file: 'b.ts',
+            message: 'Semgrep issue',
+            source: 'semgrep',
+          },
+        ],
+      }),
+    );
     const semgrepIdx = result.indexOf('Semgrep');
     const aiIdx = result.indexOf('AI Review');
     // Semgrep should appear before AI
@@ -210,45 +227,67 @@ describe('formatMarkdownResult', () => {
   });
 
   it('should render finding with line number as file:line', () => {
-    const result = formatMarkdownResult(makeResult({
-      findings: [
-        { severity: 'high', category: 'bug', file: 'main.ts', line: 42, message: 'Bug here', source: 'ai' },
-      ],
-    }));
+    const result = formatMarkdownResult(
+      makeResult({
+        findings: [
+          {
+            severity: 'high',
+            category: 'bug',
+            file: 'main.ts',
+            line: 42,
+            message: 'Bug here',
+            source: 'ai',
+          },
+        ],
+      }),
+    );
     expect(result).toContain('main.ts:42');
   });
 
   it('should render finding without line number as just file', () => {
-    const result = formatMarkdownResult(makeResult({
-      findings: [
-        { severity: 'low', category: 'style', file: 'index.ts', message: 'Minor', source: 'ai' },
-      ],
-    }));
+    const result = formatMarkdownResult(
+      makeResult({
+        findings: [
+          { severity: 'low', category: 'style', file: 'index.ts', message: 'Minor', source: 'ai' },
+        ],
+      }),
+    );
     expect(result).toContain('index.ts');
     expect(result).not.toContain('index.ts:');
   });
 
   it('should render suggestion when present', () => {
-    const result = formatMarkdownResult(makeResult({
-      findings: [
-        { severity: 'medium', category: 'perf', file: 'x.ts', message: 'Slow', suggestion: 'Use cache', source: 'ai' },
-      ],
-    }));
+    const result = formatMarkdownResult(
+      makeResult({
+        findings: [
+          {
+            severity: 'medium',
+            category: 'perf',
+            file: 'x.ts',
+            message: 'Slow',
+            suggestion: 'Use cache',
+            source: 'ai',
+          },
+        ],
+      }),
+    );
     expect(result).toContain('Use cache');
   });
 
   it('should include static analysis summary when tools ran', () => {
-    const result = formatMarkdownResult(makeResult({
-      metadata: {
-        mode: 'simple',
-        provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
-        tokensUsed: 1000,
-        executionTimeMs: 2000,
-        toolsRun: ['semgrep', 'trivy'],
-        toolsSkipped: ['cpd'],
-      },
-    }));
+    const result = formatMarkdownResult(
+      makeResult({
+        metadata: {
+          mode: 'simple',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-20250514',
+          tokensUsed: 1000,
+          executionTimeMs: 2000,
+          toolsRun: ['semgrep', 'trivy'],
+          toolsSkipped: ['cpd'],
+        },
+      }),
+    );
     expect(result).toContain('## Static Analysis');
     expect(result).toContain('Tools run: semgrep, trivy');
     expect(result).toContain('Tools skipped: cpd');

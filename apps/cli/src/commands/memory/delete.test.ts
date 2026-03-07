@@ -8,9 +8,9 @@
  * @see T7.5, S17–S24, S48
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { MemoryObservationDetail } from 'ghagga-core';
 import { Command } from 'commander';
+import type { MemoryObservationDetail } from 'ghagga-core';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -62,9 +62,7 @@ class ProcessExitError extends Error {
   }
 }
 
-function makeDetail(
-  overrides: Partial<MemoryObservationDetail> = {},
-): MemoryObservationDetail {
+function makeDetail(overrides: Partial<MemoryObservationDetail> = {}): MemoryObservationDetail {
   return {
     id: 42,
     type: 'pattern',
@@ -105,11 +103,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
   errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-  exitSpy = vi
-    .spyOn(process, 'exit')
-    .mockImplementation(((code?: number) => {
-      throw new ProcessExitError(code);
-    }) as never);
+  exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+    throw new ProcessExitError(code);
+  }) as never);
   mockExistsSync.mockReturnValue(true);
   originalIsTTY = process.stdin.isTTY;
   process.stdin.isTTY = true;
@@ -175,9 +171,7 @@ describe('ghagga memory delete', () => {
 
     await runDeleteCommand(['42']);
 
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining('--force'),
-    );
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('--force'));
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(mockDeleteObservation).not.toHaveBeenCalled();
   });
@@ -196,9 +190,7 @@ describe('ghagga memory delete', () => {
   it('prints error and exits 1 for invalid ID', async () => {
     await runDeleteCommand(['abc']);
 
-    expect(logSpy).toHaveBeenCalledWith(
-      'Invalid observation ID: "abc". Expected a number.',
-    );
+    expect(logSpy).toHaveBeenCalledWith('Invalid observation ID: "abc". Expected a number.');
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
@@ -207,9 +199,7 @@ describe('ghagga memory delete', () => {
 
     await runDeleteCommand(['42']);
 
-    expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining('No memory database found'),
-    );
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('No memory database found'));
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 

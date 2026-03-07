@@ -7,15 +7,16 @@
  */
 
 import { Command } from 'commander';
+import { registerClearCommand } from './clear.js';
+import { registerDeleteCommand } from './delete.js';
 import { registerListCommand } from './list.js';
 import { registerSearchCommand } from './search.js';
 import { registerShowCommand } from './show.js';
-import { registerDeleteCommand } from './delete.js';
 import { registerStatsCommand } from './stats.js';
-import { registerClearCommand } from './clear.js';
 
-export const memoryCommand = new Command('memory')
-  .description('Inspect, search, and manage review memory');
+export const memoryCommand = new Command('memory').description(
+  'Inspect, search, and manage review memory',
+);
 
 registerListCommand(memoryCommand);
 registerSearchCommand(memoryCommand);

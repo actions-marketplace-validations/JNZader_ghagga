@@ -7,11 +7,10 @@
  * creating, ready, error, needs_reauth.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { type ReactNode } from 'react';
-import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mock modules ───────────────────────────────────────────────
 
@@ -33,7 +32,10 @@ vi.mock('@/lib/api', () => ({
   useCreateRunner: () => mockUseCreateRunner(),
   useConfigureRunnerSecret: () => mockUseConfigureRunnerSecret(),
   ApiError: class ApiError extends Error {
-    constructor(public status: number, message: string) {
+    constructor(
+      public status: number,
+      message: string,
+    ) {
       super(message);
       this.name = 'ApiError';
     }
@@ -254,7 +256,12 @@ describe('RunnerCard — ready state', () => {
     const warningText = 'Private repo uses org minutes';
     mockUseRunnerStatus.mockReturnValue({
       isLoading: false,
-      data: { exists: true, repoFullName: 'acme/ghagga-runner', isPrivate: true, warning: warningText },
+      data: {
+        exists: true,
+        repoFullName: 'acme/ghagga-runner',
+        isPrivate: true,
+        warning: warningText,
+      },
     });
     mockUseCreateRunner.mockReturnValue({
       mutate: vi.fn(),

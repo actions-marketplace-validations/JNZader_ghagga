@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SqliteMemoryStorage } from './sqlite.js';
 
 // ─── Test Setup ─────────────────────────────────────────────────
@@ -20,15 +20,17 @@ afterEach(() => {
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-function makeObservationData(overrides: Partial<{
-  sessionId: number;
-  project: string;
-  type: string;
-  title: string;
-  content: string;
-  topicKey: string;
-  filePaths: string[];
-}> = {}) {
+function makeObservationData(
+  overrides: Partial<{
+    sessionId: number;
+    project: string;
+    type: string;
+    title: string;
+    content: string;
+    topicKey: string;
+    filePaths: string[];
+  }> = {},
+) {
   return {
     project: 'owner/repo',
     type: 'pattern',
@@ -70,7 +72,7 @@ describe('SqliteMemoryStorage', () => {
       const indexes = db.exec(
         "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_obs_%'",
       );
-      expect(indexes[0]!.values.length).toBeGreaterThanOrEqual(3);
+      expect(indexes[0]?.values.length).toBeGreaterThanOrEqual(3);
 
       await storage.close();
     });
@@ -123,16 +125,12 @@ describe('SqliteMemoryStorage', () => {
       const storage = await SqliteMemoryStorage.create(dbPath);
 
       const session = await storage.createSession({ project: 'owner/repo', prNumber: 1 });
-      const row = await storage.saveObservation(
-        makeObservationData({ sessionId: session.id }),
-      );
+      const row = await storage.saveObservation(makeObservationData({ sessionId: session.id }));
 
       // Verify via raw SQL
       const db = (storage as any).db;
-      const result = db.exec(
-        `SELECT session_id FROM memory_observations WHERE id = ${row.id}`,
-      );
-      expect(result[0]!.values[0]![0]).toBe(session.id);
+      const result = db.exec(`SELECT session_id FROM memory_observations WHERE id = ${row.id}`);
+      expect(result[0]?.values[0]?.[0]).toBe(session.id);
 
       await storage.close();
     });
@@ -157,12 +155,8 @@ describe('SqliteMemoryStorage', () => {
     it('creates new row when same content is saved to different project', async () => {
       const storage = await SqliteMemoryStorage.create(dbPath);
 
-      const first = await storage.saveObservation(
-        makeObservationData({ project: 'org/repo-a' }),
-      );
-      const second = await storage.saveObservation(
-        makeObservationData({ project: 'org/repo-b' }),
-      );
+      const first = await storage.saveObservation(makeObservationData({ project: 'org/repo-a' }));
+      const second = await storage.saveObservation(makeObservationData({ project: 'org/repo-b' }));
 
       expect(second.id).not.toBe(first.id);
 
@@ -259,7 +253,7 @@ describe('SqliteMemoryStorage', () => {
       const result = db.exec(
         `SELECT revision_count FROM memory_observations WHERE id = ${first.id}`,
       );
-      expect(result[0]!.values[0]![0]).toBe(2);
+      expect(result[0]?.values[0]?.[0]).toBe(2);
 
       await storage.close();
     });
@@ -281,7 +275,7 @@ describe('SqliteMemoryStorage', () => {
       const results = await storage.searchObservations('owner/repo', 'authentication JWT');
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.title).toBe('Authentication pattern');
+      expect(results[0]?.title).toBe('Authentication pattern');
 
       await storage.close();
     });
@@ -319,7 +313,7 @@ describe('SqliteMemoryStorage', () => {
       const results = await storage.searchObservations('org/project-a', 'Auth');
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.title).toBe('Auth in project A');
+      expect(results[0]?.title).toBe('Auth in project A');
 
       await storage.close();
     });
@@ -331,13 +325,19 @@ describe('SqliteMemoryStorage', () => {
         makeObservationData({ type: 'pattern', content: 'Security pattern found.' }),
       );
       await storage.saveObservation(
-        makeObservationData({ type: 'bugfix', title: 'Fixed security bug', content: 'Security bugfix applied.' }),
+        makeObservationData({
+          type: 'bugfix',
+          title: 'Fixed security bug',
+          content: 'Security bugfix applied.',
+        }),
       );
 
-      const results = await storage.searchObservations('owner/repo', 'security', { type: 'bugfix' });
+      const results = await storage.searchObservations('owner/repo', 'security', {
+        type: 'bugfix',
+      });
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.type).toBe('bugfix');
+      expect(results[0]?.type).toBe('bugfix');
 
       await storage.close();
     });
@@ -436,8 +436,8 @@ describe('SqliteMemoryStorage', () => {
       const result = db.exec(
         `SELECT ended_at, summary FROM memory_sessions WHERE id = ${session.id}`,
       );
-      expect(result[0]!.values[0]![0]).not.toBeNull(); // ended_at is set
-      expect(result[0]!.values[0]![1]).toBe('Review completed with 3 findings.');
+      expect(result[0]?.values[0]?.[0]).not.toBeNull(); // ended_at is set
+      expect(result[0]?.values[0]?.[1]).toBe('Review completed with 3 findings.');
 
       await storage.close();
     });
@@ -448,10 +448,8 @@ describe('SqliteMemoryStorage', () => {
       const session = await storage.createSession({ project: 'owner/repo' });
 
       const db = (storage as any).db;
-      const result = db.exec(
-        `SELECT pr_number FROM memory_sessions WHERE id = ${session.id}`,
-      );
-      expect(result[0]!.values[0]![0]).toBeNull();
+      const result = db.exec(`SELECT pr_number FROM memory_sessions WHERE id = ${session.id}`);
+      expect(result[0]?.values[0]?.[0]).toBeNull();
 
       await storage.close();
     });
@@ -494,7 +492,7 @@ describe('SqliteMemoryStorage', () => {
       const results = await storage2.searchObservations('owner/repo', 'persistent');
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.title).toBe('Persistent observation');
+      expect(results[0]?.title).toBe('Persistent observation');
 
       await storage2.close();
     });
@@ -520,30 +518,38 @@ describe('SqliteMemoryStorage', () => {
 
       // Manually stagger created_at so ordering is deterministic
       const db = (storage as any).db;
-      db.run("UPDATE memory_observations SET created_at = '2025-01-01 00:00:00' WHERE title = 'Oldest'");
-      db.run("UPDATE memory_observations SET created_at = '2025-01-02 00:00:00' WHERE title = 'Middle'");
-      db.run("UPDATE memory_observations SET created_at = '2025-01-03 00:00:00' WHERE title = 'Newest'");
+      db.run(
+        "UPDATE memory_observations SET created_at = '2025-01-01 00:00:00' WHERE title = 'Oldest'",
+      );
+      db.run(
+        "UPDATE memory_observations SET created_at = '2025-01-02 00:00:00' WHERE title = 'Middle'",
+      );
+      db.run(
+        "UPDATE memory_observations SET created_at = '2025-01-03 00:00:00' WHERE title = 'Newest'",
+      );
 
       const results = await storage.listObservations();
 
       expect(results).toHaveLength(3);
       // newest first (created_at DESC)
-      expect(results[0]!.title).toBe('Newest');
-      expect(results[1]!.title).toBe('Middle');
-      expect(results[2]!.title).toBe('Oldest');
+      expect(results[0]?.title).toBe('Newest');
+      expect(results[1]?.title).toBe('Middle');
+      expect(results[2]?.title).toBe('Oldest');
 
       // Verify shape: each result is a MemoryObservationDetail
       for (const obs of results) {
-        expect(obs).toEqual(expect.objectContaining({
-          id: expect.any(Number),
-          type: expect.any(String),
-          title: expect.any(String),
-          content: expect.any(String),
-          project: expect.any(String),
-          revisionCount: expect.any(Number),
-          createdAt: expect.any(String),
-          updatedAt: expect.any(String),
-        }));
+        expect(obs).toEqual(
+          expect.objectContaining({
+            id: expect.any(Number),
+            type: expect.any(String),
+            title: expect.any(String),
+            content: expect.any(String),
+            project: expect.any(String),
+            revisionCount: expect.any(Number),
+            createdAt: expect.any(String),
+            updatedAt: expect.any(String),
+          }),
+        );
       }
 
       await storage.close();
@@ -553,17 +559,25 @@ describe('SqliteMemoryStorage', () => {
       const storage = await SqliteMemoryStorage.create(dbPath);
 
       await storage.saveObservation(
-        makeObservationData({ project: 'acme/widgets', title: 'Widget obs', content: 'Widget content.' }),
+        makeObservationData({
+          project: 'acme/widgets',
+          title: 'Widget obs',
+          content: 'Widget content.',
+        }),
       );
       await storage.saveObservation(
-        makeObservationData({ project: 'acme/gadgets', title: 'Gadget obs', content: 'Gadget content.' }),
+        makeObservationData({
+          project: 'acme/gadgets',
+          title: 'Gadget obs',
+          content: 'Gadget content.',
+        }),
       );
 
       const results = await storage.listObservations({ project: 'acme/widgets' });
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.project).toBe('acme/widgets');
-      expect(results[0]!.title).toBe('Widget obs');
+      expect(results[0]?.project).toBe('acme/widgets');
+      expect(results[0]?.title).toBe('Widget obs');
 
       await storage.close();
     });
@@ -578,14 +592,18 @@ describe('SqliteMemoryStorage', () => {
         makeObservationData({ type: 'bugfix', title: 'Bugfix obs', content: 'Bugfix content.' }),
       );
       await storage.saveObservation(
-        makeObservationData({ type: 'learning', title: 'Learning obs', content: 'Learning content.' }),
+        makeObservationData({
+          type: 'learning',
+          title: 'Learning obs',
+          content: 'Learning content.',
+        }),
       );
 
       const results = await storage.listObservations({ type: 'pattern' });
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.type).toBe('pattern');
-      expect(results[0]!.title).toBe('Pattern obs');
+      expect(results[0]?.type).toBe('pattern');
+      expect(results[0]?.title).toBe('Pattern obs');
 
       await storage.close();
     });
@@ -594,21 +612,36 @@ describe('SqliteMemoryStorage', () => {
       const storage = await SqliteMemoryStorage.create(dbPath);
 
       await storage.saveObservation(
-        makeObservationData({ project: 'acme/widgets', type: 'bugfix', title: 'Widget bugfix', content: 'Widget bugfix content.' }),
+        makeObservationData({
+          project: 'acme/widgets',
+          type: 'bugfix',
+          title: 'Widget bugfix',
+          content: 'Widget bugfix content.',
+        }),
       );
       await storage.saveObservation(
-        makeObservationData({ project: 'acme/widgets', type: 'pattern', title: 'Widget pattern', content: 'Widget pattern content.' }),
+        makeObservationData({
+          project: 'acme/widgets',
+          type: 'pattern',
+          title: 'Widget pattern',
+          content: 'Widget pattern content.',
+        }),
       );
       await storage.saveObservation(
-        makeObservationData({ project: 'acme/gadgets', type: 'bugfix', title: 'Gadget bugfix', content: 'Gadget bugfix content.' }),
+        makeObservationData({
+          project: 'acme/gadgets',
+          type: 'bugfix',
+          title: 'Gadget bugfix',
+          content: 'Gadget bugfix content.',
+        }),
       );
 
       const results = await storage.listObservations({ project: 'acme/widgets', type: 'bugfix' });
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.project).toBe('acme/widgets');
-      expect(results[0]!.type).toBe('bugfix');
-      expect(results[0]!.title).toBe('Widget bugfix');
+      expect(results[0]?.project).toBe('acme/widgets');
+      expect(results[0]?.type).toBe('bugfix');
+      expect(results[0]?.title).toBe('Widget bugfix');
 
       await storage.close();
     });
@@ -663,16 +696,16 @@ describe('SqliteMemoryStorage', () => {
       const detail = await storage.getObservation(saved.id);
 
       expect(detail).not.toBeNull();
-      expect(detail!.id).toBe(saved.id);
-      expect(detail!.type).toBe('pattern');
-      expect(detail!.title).toBe('OAuth token refresh patterns');
-      expect(detail!.content).toBe('Full multi-line content about OAuth.');
-      expect(detail!.filePaths).toEqual(['src/auth.ts', 'lib/token.ts']);
-      expect(detail!.project).toBe('acme/widgets');
-      expect(detail!.topicKey).toBe('auth-token-refresh');
-      expect(detail!.revisionCount).toBe(1);
-      expect(detail!.createdAt).toEqual(expect.any(String));
-      expect(detail!.updatedAt).toEqual(expect.any(String));
+      expect(detail?.id).toBe(saved.id);
+      expect(detail?.type).toBe('pattern');
+      expect(detail?.title).toBe('OAuth token refresh patterns');
+      expect(detail?.content).toBe('Full multi-line content about OAuth.');
+      expect(detail?.filePaths).toEqual(['src/auth.ts', 'lib/token.ts']);
+      expect(detail?.project).toBe('acme/widgets');
+      expect(detail?.topicKey).toBe('auth-token-refresh');
+      expect(detail?.revisionCount).toBe(1);
+      expect(detail?.createdAt).toEqual(expect.any(String));
+      expect(detail?.updatedAt).toEqual(expect.any(String));
 
       await storage.close();
     });
@@ -752,16 +785,36 @@ describe('SqliteMemoryStorage', () => {
 
       // Insert observations across multiple types and projects
       await storage.saveObservation(
-        makeObservationData({ project: 'acme/widgets', type: 'pattern', title: 'Pattern 1', content: 'Pattern content 1.' }),
+        makeObservationData({
+          project: 'acme/widgets',
+          type: 'pattern',
+          title: 'Pattern 1',
+          content: 'Pattern content 1.',
+        }),
       );
       await storage.saveObservation(
-        makeObservationData({ project: 'acme/widgets', type: 'pattern', title: 'Pattern 2', content: 'Pattern content 2.' }),
+        makeObservationData({
+          project: 'acme/widgets',
+          type: 'pattern',
+          title: 'Pattern 2',
+          content: 'Pattern content 2.',
+        }),
       );
       await storage.saveObservation(
-        makeObservationData({ project: 'acme/widgets', type: 'bugfix', title: 'Bugfix 1', content: 'Bugfix content 1.' }),
+        makeObservationData({
+          project: 'acme/widgets',
+          type: 'bugfix',
+          title: 'Bugfix 1',
+          content: 'Bugfix content 1.',
+        }),
       );
       await storage.saveObservation(
-        makeObservationData({ project: 'acme/gadgets', type: 'learning', title: 'Learning 1', content: 'Learning content 1.' }),
+        makeObservationData({
+          project: 'acme/gadgets',
+          type: 'learning',
+          title: 'Learning 1',
+          content: 'Learning content 1.',
+        }),
       );
 
       const stats = await storage.getStats();
@@ -828,10 +881,18 @@ describe('SqliteMemoryStorage', () => {
       const storage = await SqliteMemoryStorage.create(dbPath);
 
       await storage.saveObservation(
-        makeObservationData({ project: 'acme/widgets', title: 'Widget obs', content: 'Widget content for clear.' }),
+        makeObservationData({
+          project: 'acme/widgets',
+          title: 'Widget obs',
+          content: 'Widget content for clear.',
+        }),
       );
       await storage.saveObservation(
-        makeObservationData({ project: 'acme/gadgets', title: 'Gadget obs', content: 'Gadget content for clear.' }),
+        makeObservationData({
+          project: 'acme/gadgets',
+          title: 'Gadget obs',
+          content: 'Gadget content for clear.',
+        }),
       );
 
       const deleted = await storage.clearObservations({ project: 'acme/widgets' });
@@ -841,7 +902,7 @@ describe('SqliteMemoryStorage', () => {
       // Verify only acme/gadgets remains
       const remaining = await storage.listObservations();
       expect(remaining).toHaveLength(1);
-      expect(remaining[0]!.project).toBe('acme/gadgets');
+      expect(remaining[0]?.project).toBe('acme/gadgets');
 
       await storage.close();
     });
@@ -900,7 +961,7 @@ describe('SqliteMemoryStorage', () => {
       expect(beforeDelete).toHaveLength(1);
 
       // Delete one observation
-      const deleted = await storage2.deleteObservation(beforeDelete[0]!.id);
+      const deleted = await storage2.deleteObservation(beforeDelete[0]?.id);
       expect(deleted).toBe(true);
 
       // FTS5 should be clean — deleted observation no longer searchable

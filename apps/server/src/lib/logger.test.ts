@@ -5,18 +5,18 @@
  * and child logger creation.
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Save/restore env ──────────────────────────────────────────
 
-const savedLogLevel = process.env['LOG_LEVEL'];
-const savedNodeEnv = process.env['NODE_ENV'];
+const savedLogLevel = process.env.LOG_LEVEL;
+const savedNodeEnv = process.env.NODE_ENV;
 
 afterEach(() => {
-  if (savedLogLevel !== undefined) process.env['LOG_LEVEL'] = savedLogLevel;
-  else delete process.env['LOG_LEVEL'];
-  if (savedNodeEnv !== undefined) process.env['NODE_ENV'] = savedNodeEnv;
-  else delete process.env['NODE_ENV'];
+  if (savedLogLevel !== undefined) process.env.LOG_LEVEL = savedLogLevel;
+  else delete process.env.LOG_LEVEL;
+  if (savedNodeEnv !== undefined) process.env.NODE_ENV = savedNodeEnv;
+  else delete process.env.NODE_ENV;
   vi.resetModules();
 });
 
@@ -33,7 +33,7 @@ describe('logger', () => {
   });
 
   it('uses LOG_LEVEL env when set', async () => {
-    process.env['LOG_LEVEL'] = 'warn';
+    process.env.LOG_LEVEL = 'warn';
     const { logger } = await import('./logger.js');
     expect(logger.level).toBe('warn');
   });

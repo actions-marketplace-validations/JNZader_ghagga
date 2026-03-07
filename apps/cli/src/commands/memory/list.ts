@@ -7,14 +7,9 @@
  * @see R7, S1–S7
  */
 
-import { Command } from 'commander';
-import {
-  openMemoryOrExit,
-  formatTable,
-  formatId,
-  truncate,
-} from './utils.js';
+import type { Command } from 'commander';
 import * as tui from '../../ui/tui.js';
+import { formatId, formatTable, openMemoryOrExit, truncate } from './utils.js';
 
 export function registerListCommand(parent: Command): void {
   parent

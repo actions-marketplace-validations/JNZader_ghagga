@@ -8,8 +8,8 @@
  * @see Phase 3, Task 3.3
  */
 
-import { Command } from 'commander';
-import { isGitRepo, getHooksDir, uninstallHook } from '../../lib/git-hooks.js';
+import type { Command } from 'commander';
+import { getHooksDir, isGitRepo, uninstallHook } from '../../lib/git-hooks.js';
 import type { HookType } from '../../lib/hooks-types.js';
 import * as tui from '../../ui/tui.js';
 

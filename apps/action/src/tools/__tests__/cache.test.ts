@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -53,9 +53,7 @@ describe('restoreToolCache', () => {
 
     await restoreToolCache('trivy');
 
-    expect(mockInfo).toHaveBeenCalledWith(
-      expect.stringContaining('Cache hit for trivy'),
-    );
+    expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('Cache hit for trivy'));
   });
 
   // ── Cache miss ──
@@ -73,9 +71,7 @@ describe('restoreToolCache', () => {
 
     await restoreToolCache('cpd');
 
-    expect(mockInfo).toHaveBeenCalledWith(
-      expect.stringContaining('Cache miss for cpd'),
-    );
+    expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('Cache miss for cpd'));
   });
 
   // ── Cache key format ──
@@ -133,11 +129,9 @@ describe('restoreToolCache', () => {
 
     await restoreToolCache('semgrep');
 
-    const paths = mockRestoreCache.mock.calls[0]![0];
+    const paths = mockRestoreCache.mock.calls[0]?.[0];
     expect(paths).toContain('~/.local/bin/semgrep');
-    expect(paths).toContain(
-      '~/.local/lib/python3*/site-packages/semgrep*',
-    );
+    expect(paths).toContain('~/.local/lib/python3*/site-packages/semgrep*');
   });
 
   it('uses correct paths for trivy', async () => {
@@ -145,7 +139,7 @@ describe('restoreToolCache', () => {
 
     await restoreToolCache('trivy');
 
-    const paths = mockRestoreCache.mock.calls[0]![0];
+    const paths = mockRestoreCache.mock.calls[0]?.[0];
     expect(paths).toContain('/usr/local/bin/trivy');
   });
 
@@ -154,7 +148,7 @@ describe('restoreToolCache', () => {
 
     await restoreToolCache('cpd');
 
-    const paths = mockRestoreCache.mock.calls[0]![0];
+    const paths = mockRestoreCache.mock.calls[0]?.[0];
     expect(paths).toContain('/opt/pmd');
   });
 
@@ -213,9 +207,7 @@ describe('saveToolCache', () => {
 
     await saveToolCache('trivy');
 
-    expect(mockInfo).toHaveBeenCalledWith(
-      expect.stringContaining('Cache saved for trivy'),
-    );
+    expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('Cache saved for trivy'));
   });
 
   it('uses pmd version for cpd tool key', async () => {
@@ -255,7 +247,7 @@ describe('saveToolCache', () => {
 
     await saveToolCache('semgrep');
 
-    const key = mockSaveCache.mock.calls[0]![1];
+    const key = mockSaveCache.mock.calls[0]?.[1];
     // Key includes the version — if TOOL_VERSIONS.semgrep changes, key changes
     expect(key).toContain(TOOL_VERSIONS.semgrep);
   });

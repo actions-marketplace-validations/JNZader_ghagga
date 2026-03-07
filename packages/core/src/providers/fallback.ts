@@ -7,8 +7,8 @@
  */
 
 import { generateText } from 'ai';
-import { createModel } from './index.js';
 import type { LLMProvider } from '../types.js';
+import { createModel } from './index.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -56,7 +56,11 @@ function isRetryableError(error: unknown): boolean {
     const message = error.message.toLowerCase();
 
     // Network/timeout errors
-    if (message.includes('timeout') || message.includes('econnreset') || message.includes('econnrefused')) {
+    if (
+      message.includes('timeout') ||
+      message.includes('econnreset') ||
+      message.includes('econnrefused')
+    ) {
       return true;
     }
 
@@ -89,9 +93,7 @@ function isRetryableError(error: unknown): boolean {
  * @returns Generated text with metadata about which provider succeeded
  * @throws The last encountered error if all providers fail
  */
-export async function generateWithFallback(
-  options: FallbackOptions,
-): Promise<FallbackResult> {
+export async function generateWithFallback(options: FallbackOptions): Promise<FallbackResult> {
   const { providers, system, prompt, temperature = 0.3 } = options;
 
   if (providers.length === 0) {
@@ -112,8 +114,7 @@ export async function generateWithFallback(
       });
 
       // Calculate tokens used from the response
-      const tokensUsed =
-        (result.usage?.promptTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+      const tokensUsed = (result.usage?.promptTokens ?? 0) + (result.usage?.completionTokens ?? 0);
 
       return {
         text: result.text,

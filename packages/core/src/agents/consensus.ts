@@ -14,23 +14,23 @@
 
 import { generateText } from 'ai';
 import { createModel } from '../providers/index.js';
-import {
-  CONSENSUS_FOR_SYSTEM,
-  CONSENSUS_AGAINST_SYSTEM,
-  CONSENSUS_NEUTRAL_SYSTEM,
-  REVIEW_CALIBRATION,
-  buildMemoryContext,
-  buildReviewLevelInstruction,
-} from './prompts.js';
 import type {
-  LLMProvider,
-  ProgressCallback,
-  ReviewResult,
-  ReviewStatus,
-  ReviewLevel,
   ConsensusStance,
   ConsensusVote,
+  LLMProvider,
+  ProgressCallback,
+  ReviewLevel,
+  ReviewResult,
+  ReviewStatus,
 } from '../types.js';
+import {
+  buildMemoryContext,
+  buildReviewLevelInstruction,
+  CONSENSUS_AGAINST_SYSTEM,
+  CONSENSUS_FOR_SYSTEM,
+  CONSENSUS_NEUTRAL_SYSTEM,
+  REVIEW_CALIBRATION,
+} from './prompts.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -187,9 +187,7 @@ export function calculateConsensus(votes: ConsensusVote[]): {
  * @param input - Review input with diff, model configs, and context
  * @returns ReviewResult with consensus-derived status and all vote reasoning
  */
-export async function runConsensusReview(
-  input: ConsensusReviewInput,
-): Promise<ReviewResult> {
+export async function runConsensusReview(input: ConsensusReviewInput): Promise<ReviewResult> {
   const { diff, models, staticContext, memoryContext, stackHints, reviewLevel } = input;
   const emit = input.onProgress ?? (() => {});
 
@@ -226,8 +224,7 @@ export async function runConsensusReview(
       temperature: 0.3,
     });
 
-    const tokensUsed =
-      (result.usage?.promptTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+    const tokensUsed = (result.usage?.promptTokens ?? 0) + (result.usage?.completionTokens ?? 0);
 
     return {
       vote: parseVote(result.text, config.provider, config.model, config.stance),
@@ -291,8 +288,8 @@ export async function runConsensusReview(
     memoryContext,
     metadata: {
       mode: 'consensus',
-      provider: votes[0]?.provider ?? models[0]!.provider,
-      model: votes[0]?.model ?? models[0]!.model,
+      provider: votes[0]?.provider ?? models[0]?.provider,
+      model: votes[0]?.model ?? models[0]?.model,
       tokensUsed: totalTokens,
       executionTimeMs,
       toolsRun: [],

@@ -10,7 +10,7 @@
  * populated from precomputed results.
  */
 
-import { describe, it, expect, vi, beforeEach, type MockedFunction } from 'vitest';
+import { beforeEach, describe, expect, it, type MockedFunction, vi } from 'vitest';
 
 // ─── Mock all external dependencies ─────────────────────────────
 
@@ -39,10 +39,10 @@ vi.mock('./memory/persist.js', () => ({
   persistReviewObservations: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { reviewPipeline } from './pipeline.js';
 import { runSimpleReview } from './agents/simple.js';
-import { runStaticAnalysis, formatStaticAnalysisContext } from './tools/runner.js';
-import type { ReviewInput, ReviewResult, StaticAnalysisResult, ReviewFinding } from './types.js';
+import { reviewPipeline } from './pipeline.js';
+import { formatStaticAnalysisContext, runStaticAnalysis } from './tools/runner.js';
+import type { ReviewFinding, ReviewInput, ReviewResult, StaticAnalysisResult } from './types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -155,8 +155,12 @@ function makeInput(overrides: Partial<ReviewInput> = {}): ReviewInput {
 beforeEach(() => {
   vi.clearAllMocks();
   (runStaticAnalysis as MockedFunction<typeof runStaticAnalysis>).mockResolvedValue(SKIPPED_STATIC);
-  (formatStaticAnalysisContext as MockedFunction<typeof formatStaticAnalysisContext>).mockReturnValue('');
-  (runSimpleReview as MockedFunction<typeof runSimpleReview>).mockResolvedValue({ ...SIMPLE_RESULT });
+  (
+    formatStaticAnalysisContext as MockedFunction<typeof formatStaticAnalysisContext>
+  ).mockReturnValue('');
+  (runSimpleReview as MockedFunction<typeof runSimpleReview>).mockResolvedValue({
+    ...SIMPLE_RESULT,
+  });
 });
 
 // ─── Tests ──────────────────────────────────────────────────────
@@ -166,48 +170,64 @@ describe('reviewPipeline — precomputed static analysis', () => {
 
   describe('when precomputedStaticAnalysis is provided', () => {
     it('does NOT call runStaticAnalysis', async () => {
-      await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: PRECOMPUTED_STATIC,
-      }));
+      await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: PRECOMPUTED_STATIC,
+        }),
+      );
 
       expect(runStaticAnalysis).not.toHaveBeenCalled();
     });
 
     it('includes precomputed findings in result.findings', async () => {
-      const result = await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: PRECOMPUTED_STATIC,
-      }));
+      const result = await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: PRECOMPUTED_STATIC,
+        }),
+      );
 
       // The pipeline merges static findings into result.findings (Step 7)
       expect(result.findings).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ message: 'SQL injection detected (precomputed)', source: 'semgrep' }),
-          expect.objectContaining({ message: 'Vulnerable base image (precomputed)', source: 'trivy' }),
+          expect.objectContaining({
+            message: 'SQL injection detected (precomputed)',
+            source: 'semgrep',
+          }),
+          expect.objectContaining({
+            message: 'Vulnerable base image (precomputed)',
+            source: 'trivy',
+          }),
         ]),
       );
       expect(result.findings).toHaveLength(2);
     });
 
     it('passes precomputed results to formatStaticAnalysisContext', async () => {
-      await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: PRECOMPUTED_STATIC,
-      }));
+      await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: PRECOMPUTED_STATIC,
+        }),
+      );
 
       expect(formatStaticAnalysisContext).toHaveBeenCalledWith(PRECOMPUTED_STATIC);
     });
 
     it('sets result.staticAnalysis to the precomputed results', async () => {
-      const result = await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: PRECOMPUTED_STATIC,
-      }));
+      const result = await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: PRECOMPUTED_STATIC,
+        }),
+      );
 
       expect(result.staticAnalysis).toBe(PRECOMPUTED_STATIC);
     });
 
     it('still runs the agent (LLM review)', async () => {
-      await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: PRECOMPUTED_STATIC,
-      }));
+      await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: PRECOMPUTED_STATIC,
+        }),
+      );
 
       expect(runSimpleReview).toHaveBeenCalledOnce();
     });
@@ -217,9 +237,11 @@ describe('reviewPipeline — precomputed static analysis', () => {
 
   describe('when precomputedStaticAnalysis is undefined', () => {
     it('calls runStaticAnalysis for local tool execution', async () => {
-      await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: undefined,
-      }));
+      await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: undefined,
+        }),
+      );
 
       expect(runStaticAnalysis).toHaveBeenCalledOnce();
     });
@@ -236,9 +258,11 @@ describe('reviewPipeline — precomputed static analysis', () => {
 
   describe('metadata.toolsRun and metadata.toolsSkipped', () => {
     it('tracks successful precomputed tools in toolsRun', async () => {
-      const result = await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: PRECOMPUTED_STATIC,
-      }));
+      const result = await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: PRECOMPUTED_STATIC,
+        }),
+      );
 
       // semgrep and trivy have status: 'success'
       expect(result.metadata.toolsRun).toContain('semgrep');
@@ -246,26 +270,32 @@ describe('reviewPipeline — precomputed static analysis', () => {
     });
 
     it('tracks skipped/errored precomputed tools in toolsSkipped', async () => {
-      const result = await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: PRECOMPUTED_STATIC,
-      }));
+      const result = await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: PRECOMPUTED_STATIC,
+        }),
+      );
 
       // cpd has status: 'skipped'
       expect(result.metadata.toolsSkipped).toContain('cpd');
     });
 
     it('does not include skipped tools in toolsRun', async () => {
-      const result = await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: PRECOMPUTED_STATIC,
-      }));
+      const result = await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: PRECOMPUTED_STATIC,
+        }),
+      );
 
       expect(result.metadata.toolsRun).not.toContain('cpd');
     });
 
     it('does not include successful tools in toolsSkipped', async () => {
-      const result = await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: PRECOMPUTED_STATIC,
-      }));
+      const result = await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: PRECOMPUTED_STATIC,
+        }),
+      );
 
       expect(result.metadata.toolsSkipped).not.toContain('semgrep');
       expect(result.metadata.toolsSkipped).not.toContain('trivy');
@@ -278,9 +308,11 @@ describe('reviewPipeline — precomputed static analysis', () => {
         cpd: { status: 'success', findings: [], executionTimeMs: 50 },
       };
 
-      const result = await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: allSuccess,
-      }));
+      const result = await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: allSuccess,
+        }),
+      );
 
       expect(result.metadata.toolsRun).toEqual(['semgrep', 'trivy', 'cpd']);
       expect(result.metadata.toolsSkipped).toEqual([]);
@@ -293,9 +325,11 @@ describe('reviewPipeline — precomputed static analysis', () => {
         cpd: { status: 'error', findings: [], error: 'failed', executionTimeMs: 0 },
       };
 
-      const result = await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: allError,
-      }));
+      const result = await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: allError,
+        }),
+      );
 
       expect(result.metadata.toolsRun).toEqual([]);
       expect(result.metadata.toolsSkipped).toEqual(['semgrep', 'trivy', 'cpd']);
@@ -311,19 +345,21 @@ describe('reviewPipeline — precomputed static analysis', () => {
         'Past review context',
       );
 
-      const result = await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: PRECOMPUTED_STATIC,
-        settings: {
-          enableSemgrep: false,
-          enableTrivy: false,
-          enableCpd: false,
-          enableMemory: true,
-          customRules: [],
-          ignorePatterns: [],
-          reviewLevel: 'normal',
-        },
-        memoryStorage: {} as unknown,
-      }));
+      const result = await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: PRECOMPUTED_STATIC,
+          settings: {
+            enableSemgrep: false,
+            enableTrivy: false,
+            enableCpd: false,
+            enableMemory: true,
+            customRules: [],
+            ignorePatterns: [],
+            reviewLevel: 'normal',
+          },
+          memoryStorage: {} as unknown,
+        }),
+      );
 
       expect(searchMemoryForContext).toHaveBeenCalledOnce();
       expect(result.memoryContext).toBe('Past review context');
@@ -336,33 +372,35 @@ describe('reviewPipeline — precomputed static analysis', () => {
     it('emits "Using precomputed" message when precomputed results are provided', async () => {
       const onProgress = vi.fn();
 
-      await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: PRECOMPUTED_STATIC,
-        onProgress,
-      }));
+      await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: PRECOMPUTED_STATIC,
+          onProgress,
+        }),
+      );
 
       const staticAnalysisEvent = onProgress.mock.calls.find(
-        ([event]: [{ step: string; message: string }]) =>
-          event.step === 'static-analysis',
+        ([event]: [{ step: string; message: string }]) => event.step === 'static-analysis',
       );
       expect(staticAnalysisEvent).toBeDefined();
-      expect(staticAnalysisEvent![0].message).toContain('precomputed');
+      expect(staticAnalysisEvent?.[0].message).toContain('precomputed');
     });
 
     it('emits "Running" message when no precomputed results', async () => {
       const onProgress = vi.fn();
 
-      await reviewPipeline(makeInput({
-        precomputedStaticAnalysis: undefined,
-        onProgress,
-      }));
+      await reviewPipeline(
+        makeInput({
+          precomputedStaticAnalysis: undefined,
+          onProgress,
+        }),
+      );
 
       const staticAnalysisEvent = onProgress.mock.calls.find(
-        ([event]: [{ step: string; message: string }]) =>
-          event.step === 'static-analysis',
+        ([event]: [{ step: string; message: string }]) => event.step === 'static-analysis',
       );
       expect(staticAnalysisEvent).toBeDefined();
-      expect(staticAnalysisEvent![0].message).toContain('Running');
+      expect(staticAnalysisEvent?.[0].message).toContain('Running');
     });
   });
 });

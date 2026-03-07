@@ -5,8 +5,8 @@
  * Tier 3: text match + countdown timer
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConfirmDialog } from './ConfirmDialog';
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -116,10 +116,7 @@ describe('ConfirmDialog — Tier 2 (text match)', () => {
 
     const input = screen.getByLabelText('Confirmation text');
     expect(input).toBeInTheDocument();
-    expect(input).toHaveAttribute(
-      'placeholder',
-      'Type "acme/widgets" to confirm',
-    );
+    expect(input).toHaveAttribute('placeholder', 'Type "acme/widgets" to confirm');
   });
 
   it('confirm button is disabled when text is empty', () => {

@@ -7,8 +7,8 @@
  * output setting, and error handling.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReviewResult, ReviewStatus } from 'ghagga-core';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mock all external dependencies ─────────────────────────────
 
@@ -107,9 +107,9 @@ describe('GitHub Action', () => {
     // Default input values — github provider (free, no api-key needed)
     mockGetInput.mockImplementation((name: string) => {
       const inputs: Record<string, string> = {
-        'provider': 'github',
-        'model': '',
-        'mode': 'simple',
+        provider: 'github',
+        model: '',
+        mode: 'simple',
         'api-key': '',
         'github-token': 'ghp_faketoken',
         'enable-semgrep': 'true',
@@ -120,7 +120,7 @@ describe('GitHub Action', () => {
     });
 
     // Default: GITHUB_TOKEN is available
-    process.env['GITHUB_TOKEN'] = 'ghp_faketoken';
+    process.env.GITHUB_TOKEN = 'ghp_faketoken';
 
     // Default: PR returns a diff
     mockPullsGet.mockResolvedValue({
@@ -184,9 +184,7 @@ describe('GitHub Action', () => {
       const apiKeyInput = '';
       const githubToken = 'ghp_faketoken';
 
-      const resolvedKey = provider === 'github'
-        ? (apiKeyInput || githubToken)
-        : apiKeyInput;
+      const resolvedKey = provider === 'github' ? apiKeyInput || githubToken : apiKeyInput;
 
       expect(resolvedKey).toBe('ghp_faketoken');
     });
@@ -195,9 +193,7 @@ describe('GitHub Action', () => {
       const provider = 'ollama';
       const apiKeyInput = '';
 
-      const resolvedKey = provider === 'ollama'
-        ? (apiKeyInput || 'ollama')
-        : apiKeyInput;
+      const resolvedKey = provider === 'ollama' ? apiKeyInput || 'ollama' : apiKeyInput;
 
       expect(resolvedKey).toBe('ollama');
     });
@@ -286,34 +282,26 @@ describe('GitHub Action', () => {
   describe('error handling', () => {
     it('setFailed is called when an error occurs', () => {
       mockSetFailed('GHAGGA review failed: some error');
-      expect(mockSetFailed).toHaveBeenCalledWith(
-        expect.stringContaining('GHAGGA review failed'),
-      );
+      expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('GHAGGA review failed'));
     });
 
     it('handles missing PR context gracefully', () => {
       mockSetFailed(
         'This action must be triggered by a pull_request event. ' +
-        'Add `on: pull_request` to your workflow.',
+          'Add `on: pull_request` to your workflow.',
       );
-      expect(mockSetFailed).toHaveBeenCalledWith(
-        expect.stringContaining('pull_request event'),
-      );
+      expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('pull_request event'));
     });
 
     it('handles missing GitHub token', () => {
-      delete process.env['GITHUB_TOKEN'];
+      delete process.env.GITHUB_TOKEN;
       mockSetFailed('GitHub token is required to fetch PR diffs and post comments.');
-      expect(mockSetFailed).toHaveBeenCalledWith(
-        expect.stringContaining('GitHub token'),
-      );
+      expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('GitHub token'));
     });
 
     it('fails when paid provider has no api-key', () => {
       mockSetFailed('API key is required for provider "anthropic".');
-      expect(mockSetFailed).toHaveBeenCalledWith(
-        expect.stringContaining('API key is required'),
-      );
+      expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('API key is required'));
     });
   });
 
@@ -354,9 +342,9 @@ describe('run() — integration', () => {
     // Default inputs: github provider, memory enabled
     mockGetInput.mockImplementation((name: string) => {
       const inputs: Record<string, string> = {
-        'provider': 'github',
-        'model': '',
-        'mode': 'simple',
+        provider: 'github',
+        model: '',
+        mode: 'simple',
         'api-key': '',
         'github-token': 'ghp_faketoken',
         'enable-semgrep': 'true',
@@ -367,7 +355,7 @@ describe('run() — integration', () => {
       return inputs[name] ?? '';
     });
 
-    process.env['GITHUB_TOKEN'] = 'ghp_faketoken';
+    process.env.GITHUB_TOKEN = 'ghp_faketoken';
 
     mockPullsGet.mockResolvedValue({
       data: 'diff --git a/file.ts b/file.ts\n+const x = 1;',
@@ -425,9 +413,7 @@ describe('run() — integration', () => {
 
     await run();
 
-    expect(mockSetFailed).toHaveBeenCalledWith(
-      expect.stringContaining('critical issues'),
-    );
+    expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('critical issues'));
   });
 
   it('pipeline error: calls setFailed with "GHAGGA review failed"', async () => {
@@ -445,21 +431,19 @@ describe('run() — integration', () => {
       if (name === 'github-token') return '';
       return '';
     });
-    delete process.env['GITHUB_TOKEN'];
+    delete process.env.GITHUB_TOKEN;
 
     await run();
 
-    expect(mockSetFailed).toHaveBeenCalledWith(
-      expect.stringContaining('GitHub token is required'),
-    );
+    expect(mockSetFailed).toHaveBeenCalledWith(expect.stringContaining('GitHub token is required'));
   });
 
   it('paid provider with no api-key: calls setFailed', async () => {
     mockGetInput.mockImplementation((name: string) => {
       const inputs: Record<string, string> = {
-        'provider': 'anthropic',
-        'model': '',
-        'mode': 'simple',
+        provider: 'anthropic',
+        model: '',
+        mode: 'simple',
         'api-key': '',
         'github-token': 'ghp_faketoken',
       };

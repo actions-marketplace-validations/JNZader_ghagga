@@ -9,9 +9,9 @@
  * @see Phase 3, Task 3.2
  */
 
-import { Command } from 'commander';
-import { isGitRepo, getHooksDir, installHook } from '../../lib/git-hooks.js';
-import { generatePreCommitHook, generateCommitMsgHook } from '../../lib/hook-templates.js';
+import type { Command } from 'commander';
+import { getHooksDir, installHook, isGitRepo } from '../../lib/git-hooks.js';
+import { generateCommitMsgHook, generatePreCommitHook } from '../../lib/hook-templates.js';
 import type { HookType } from '../../lib/hooks-types.js';
 import * as tui from '../../ui/tui.js';
 

@@ -6,8 +6,8 @@
  * past reviews of the same project.
  */
 
-import { formatMemoryContext } from './context.js';
 import type { MemoryStorage } from '../types.js';
+import { formatMemoryContext } from './context.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -70,11 +70,7 @@ export async function searchMemoryForContext(
     if (!query) return null;
 
     // Search with a reasonable limit — we don't want to flood the prompt
-    const observations = await storage.searchObservations(
-      project,
-      query,
-      { limit: 3 },
-    );
+    const observations = await storage.searchObservations(project, query, { limit: 3 });
 
     if (!observations || observations.length === 0) return null;
 

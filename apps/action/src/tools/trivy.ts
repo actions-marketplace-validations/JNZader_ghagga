@@ -13,10 +13,10 @@
  */
 
 import * as core from '@actions/core';
-import { execWithTimeout } from './exec.js';
 import { restoreToolCache, saveToolCache } from './cache.js';
-import { TOOL_VERSIONS, TOOL_TIMEOUT_MS } from './types.js';
-import type { ToolResult, ReviewFinding, FindingSeverity } from './types.js';
+import { execWithTimeout } from './exec.js';
+import type { FindingSeverity, ReviewFinding, ToolResult } from './types.js';
+import { TOOL_TIMEOUT_MS, TOOL_VERSIONS } from './types.js';
 
 /**
  * Map Trivy severity to GHAGGA FindingSeverity.
@@ -50,9 +50,7 @@ export async function installTrivy(): Promise<boolean> {
       await execWithTimeout('trivy', ['--version'], { timeoutMs: 10_000 });
       return true;
     } catch {
-      core.warning(
-        'Trivy cache restored but binary not functional, reinstalling',
-      );
+      core.warning('Trivy cache restored but binary not functional, reinstalling');
     }
   }
 

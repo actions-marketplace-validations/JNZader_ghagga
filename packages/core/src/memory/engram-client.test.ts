@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EngramClient } from './engram-client.js';
 import type { EngramConfig, EngramObservation, EngramStats } from './engram-types.js';
 
@@ -84,10 +84,7 @@ describe('EngramClient', () => {
 
       clientWithSlash.healthCheck();
 
-      expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:7437/api/stats',
-        expect.any(Object),
-      );
+      expect(fetchSpy).toHaveBeenCalledWith('http://localhost:7437/api/stats', expect.any(Object));
     });
 
     it('strips multiple trailing slashes from host URL', () => {
@@ -99,10 +96,7 @@ describe('EngramClient', () => {
 
       clientWithSlashes.healthCheck();
 
-      expect(fetchSpy).toHaveBeenCalledWith(
-        'http://localhost:7437/api/stats',
-        expect.any(Object),
-      );
+      expect(fetchSpy).toHaveBeenCalledWith('http://localhost:7437/api/stats', expect.any(Object));
     });
 
     it('passes AbortSignal.timeout to fetch', async () => {
@@ -110,7 +104,7 @@ describe('EngramClient', () => {
 
       await client.healthCheck();
 
-      const callArgs = fetchSpy.mock.calls[0]![1] as RequestInit;
+      const callArgs = fetchSpy.mock.calls[0]?.[1] as RequestInit;
       expect(callArgs.signal).toBeDefined();
       expect(callArgs.signal).toBeInstanceOf(AbortSignal);
     });
@@ -120,13 +114,11 @@ describe('EngramClient', () => {
 
   describe('search()', () => {
     it('sends correct URL with query params', async () => {
-      fetchSpy.mockReturnValue(
-        mockFetchResponse({ observations: [] }),
-      );
+      fetchSpy.mockReturnValue(mockFetchResponse({ observations: [] }));
 
       await client.search('auth patterns', 'acme/widgets', 5);
 
-      const calledUrl = fetchSpy.mock.calls[0]![0] as string;
+      const calledUrl = fetchSpy.mock.calls[0]?.[0] as string;
       expect(calledUrl).toContain('/api/search?');
       expect(calledUrl).toContain('q=auth+patterns');
       expect(calledUrl).toContain('project=acme%2Fwidgets');
@@ -138,15 +130,13 @@ describe('EngramClient', () => {
         { id: 1, type: 'pattern', title: 'Auth', content: 'JWT info' },
         { id: 2, type: 'bugfix', title: 'Bug', content: 'Fix applied' },
       ];
-      fetchSpy.mockReturnValue(
-        mockFetchResponse({ observations: obs }),
-      );
+      fetchSpy.mockReturnValue(mockFetchResponse({ observations: obs }));
 
       const results = await client.search('test');
 
       expect(results).toHaveLength(2);
-      expect(results[0]!.id).toBe(1);
-      expect(results[1]!.id).toBe(2);
+      expect(results[0]?.id).toBe(1);
+      expect(results[1]?.id).toBe(2);
     });
 
     it('returns mapped observations from array response', async () => {
@@ -158,7 +148,7 @@ describe('EngramClient', () => {
       const results = await client.search('test');
 
       expect(results).toHaveLength(1);
-      expect(results[0]!.id).toBe(1);
+      expect(results[0]?.id).toBe(1);
     });
 
     it('returns empty array on error', async () => {
@@ -182,7 +172,7 @@ describe('EngramClient', () => {
 
       await client.search('query');
 
-      const calledUrl = fetchSpy.mock.calls[0]![0] as string;
+      const calledUrl = fetchSpy.mock.calls[0]?.[0] as string;
       expect(calledUrl).toContain('q=query');
       expect(calledUrl).not.toContain('project=');
       expect(calledUrl).not.toContain('limit=');
@@ -241,10 +231,7 @@ describe('EngramClient', () => {
 
       await client.search('test');
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[ghagga:engram] search failed:',
-        'Network error',
-      );
+      expect(warnSpy).toHaveBeenCalledWith('[ghagga:engram] search failed:', 'Network error');
     });
 
     it('passes AbortSignal.timeout to fetch for search', async () => {
@@ -252,7 +239,7 @@ describe('EngramClient', () => {
 
       await client.search('test');
 
-      const callArgs = fetchSpy.mock.calls[0]![1] as RequestInit;
+      const callArgs = fetchSpy.mock.calls[0]?.[1] as RequestInit;
       expect(callArgs.signal).toBeDefined();
       expect(callArgs.signal).toBeInstanceOf(AbortSignal);
     });
@@ -262,7 +249,7 @@ describe('EngramClient', () => {
 
       await client.search('query', undefined, 0);
 
-      const calledUrl = fetchSpy.mock.calls[0]![0] as string;
+      const calledUrl = fetchSpy.mock.calls[0]?.[0] as string;
       expect(calledUrl).toContain('limit=0');
     });
   });
@@ -350,14 +337,13 @@ describe('EngramClient', () => {
         content: 'JWT patterns',
       });
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[ghagga:engram] save failed:',
-        'Connection timeout',
-      );
+      expect(warnSpy).toHaveBeenCalledWith('[ghagga:engram] save failed:', 'Connection timeout');
     });
 
     it('passes AbortSignal.timeout to fetch for save', async () => {
-      fetchSpy.mockReturnValue(mockFetchResponse({ id: 1, type: 'pattern', title: 'T', content: 'C' }));
+      fetchSpy.mockReturnValue(
+        mockFetchResponse({ id: 1, type: 'pattern', title: 'T', content: 'C' }),
+      );
 
       await client.save({
         type: 'pattern',
@@ -365,7 +351,7 @@ describe('EngramClient', () => {
         content: 'C',
       });
 
-      const callArgs = fetchSpy.mock.calls[0]![1] as RequestInit;
+      const callArgs = fetchSpy.mock.calls[0]?.[1] as RequestInit;
       expect(callArgs.signal).toBeDefined();
       expect(callArgs.signal).toBeInstanceOf(AbortSignal);
     });
@@ -392,12 +378,14 @@ describe('EngramClient', () => {
     });
 
     it('sends GET with string ID', async () => {
-      fetchSpy.mockReturnValue(mockFetchResponse({
-        id: 'uuid-abc',
-        type: 'pattern',
-        title: 'Test',
-        content: 'Content',
-      }));
+      fetchSpy.mockReturnValue(
+        mockFetchResponse({
+          id: 'uuid-abc',
+          type: 'pattern',
+          title: 'Test',
+          content: 'Content',
+        }),
+      );
 
       await client.getObservation('uuid-abc');
 
@@ -442,10 +430,7 @@ describe('EngramClient', () => {
 
       await client.getObservation(42);
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[ghagga:engram] getObservation failed:',
-        'Timeout',
-      );
+      expect(warnSpy).toHaveBeenCalledWith('[ghagga:engram] getObservation failed:', 'Timeout');
     });
   });
 
@@ -594,10 +579,7 @@ describe('EngramClient', () => {
 
       await client.createSession('acme/widgets');
 
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[ghagga:engram] createSession failed:',
-        'Server error',
-      );
+      expect(warnSpy).toHaveBeenCalledWith('[ghagga:engram] createSession failed:', 'Server error');
     });
 
     it('passes AbortSignal.timeout to fetch for createSession', async () => {
@@ -605,7 +587,7 @@ describe('EngramClient', () => {
 
       await client.createSession('acme/widgets');
 
-      const callArgs = fetchSpy.mock.calls[0]![1] as RequestInit;
+      const callArgs = fetchSpy.mock.calls[0]?.[1] as RequestInit;
       expect(callArgs.signal).toBeDefined();
       expect(callArgs.signal).toBeInstanceOf(AbortSignal);
     });
@@ -651,7 +633,7 @@ describe('EngramClient', () => {
 
       await client.endSession(7, 'Summary');
 
-      const callArgs = fetchSpy.mock.calls[0]![1] as RequestInit;
+      const callArgs = fetchSpy.mock.calls[0]?.[1] as RequestInit;
       expect(callArgs.signal).toBeDefined();
       expect(callArgs.signal).toBeInstanceOf(AbortSignal);
     });

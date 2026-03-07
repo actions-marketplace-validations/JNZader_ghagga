@@ -6,10 +6,7 @@ interface SeverityBadgeProps {
   className?: string;
 }
 
-const severityConfig: Record<
-  Finding['severity'],
-  { label: string; classes: string }
-> = {
+const severityConfig: Record<Finding['severity'], { label: string; classes: string }> = {
   critical: {
     label: 'Critical',
     classes: 'bg-red-600/20 text-red-300 border-red-600/30',

@@ -6,7 +6,7 @@
  * Tests createModel() which composes createProvider + model invocation.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Hoisted mock fns ───────────────────────────────────────────
 
@@ -26,8 +26,8 @@ vi.mock('@ai-sdk/google', () => ({
   createGoogleGenerativeAI: mockCreateGoogleGenerativeAI,
 }));
 
-import { createProvider, createModel } from './index.js';
 import type { LLMProvider } from '../types.js';
+import { createModel, createProvider } from './index.js';
 
 // ─── Tests ──────────────────────────────────────────────────────
 

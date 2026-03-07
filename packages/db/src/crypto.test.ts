@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { encrypt, decrypt } from './crypto.js';
 import { randomBytes } from 'node:crypto';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { decrypt, encrypt } from './crypto.js';
 
 const TEST_KEY = randomBytes(32).toString('hex');
 

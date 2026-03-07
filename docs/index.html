@@ -80,7 +80,7 @@
     });
 
     // Unique ID counter for mermaid diagrams
-    var mermaidId = 0;
+    var _mermaidId = 0;
   </script>
 
   <script>
@@ -103,10 +103,9 @@
       plugins: [
         function mermaidPlugin(hook) {
           // Convert ```mermaid code blocks to <div class="mermaid"> before HTML is inserted
-          hook.afterEach(function(html) {
-            return html.replace(
+          hook.afterEach((html) => html.replace(
               /<pre[^>]*><code[^>]*class="lang-mermaid"[^>]*>([\s\S]*?)<\/code><\/pre>/gi,
-              function(match, code) {
+              (_match, code) => {
                 // Decode HTML entities
                 var decoded = code
                   .replace(/&lt;/g, '<')
@@ -114,34 +113,33 @@
                   .replace(/&amp;/g, '&')
                   .replace(/&quot;/g, '"')
                   .replace(/&#39;/g, "'");
-                return '<div class="mermaid">' + decoded + '</div>';
+                return `<div class="mermaid">${decoded}</div>`;
               }
-            );
-          });
+            ));
 
           // Render mermaid diagrams after the page DOM is ready
-          hook.doneEach(function() {
+          hook.doneEach(() => {
             var els = document.querySelectorAll('.mermaid');
             if (els.length === 0) return;
 
-            els.forEach(function(el) {
+            els.forEach((el) => {
               // Skip already-rendered diagrams
               if (el.getAttribute('data-mermaid-processed')) return;
 
               var graphDef = el.textContent.trim();
-              var id = 'mermaid-' + (mermaidId++);
+              var id = `mermaid-${mermaidId++}`;
 
               try {
-                mermaid.render(id, graphDef).then(function(result) {
+                mermaid.render(id, graphDef).then((result) => {
                   el.innerHTML = result.svg;
                   el.setAttribute('data-mermaid-processed', 'true');
-                }).catch(function(err) {
+                }).catch((err) => {
                   console.warn('Mermaid render error:', err);
-                  el.innerHTML = '<pre style="color:#f87171;">' + err.message + '</pre>';
+                  el.innerHTML = `<pre style="color:#f87171;">${err.message}</pre>`;
                 });
               } catch (err) {
                 console.warn('Mermaid render error:', err);
-                el.innerHTML = '<pre style="color:#f87171;">' + err.message + '</pre>';
+                el.innerHTML = `<pre style="color:#f87171;">${err.message}</pre>`;
               }
             });
           });

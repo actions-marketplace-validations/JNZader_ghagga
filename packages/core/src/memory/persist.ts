@@ -6,8 +6,8 @@
  * the same project can benefit from past context.
  */
 
+import type { MemoryStorage, ObservationType, ReviewFinding, ReviewResult } from '../types.js';
 import { stripPrivateData } from './privacy.js';
-import type { MemoryStorage, ReviewResult, ReviewFinding, ObservationType } from '../types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -38,7 +38,9 @@ function findingToObservationType(finding: ReviewFinding): ObservationType {
  * We only save high and critical findings to avoid noise.
  */
 function isSignificantFinding(finding: ReviewFinding): boolean {
-  return finding.severity === 'critical' || finding.severity === 'high' || finding.severity === 'medium';
+  return (
+    finding.severity === 'critical' || finding.severity === 'high' || finding.severity === 'medium'
+  );
 }
 
 // ─── Main Function ──────────────────────────────────────────────

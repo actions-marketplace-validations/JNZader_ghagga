@@ -1,14 +1,14 @@
 import {
+  boolean,
+  index,
+  integer,
+  jsonb,
   pgTable,
   serial,
   text,
-  varchar,
   timestamp,
-  boolean,
-  jsonb,
-  integer,
-  index,
   unique,
+  varchar,
 } from 'drizzle-orm/pg-core';
 
 // ─── Installations ──────────────────────────────────────────────

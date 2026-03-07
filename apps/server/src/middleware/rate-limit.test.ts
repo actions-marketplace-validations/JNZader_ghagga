@@ -5,9 +5,9 @@
  * and Retry-After headers.
  */
 
-import { describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
 import { rateLimiter } from 'hono-rate-limiter';
+import { describe, expect, it } from 'vitest';
 
 function createApp(options: { apiLimit?: number; webhookLimit?: number } = {}) {
   const app = new Hono();

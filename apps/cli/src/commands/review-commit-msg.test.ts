@@ -8,14 +8,17 @@
  * @see Phase 4, Test 3
  */
 
-import { describe, it, expect } from 'vitest';
-import { reviewCommitMessage } from './review-commit-msg.js';
+import { describe, expect, it } from 'vitest';
 import type { CommitMsgReviewOptions } from './review-commit-msg.js';
+import { reviewCommitMessage } from './review-commit-msg.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
 /** Default options for tests (quick mode — heuristics only) */
-function makeOpts(message: string, overrides: Partial<CommitMsgReviewOptions> = {}): CommitMsgReviewOptions {
+function makeOpts(
+  message: string,
+  overrides: Partial<CommitMsgReviewOptions> = {},
+): CommitMsgReviewOptions {
   return {
     message,
     provider: 'anthropic',
@@ -34,8 +37,8 @@ describe('reviewCommitMessage — heuristic validation', () => {
 
     expect(result.status).toBe('FAILED');
     expect(result.findings).toHaveLength(1);
-    expect(result.findings[0]!.severity).toBe('high');
-    expect(result.findings[0]!.message).toContain('empty');
+    expect(result.findings[0]?.severity).toBe('high');
+    expect(result.findings[0]?.message).toContain('empty');
   });
 
   it('flags too-short message (≤ 3 chars) with high severity', async () => {
@@ -45,7 +48,7 @@ describe('reviewCommitMessage — heuristic validation', () => {
     expect(result.findings.length).toBeGreaterThanOrEqual(1);
     const shortFinding = result.findings.find((f) => f.message.includes('too short'));
     expect(shortFinding).toBeDefined();
-    expect(shortFinding!.severity).toBe('high');
+    expect(shortFinding?.severity).toBe('high');
   });
 
   it('flags subject line > 72 chars with medium severity', async () => {
@@ -54,7 +57,7 @@ describe('reviewCommitMessage — heuristic validation', () => {
 
     const finding = result.findings.find((f) => f.message.includes('72'));
     expect(finding).toBeDefined();
-    expect(finding!.severity).toBe('medium');
+    expect(finding?.severity).toBe('medium');
   });
 
   it('flags subject ending with period with low severity', async () => {
@@ -62,7 +65,7 @@ describe('reviewCommitMessage — heuristic validation', () => {
 
     const finding = result.findings.find((f) => f.message.includes('period'));
     expect(finding).toBeDefined();
-    expect(finding!.severity).toBe('low');
+    expect(finding?.severity).toBe('low');
   });
 
   it('flags body not separated by blank line with medium severity', async () => {
@@ -71,7 +74,7 @@ describe('reviewCommitMessage — heuristic validation', () => {
 
     const finding = result.findings.find((f) => f.message.includes('blank line'));
     expect(finding).toBeDefined();
-    expect(finding!.severity).toBe('medium');
+    expect(finding?.severity).toBe('medium');
   });
 
   it('returns no findings for a valid conventional commit', async () => {
@@ -99,7 +102,7 @@ describe('reviewCommitMessage — heuristic validation', () => {
 
   it('detects multiple issues simultaneously', async () => {
     // Long subject + ends with period + body without blank line
-    const longSubject = 'a'.repeat(80) + '.';
+    const longSubject = `${'a'.repeat(80)}.`;
     const msg = `${longSubject}\nBody without blank separator`;
     const result = await reviewCommitMessage(makeOpts(msg));
 
@@ -108,7 +111,7 @@ describe('reviewCommitMessage — heuristic validation', () => {
 
     const severities = result.findings.map((f) => f.severity);
     expect(severities).toContain('medium'); // long subject or blank line
-    expect(severities).toContain('low');    // period
+    expect(severities).toContain('low'); // period
   });
 
   it('uses "static-only" model in quick mode metadata', async () => {
@@ -119,9 +122,7 @@ describe('reviewCommitMessage — heuristic validation', () => {
   });
 
   it('records actual provider and model when quick is false', async () => {
-    const result = await reviewCommitMessage(
-      makeOpts('feat: valid commit', { quick: false }),
-    );
+    const result = await reviewCommitMessage(makeOpts('feat: valid commit', { quick: false }));
 
     expect(result.metadata.provider).toBe('anthropic');
     expect(result.metadata.model).toBe('claude-sonnet-4-20250514');
@@ -138,9 +139,9 @@ describe('reviewCommitMessage — heuristic validation', () => {
   it('skips all static analysis tools', async () => {
     const result = await reviewCommitMessage(makeOpts('feat: valid'));
 
-    expect(result.staticAnalysis!.semgrep.status).toBe('skipped');
-    expect(result.staticAnalysis!.trivy.status).toBe('skipped');
-    expect(result.staticAnalysis!.cpd.status).toBe('skipped');
+    expect(result.staticAnalysis?.semgrep.status).toBe('skipped');
+    expect(result.staticAnalysis?.trivy.status).toBe('skipped');
+    expect(result.staticAnalysis?.cpd.status).toBe('skipped');
   });
 
   it('returns PASSED status when only low-severity findings exist', async () => {

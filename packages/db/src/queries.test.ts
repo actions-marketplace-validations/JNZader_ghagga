@@ -10,9 +10,9 @@
  *  - edge cases like empty results, missing settings, etc.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Database } from './client.js';
-import { DEFAULT_REPO_SETTINGS, type RepoSettings, type DbProviderChainEntry } from './schema.js';
+import { type DbProviderChainEntry, DEFAULT_REPO_SETTINGS, type RepoSettings } from './schema.js';
 
 // ─── Helper: chainable mock db ─────────────────────────────────
 
@@ -23,7 +23,10 @@ function createMockDb(terminalValue: unknown = []): MockDB & { _resolve: (v: unk
 
   const handler: ProxyHandler<MockDB> = {
     get(target, prop) {
-      if (prop === '_resolve') return (v: unknown) => { _terminalValue = v; };
+      if (prop === '_resolve')
+        return (v: unknown) => {
+          _terminalValue = v;
+        };
       if (prop === 'then') {
         // Make the chain thenable so `await db.select()...` resolves
         return (resolve: (v: unknown) => void) => resolve(_terminalValue);
@@ -44,50 +47,56 @@ function createMockDb(terminalValue: unknown = []): MockDB & { _resolve: (v: unk
 // We import the module under test AFTER defining helpers because the module
 // itself only has side-effect-free function declarations.
 import {
-  upsertInstallation,
+  clearAllMemoryObservations,
+  clearEmptyMemorySessions,
+  clearMemoryObservationsByProject,
+  createMemorySession,
   deactivateInstallation,
-  getInstallationByGitHubId,
-  getInstallationsByAccountLogin,
-  getInstallationSettings,
-  upsertInstallationSettings,
-  getInstallationById,
+  deleteMappingsByInstallationId,
+  deleteMemoryObservation,
+  deleteMemorySession,
+  deleteStaleUserMappings,
+  endMemorySession,
   getEffectiveRepoSettings,
-  upsertRepository,
+  getInstallationByGitHubId,
+  getInstallationById,
+  getInstallationSettings,
+  getInstallationsByAccountLogin,
+  getInstallationsByUserId,
+  getMemoryObservation,
+  getMemoryStats,
+  getObservationsBySession,
+  getRawMappingsByUserId,
   getRepoByFullName,
   getRepoByGithubId,
-  updateRepoSettings,
-  saveRepoApiKey,
-  removeRepoApiKey,
   getReposByInstallationId,
-  saveReview,
-  getReviewsByRepoId,
   getReviewStats,
-  createMemorySession,
-  endMemorySession,
+  getReviewsByRepoId,
   getSessionsByProject,
-  saveObservation,
-  searchObservations,
-  getObservationsBySession,
-  deleteMemoryObservation,
-  clearMemoryObservationsByProject,
-  clearAllMemoryObservations,
-  deleteMemorySession,
-  clearEmptyMemorySessions,
-  getMemoryObservation,
   listMemoryObservations,
-  getMemoryStats,
+  removeRepoApiKey,
+  saveObservation,
+  saveRepoApiKey,
+  saveReview,
+  searchObservations,
+  updateRepoSettings,
+  upsertInstallation,
+  upsertInstallationSettings,
+  upsertRepository,
   upsertUserMapping,
-  getInstallationsByUserId,
-  getRawMappingsByUserId,
-  deleteStaleUserMappings,
-  deleteMappingsByInstallationId,
 } from './queries.js';
 
 // ─── Installations ─────────────────────────────────────────────
 
 describe('upsertInstallation', () => {
   it('should update and return existing installation when found', async () => {
-    const existing = { id: 1, githubInstallationId: 42, accountLogin: 'old', accountType: 'User', isActive: true };
+    const existing = {
+      id: 1,
+      githubInstallationId: 42,
+      accountLogin: 'old',
+      accountType: 'User',
+      isActive: true,
+    };
     const db = createMockDb([existing]) as unknown as Database;
 
     const result = await upsertInstallation(db, {
@@ -100,10 +109,15 @@ describe('upsertInstallation', () => {
   });
 
   it('should insert and return new installation when not found', async () => {
-    const inserted = { id: 2, githubInstallationId: 99, accountLogin: 'fresh', accountType: 'User' };
+    const inserted = {
+      id: 2,
+      githubInstallationId: 99,
+      accountLogin: 'fresh',
+      accountType: 'User',
+    };
 
     // First select returns empty, then insert().values().returning() resolves with [inserted]
-    const db = createMockDb([]) as unknown as Database;
+    const _db = createMockDb([]) as unknown as Database;
 
     // Override: the chain `db.select().from().where().limit()` resolves to []
     // but `db.insert().values().returning()` needs to resolve to [inserted].
@@ -153,9 +167,7 @@ describe('deactivateInstallation', () => {
     await deactivateInstallation(db, 42);
 
     expect(mockUpdate).toHaveBeenCalled();
-    expect(mockSet).toHaveBeenCalledWith(
-      expect.objectContaining({ isActive: false }),
-    );
+    expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ isActive: false }));
   });
 });
 
@@ -296,7 +308,7 @@ describe('upsertInstallationSettings', () => {
 
     await upsertInstallationSettings(db, 10, { reviewMode: 'consensus' });
 
-    const setArg = mockSet.mock.calls[0]![0] as Record<string, unknown>;
+    const setArg = mockSet.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(setArg.reviewMode).toBe('consensus');
     expect(setArg.updatedAt).toBeInstanceOf(Date);
     // providerChain should NOT be in set values since it wasn't provided
@@ -381,7 +393,13 @@ describe('getEffectiveRepoSettings', () => {
     const globalSettings = {
       id: 1,
       installationId: 5,
-      providerChain: [{ provider: 'anthropic' as const, model: 'claude-sonnet-4-20250514', encryptedApiKey: null }],
+      providerChain: [
+        {
+          provider: 'anthropic' as const,
+          model: 'claude-sonnet-4-20250514',
+          encryptedApiKey: null,
+        },
+      ],
       aiReviewEnabled: false,
       reviewMode: 'workflow',
       settings: { ...DEFAULT_REPO_SETTINGS, enableTrivy: false },
@@ -463,7 +481,12 @@ describe('upsertRepository', () => {
   });
 
   it('should insert new repo with DEFAULT_REPO_SETTINGS', async () => {
-    const inserted = { id: 2, githubRepoId: 200, fullName: 'owner/repo', settings: DEFAULT_REPO_SETTINGS };
+    const inserted = {
+      id: 2,
+      githubRepoId: 200,
+      fullName: 'owner/repo',
+      settings: DEFAULT_REPO_SETTINGS,
+    };
 
     const mockReturning = vi.fn().mockResolvedValue([inserted]);
     const mockValues = vi.fn().mockReturnValue({ returning: mockReturning });
@@ -485,7 +508,7 @@ describe('upsertRepository', () => {
     expect(result).toEqual(inserted);
     expect(mockInsert).toHaveBeenCalled();
     // Verify values include DEFAULT_REPO_SETTINGS
-    const valuesArg = mockValues.mock.calls[0]![0] as Record<string, unknown>;
+    const valuesArg = mockValues.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(valuesArg.settings).toEqual(DEFAULT_REPO_SETTINGS);
   });
 });
@@ -546,7 +569,7 @@ describe('updateRepoSettings', () => {
     await updateRepoSettings(db, 1, { reviewMode: 'workflow', aiReviewEnabled: false });
 
     expect(mockUpdate).toHaveBeenCalled();
-    const setArg = mockSet.mock.calls[0]![0] as Record<string, unknown>;
+    const setArg = mockSet.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(setArg.reviewMode).toBe('workflow');
     expect(setArg.aiReviewEnabled).toBe(false);
     expect(setArg.updatedAt).toBeInstanceOf(Date);
@@ -562,7 +585,7 @@ describe('saveRepoApiKey', () => {
 
     await saveRepoApiKey(db, 1, 'encrypted-key-data');
 
-    const setArg = mockSet.mock.calls[0]![0] as Record<string, unknown>;
+    const setArg = mockSet.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(setArg.encryptedApiKey).toBe('encrypted-key-data');
     expect(setArg.updatedAt).toBeInstanceOf(Date);
   });
@@ -577,7 +600,7 @@ describe('removeRepoApiKey', () => {
 
     await removeRepoApiKey(db, 1);
 
-    const setArg = mockSet.mock.calls[0]![0] as Record<string, unknown>;
+    const setArg = mockSet.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(setArg.encryptedApiKey).toBeNull();
   });
 });
@@ -696,7 +719,7 @@ describe('endMemorySession', () => {
 
     await endMemorySession(db, 1, 'Session complete');
 
-    const setArg = mockSet.mock.calls[0]![0] as Record<string, unknown>;
+    const setArg = mockSet.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(setArg.summary).toBe('Session complete');
     expect(setArg.endedAt).toBeInstanceOf(Date);
   });
@@ -821,7 +844,7 @@ describe('saveObservation', () => {
 
   it('should default filePaths to empty array for new observations', async () => {
     const { db, mockInsert } = makeObservationDb({});
-    const mockValues = (mockInsert as ReturnType<typeof vi.fn>).mockReturnValue({
+    const _mockValues = (mockInsert as ReturnType<typeof vi.fn>).mockReturnValue({
       values: vi.fn().mockReturnValue({
         returning: vi.fn().mockResolvedValue([{ id: 1 }]),
       }),
@@ -894,7 +917,10 @@ describe('searchObservations', () => {
 
 describe('getObservationsBySession', () => {
   it('should return observations ordered by createdAt', async () => {
-    const obs = [{ id: 1, sessionId: 5 }, { id: 2, sessionId: 5 }];
+    const obs = [
+      { id: 1, sessionId: 5 },
+      { id: 2, sessionId: 5 },
+    ];
     const mockOrderBy = vi.fn().mockResolvedValue(obs);
     const mockWhere = vi.fn().mockReturnValue({ orderBy: mockOrderBy });
     const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
@@ -932,7 +958,7 @@ describe('upsertUserMapping', () => {
     expect(result).toEqual(existing);
     expect(mockUpdate).toHaveBeenCalled();
     // Verify only githubLogin is updated (not installationId, since it's part of the composite key)
-    const setArg = mockSet.mock.calls[0]![0] as Record<string, unknown>;
+    const setArg = mockSet.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(setArg.githubLogin).toBe('newLogin');
     expect(setArg.installationId).toBeUndefined();
   });
@@ -986,7 +1012,7 @@ describe('upsertUserMapping', () => {
     expect(result).toEqual(inserted);
     expect(mockInsert).toHaveBeenCalled();
     // Verify the values passed to insert include the correct installationId
-    const valuesArg = mockValues.mock.calls[0]![0] as Record<string, unknown>;
+    const valuesArg = mockValues.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(valuesArg.githubUserId).toBe(100);
     expect(valuesArg.installationId).toBe(7);
   });
@@ -1034,9 +1060,7 @@ describe('getInstallationsByUserId', () => {
       { id: 2, githubUserId: 100, installationId: 7 },
     ];
     // Only installation 5 is active; 7 is filtered by the WHERE is_active=true
-    const onlyActiveInstallations = [
-      { id: 5, isActive: true },
-    ];
+    const onlyActiveInstallations = [{ id: 5, isActive: true }];
 
     let selectCallCount = 0;
     const mockWhere = vi.fn().mockImplementation(() => {
@@ -1054,9 +1078,7 @@ describe('getInstallationsByUserId', () => {
   });
 
   it('should return empty when all mapped installations are deactivated', async () => {
-    const mappings = [
-      { id: 1, githubUserId: 100, installationId: 5 },
-    ];
+    const mappings = [{ id: 1, githubUserId: 100, installationId: 5 }];
     // The active filter returns nothing — installation 5 is deactivated
     const noActiveInstallations: unknown[] = [];
 
@@ -1459,7 +1481,9 @@ describe('listMemoryObservations', () => {
 
 describe('getMemoryStats', () => {
   it('should return aggregate stats for the installation', async () => {
-    const summaryResult = [{ total: 25, oldest: new Date('2024-01-01'), newest: new Date('2024-06-01') }];
+    const summaryResult = [
+      { total: 25, oldest: new Date('2024-01-01'), newest: new Date('2024-06-01') },
+    ];
     const db = createMockDb(summaryResult);
 
     const result = await getMemoryStats(db as unknown as Database, 100);
@@ -1528,8 +1552,9 @@ describe('deleteMemorySession', () => {
   it('should delete orphaned session when project has no matching repository', async () => {
     // Step 1 (scoped delete) returns empty — no matching repo for this installation.
     // Step 2 (orphan delete) returns the session — project has no repository at all.
-    const mockReturning = vi.fn()
-      .mockResolvedValueOnce([])        // Step 1: scoped delete finds nothing
+    const mockReturning = vi
+      .fn()
+      .mockResolvedValueOnce([]) // Step 1: scoped delete finds nothing
       .mockResolvedValueOnce([{ id: 10 }]); // Step 2: orphan delete succeeds
     const mockWhere = vi.fn().mockReturnValue({ returning: mockReturning });
     const mockDelete = vi.fn().mockReturnValue({ where: mockWhere });
@@ -1548,8 +1573,9 @@ describe('deleteMemorySession', () => {
     // Step 1 (scoped delete) returns empty — wrong installation.
     // Step 2 (orphan delete) also returns empty — the project DOES have a matching
     // repository (just under a different installation), so NOT EXISTS fails.
-    const mockReturning = vi.fn()
-      .mockResolvedValueOnce([])  // Step 1: not in this installation
+    const mockReturning = vi
+      .fn()
+      .mockResolvedValueOnce([]) // Step 1: not in this installation
       .mockResolvedValueOnce([]); // Step 2: not orphaned either
     const mockWhere = vi.fn().mockReturnValue({ returning: mockReturning });
     const mockDelete = vi.fn().mockReturnValue({ where: mockWhere });

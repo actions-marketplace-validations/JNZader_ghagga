@@ -1,23 +1,19 @@
-import {
-  useQuery,
-  useMutation,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
-  Review,
-  ReviewsResponse,
-  Stats,
-  Repository,
-  RepositorySettings,
   Installation,
   InstallationSettings,
   MemorySession,
   Observation,
-  ValidationResponse,
-  SaaSProvider,
-  RunnerStatus,
-  RunnerCreateResult,
+  Repository,
+  RepositorySettings,
+  Review,
+  ReviewsResponse,
   RunnerConfigureResult,
+  RunnerCreateResult,
+  RunnerStatus,
+  SaaSProvider,
+  Stats,
+  ValidationResponse,
 } from './types';
 
 const API_URL =
@@ -44,7 +40,7 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   };
 
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    headers.Authorization = `Bearer ${token}`;
   }
 
   const response = await fetch(`${API_URL}${path}`, {
@@ -125,8 +121,7 @@ export function useRepositories() {
 export function useSettings(repo: string) {
   return useQuery<RepositorySettings>({
     queryKey: ['settings', repo],
-    queryFn: () =>
-      fetchData<RepositorySettings>(`/api/settings?repo=${encodeURIComponent(repo)}`),
+    queryFn: () => fetchData<RepositorySettings>(`/api/settings?repo=${encodeURIComponent(repo)}`),
     enabled: !!repo,
   });
 }

@@ -6,18 +6,27 @@
  * environments (CLI, GitHub Action).
  */
 
-import initSqlJs, { type Database } from 'fts5-sql-bundle';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { MemoryStorage, MemoryObservationRow, MemoryObservationDetail, MemoryStats, ListObservationsOptions } from '../types.js';
+import initSqlJs, { type Database } from 'fts5-sql-bundle';
+import type {
+  ListObservationsOptions,
+  MemoryObservationDetail,
+  MemoryObservationRow,
+  MemoryStats,
+  MemoryStorage,
+} from '../types.js';
 
 /**
  * Extended Database interface — fts5-sql-bundle types omit the params overload
  * for exec(), but the runtime (sql.js core) supports it.
  */
 interface DatabaseWithParams extends Database {
-  exec(sql: string, params?: (string | number | null)[]): Array<{ columns: string[]; values: unknown[][] }>;
+  exec(
+    sql: string,
+    params?: (string | number | null)[],
+  ): Array<{ columns: string[]; values: unknown[][] }>;
 }
 
 const SCHEMA_SQL = `
@@ -147,12 +156,12 @@ export class SqliteMemoryStorage implements MemoryStorage {
     while (stmt.step()) {
       const row = stmt.getAsObject();
       rows.push({
-        id: row['id'] as number,
-        type: row['type'] as string,
-        title: row['title'] as string,
-        content: row['content'] as string,
-        filePaths: row['file_paths'] ? JSON.parse(row['file_paths'] as string) : null,
-        severity: (row['severity'] as string) ?? null,
+        id: row.id as number,
+        type: row.type as string,
+        title: row.title as string,
+        content: row.content as string,
+        filePaths: row.file_paths ? JSON.parse(row.file_paths as string) : null,
+        severity: (row.severity as string) ?? null,
       });
     }
     stmt.free();
@@ -175,15 +184,18 @@ export class SqliteMemoryStorage implements MemoryStorage {
       .digest('hex');
 
     // Dedup: check for same content hash within 15-minute window
-    const dedupRows = this.db.exec(`
+    const dedupRows = this.db.exec(
+      `
       SELECT id, type, title, content, file_paths FROM memory_observations
       WHERE content_hash = ? AND project = ?
         AND created_at > datetime('now', '-${DEDUP_WINDOW_MINUTES} minutes')
       LIMIT 1
-    `, [contentHash, data.project]);
+    `,
+      [contentHash, data.project],
+    );
 
-    if (dedupRows.length > 0 && dedupRows[0]!.values.length > 0) {
-      const row = dedupRows[0]!.values[0]!;
+    if (dedupRows.length > 0 && dedupRows[0]?.values.length > 0) {
+      const row = dedupRows[0]?.values[0]!;
       const existingId = row[0] as number;
 
       // If the existing observation is from a different session, reassign it
@@ -213,17 +225,21 @@ export class SqliteMemoryStorage implements MemoryStorage {
 
     // TopicKey upsert
     if (data.topicKey) {
-      const existingByTopic = this.db.exec(`
+      const existingByTopic = this.db.exec(
+        `
         SELECT id FROM memory_observations
         WHERE topic_key = ? AND project = ?
         LIMIT 1
-      `, [data.topicKey, data.project]);
+      `,
+        [data.topicKey, data.project],
+      );
 
-      if (existingByTopic.length > 0 && existingByTopic[0]!.values.length > 0) {
-        const existingId = existingByTopic[0]!.values[0]![0] as number;
+      if (existingByTopic.length > 0 && existingByTopic[0]?.values.length > 0) {
+        const existingId = existingByTopic[0]?.values[0]?.[0] as number;
         const filePathsJson = JSON.stringify(data.filePaths ?? []);
 
-        const updated = this.db.exec(`
+        const updated = this.db.exec(
+          `
           UPDATE memory_observations
           SET content = ?, title = ?, content_hash = ?, file_paths = ?,
               severity = ?,
@@ -231,9 +247,11 @@ export class SqliteMemoryStorage implements MemoryStorage {
               updated_at = datetime('now')
           WHERE id = ?
           RETURNING id, type, title, content, file_paths, severity
-        `, [data.content, data.title, contentHash, filePathsJson, data.severity ?? null, existingId]);
+        `,
+          [data.content, data.title, contentHash, filePathsJson, data.severity ?? null, existingId],
+        );
 
-        const row = updated[0]!.values[0]!;
+        const row = updated[0]?.values[0]!;
         return {
           id: row[0] as number,
           type: row[1] as string,
@@ -247,24 +265,27 @@ export class SqliteMemoryStorage implements MemoryStorage {
 
     // New observation
     const filePathsJson = JSON.stringify(data.filePaths ?? []);
-    const inserted = this.db.exec(`
+    const inserted = this.db.exec(
+      `
       INSERT INTO memory_observations
         (session_id, project, type, title, content, severity, topic_key, file_paths, content_hash)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING id, type, title, content, file_paths, severity
-    `, [
-      data.sessionId ?? null,
-      data.project,
-      data.type,
-      data.title,
-      data.content,
-      data.severity ?? null,
-      data.topicKey ?? null,
-      filePathsJson,
-      contentHash,
-    ]);
+    `,
+      [
+        data.sessionId ?? null,
+        data.project,
+        data.type,
+        data.title,
+        data.content,
+        data.severity ?? null,
+        data.topicKey ?? null,
+        filePathsJson,
+        contentHash,
+      ],
+    );
 
-    const row = inserted[0]!.values[0]!;
+    const row = inserted[0]?.values[0]!;
     return {
       id: row[0] as number,
       type: row[1] as string,
@@ -275,46 +296,51 @@ export class SqliteMemoryStorage implements MemoryStorage {
     };
   }
 
-  async createSession(data: {
-    project: string;
-    prNumber?: number;
-  }): Promise<{ id: number }> {
-    const result = this.db.exec(`
+  async createSession(data: { project: string; prNumber?: number }): Promise<{ id: number }> {
+    const result = this.db.exec(
+      `
       INSERT INTO memory_sessions (project, pr_number)
       VALUES (?, ?)
       RETURNING id
-    `, [data.project, data.prNumber ?? null]);
+    `,
+      [data.project, data.prNumber ?? null],
+    );
 
-    return { id: result[0]!.values[0]![0] as number };
+    return { id: result[0]?.values[0]?.[0] as number };
   }
 
   async endSession(sessionId: number, summary: string): Promise<void> {
-    this.db.run(`
+    this.db.run(
+      `
       UPDATE memory_sessions
       SET ended_at = datetime('now'), summary = ?
       WHERE id = ?
-    `, [summary, sessionId]);
+    `,
+      [summary, sessionId],
+    );
   }
 
   // ── Management methods ──────────────────────────────────────────
 
   private mapToDetail(row: Record<string, unknown>): MemoryObservationDetail {
     return {
-      id: row['id'] as number,
-      type: row['type'] as string,
-      title: row['title'] as string,
-      content: row['content'] as string,
-      filePaths: row['file_paths'] ? JSON.parse(row['file_paths'] as string) : null,
-      severity: (row['severity'] as string) ?? null,
-      project: row['project'] as string,
-      topicKey: (row['topic_key'] as string) ?? null,
-      revisionCount: row['revision_count'] as number,
-      createdAt: row['created_at'] as string,
-      updatedAt: row['updated_at'] as string,
+      id: row.id as number,
+      type: row.type as string,
+      title: row.title as string,
+      content: row.content as string,
+      filePaths: row.file_paths ? JSON.parse(row.file_paths as string) : null,
+      severity: (row.severity as string) ?? null,
+      project: row.project as string,
+      topicKey: (row.topic_key as string) ?? null,
+      revisionCount: row.revision_count as number,
+      createdAt: row.created_at as string,
+      updatedAt: row.updated_at as string,
     };
   }
 
-  async listObservations(options: ListObservationsOptions = {}): Promise<MemoryObservationDetail[]> {
+  async listObservations(
+    options: ListObservationsOptions = {},
+  ): Promise<MemoryObservationDetail[]> {
     const { project, type, limit = 20, offset = 0 } = options;
 
     let sql = `
@@ -389,7 +415,7 @@ export class SqliteMemoryStorage implements MemoryStorage {
     );
     const byType: Record<string, number> = {};
     if (byTypeResult.length > 0) {
-      for (const row of byTypeResult[0]!.values) {
+      for (const row of byTypeResult[0]?.values) {
         byType[row[0] as string] = row[1] as number;
       }
     }
@@ -400,7 +426,7 @@ export class SqliteMemoryStorage implements MemoryStorage {
     );
     const byProject: Record<string, number> = {};
     if (byProjectResult.length > 0) {
-      for (const row of byProjectResult[0]!.values) {
+      for (const row of byProjectResult[0]?.values) {
         byProject[row[0] as string] = row[1] as number;
       }
     }

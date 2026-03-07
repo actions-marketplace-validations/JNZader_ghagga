@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { parseDiffFiles, filterIgnoredFiles, truncateDiff } from './diff.js';
+import { describe, expect, it } from 'vitest';
+import { filterIgnoredFiles, parseDiffFiles, truncateDiff } from './diff.js';
 
 // ─── parseDiffFiles ─────────────────────────────────────────────
 
@@ -22,11 +22,11 @@ describe('parseDiffFiles', () => {
     const files = parseDiffFiles(diff);
 
     expect(files).toHaveLength(1);
-    expect(files[0]!.path).toBe('src/index.ts');
-    expect(files[0]!.additions).toBe(2);
-    expect(files[0]!.deletions).toBe(1);
-    expect(files[0]!.content).toContain('diff --git');
-    expect(files[0]!.content).toContain("+import { bar } from './bar';");
+    expect(files[0]?.path).toBe('src/index.ts');
+    expect(files[0]?.additions).toBe(2);
+    expect(files[0]?.deletions).toBe(1);
+    expect(files[0]?.content).toContain('diff --git');
+    expect(files[0]?.content).toContain("+import { bar } from './bar';");
   });
 
   it('parses multiple files in one diff', () => {
@@ -49,8 +49,8 @@ describe('parseDiffFiles', () => {
     const files = parseDiffFiles(diff);
 
     expect(files).toHaveLength(2);
-    expect(files[0]!.path).toBe('src/a.ts');
-    expect(files[1]!.path).toBe('src/b.ts');
+    expect(files[0]?.path).toBe('src/a.ts');
+    expect(files[1]?.path).toBe('src/b.ts');
   });
 
   it('counts additions and deletions correctly (ignores +++ and --- header lines)', () => {
@@ -72,9 +72,9 @@ describe('parseDiffFiles', () => {
 
     expect(files).toHaveLength(1);
     // +++ should NOT be counted; only real additions: added1, added2, added3
-    expect(files[0]!.additions).toBe(3);
+    expect(files[0]?.additions).toBe(3);
     // --- should NOT be counted; only real deletions: removed1, removed2
-    expect(files[0]!.deletions).toBe(2);
+    expect(files[0]?.deletions).toBe(2);
   });
 
   it('returns empty array for empty string', () => {
@@ -107,11 +107,15 @@ describe('filterIgnoredFiles', () => {
     const files = [makeFile('src/index.ts'), makeFile('README.md')];
     const result = filterIgnoredFiles(files, ['*.md']);
     expect(result).toHaveLength(1);
-    expect(result[0]!.path).toBe('src/index.ts');
+    expect(result[0]?.path).toBe('src/index.ts');
   });
 
   it('filters out files matching *.lock pattern', () => {
-    const files = [makeFile('src/app.ts'), makeFile('pnpm-lock.yaml'), makeFile('package-lock.json')];
+    const files = [
+      makeFile('src/app.ts'),
+      makeFile('pnpm-lock.yaml'),
+      makeFile('package-lock.json'),
+    ];
     // *.lock won't match pnpm-lock.yaml; need to use the right pattern
     const result = filterIgnoredFiles(files, ['*.lock']);
     // pnpm-lock.yaml and package-lock.json don't end in .lock, so they're kept
@@ -121,7 +125,7 @@ describe('filterIgnoredFiles', () => {
     const files2 = [makeFile('src/app.ts'), makeFile('yarn.lock')];
     const result2 = filterIgnoredFiles(files2, ['*.lock']);
     expect(result2).toHaveLength(1);
-    expect(result2[0]!.path).toBe('src/app.ts');
+    expect(result2[0]?.path).toBe('src/app.ts');
   });
 
   it('supports ** glob patterns', () => {
@@ -132,7 +136,7 @@ describe('filterIgnoredFiles', () => {
     ];
     const result = filterIgnoredFiles(files, ['dist/**']);
     expect(result).toHaveLength(1);
-    expect(result[0]!.path).toBe('src/index.ts');
+    expect(result[0]?.path).toBe('src/index.ts');
   });
 
   it('returns all files when patterns array is empty', () => {
@@ -151,17 +155,14 @@ describe('filterIgnoredFiles', () => {
     ];
     const result = filterIgnoredFiles(files, ['*.md', '*.lock', 'dist/**']);
     expect(result).toHaveLength(1);
-    expect(result[0]!.path).toBe('src/index.ts');
+    expect(result[0]?.path).toBe('src/index.ts');
   });
 
   it('filters based on basename matching for ** patterns', () => {
-    const files = [
-      makeFile('src/utils/diff.test.ts'),
-      makeFile('src/index.ts'),
-    ];
+    const files = [makeFile('src/utils/diff.test.ts'), makeFile('src/index.ts')];
     const result = filterIgnoredFiles(files, ['**/*.test.ts']);
     expect(result).toHaveLength(1);
-    expect(result[0]!.path).toBe('src/index.ts');
+    expect(result[0]?.path).toBe('src/index.ts');
   });
 });
 
@@ -271,8 +272,8 @@ describe('truncateDiff', () => {
 
     const files = parseDiffFiles(diff);
     // Content should contain newlines between lines, not be concatenated
-    expect(files[0]!.content).toContain('\n');
-    expect(files[0]!.content.split('\n').length).toBe(7);
+    expect(files[0]?.content).toContain('\n');
+    expect(files[0]?.content.split('\n').length).toBe(7);
   });
 });
 
@@ -291,7 +292,7 @@ describe('parseDiffFiles (mutant killers)', () => {
 
     const files = parseDiffFiles(diff);
     // The content should start with the diff header, not random content
-    expect(files[0]!.content).toMatch(/^diff --git/);
+    expect(files[0]?.content).toMatch(/^diff --git/);
   });
 
   it('only collects lines when inside a file block (kills else if currentFile mutant)', () => {
@@ -305,20 +306,16 @@ describe('parseDiffFiles (mutant killers)', () => {
 
     const files = parseDiffFiles(diff);
     expect(files).toHaveLength(1);
-    expect(files[0]!.content).not.toContain('preamble');
+    expect(files[0]?.content).not.toContain('preamble');
   });
 
   it('requires end-of-line anchor in file header regex (kills $ removal mutant)', () => {
     // Without $, the regex could match a line that has extra content after the path
-    const diff = [
-      'diff --git a/src/a.ts b/src/a.ts',
-      '@@ -1 +1 @@',
-      '+hello',
-    ].join('\n');
+    const diff = ['diff --git a/src/a.ts b/src/a.ts', '@@ -1 +1 @@', '+hello'].join('\n');
 
     const files = parseDiffFiles(diff);
     expect(files).toHaveLength(1);
-    expect(files[0]!.path).toBe('src/a.ts');
+    expect(files[0]?.path).toBe('src/a.ts');
   });
 
   it('requires start-of-line anchor in file header regex (kills ^ removal mutant)', () => {
@@ -333,7 +330,7 @@ describe('parseDiffFiles (mutant killers)', () => {
     // Without ^, the embedded "diff --git" would match and split the file.
     // With ^, it only matches at start of line, so we get 1 file.
     expect(files).toHaveLength(1);
-    expect(files[0]!.additions).toBe(2);
+    expect(files[0]?.additions).toBe(2);
   });
 
   it('parses multiple files and verifies content separation', () => {
@@ -346,10 +343,10 @@ describe('parseDiffFiles (mutant killers)', () => {
 
     const files = parseDiffFiles(diff);
     expect(files).toHaveLength(2);
-    expect(files[0]!.content).toContain('line in a');
-    expect(files[0]!.content).not.toContain('line in b');
-    expect(files[1]!.content).toContain('line in b');
-    expect(files[1]!.content).not.toContain('line in a');
+    expect(files[0]?.content).toContain('line in a');
+    expect(files[0]?.content).not.toContain('line in b');
+    expect(files[1]?.content).toContain('line in b');
+    expect(files[1]?.content).not.toContain('line in a');
   });
 });
 
@@ -373,6 +370,6 @@ describe('filterIgnoredFiles (mutant killers)', () => {
     const files = [makeFile('.env'), makeFile('src/app.ts')];
     const result = filterIgnoredFiles(files, ['.*']); // .* matches dotfiles
     expect(result).toHaveLength(1);
-    expect(result[0]!.path).toBe('src/app.ts');
+    expect(result[0]?.path).toBe('src/app.ts');
   });
 });

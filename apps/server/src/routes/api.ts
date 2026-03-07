@@ -5,39 +5,38 @@
  * Users can only access data from installations they belong to.
  */
 
-import { Hono } from 'hono';
+import type { SaaSProvider } from 'ghagga-core';
+import type { Database, DbProviderChainEntry, RepoSettings } from 'ghagga-db';
 import {
-  getReviewsByRepoId,
-  getReviewStats,
+  clearAllMemoryObservations,
+  clearEmptyMemorySessions,
+  clearMemoryObservationsByProject,
+  DEFAULT_REPO_SETTINGS,
+  decrypt,
+  deleteMemoryObservation,
+  deleteMemorySession,
+  encrypt,
+  getInstallationById,
+  getInstallationSettings,
+  getObservationsBySession,
   getRepoByFullName,
   getReposByInstallationId,
-  updateRepoSettings,
-  getInstallationSettings,
-  upsertInstallationSettings,
-  getInstallationById,
+  getReviewStats,
+  getReviewsByRepoId,
   getSessionsByProject,
-  getObservationsBySession,
-  encrypt,
-  decrypt,
-  DEFAULT_REPO_SETTINGS,
-  deleteMemoryObservation,
-  clearMemoryObservationsByProject,
-  clearAllMemoryObservations,
-  deleteMemorySession,
-  clearEmptyMemorySessions,
+  updateRepoSettings,
+  upsertInstallationSettings,
 } from 'ghagga-db';
-import type { Database } from 'ghagga-db';
-import type { RepoSettings, DbProviderChainEntry } from 'ghagga-db';
-import type { SaaSProvider } from 'ghagga-core';
-import type { AuthUser } from '../middleware/auth.js';
-import { logger as rootLogger } from '../lib/logger.js';
-import { validateProviderKey } from '../lib/provider-models.js';
+import { Hono } from 'hono';
 import {
-  discoverRunnerRepo,
   createRunnerRepo,
+  discoverRunnerRepo,
   RunnerCreationError,
   setRunnerSecret,
 } from '../github/runner.js';
+import { logger as rootLogger } from '../lib/logger.js';
+import { validateProviderKey } from '../lib/provider-models.js';
+import type { AuthUser } from '../middleware/auth.js';
 
 const logger = rootLogger.child({ module: 'api' });
 
@@ -173,7 +172,7 @@ export function createApiRouter(db: Database) {
     const user = c.get('user') as AuthUser;
     const installationId = parseInt(c.req.query('installation_id') ?? '', 10);
 
-    if (isNaN(installationId)) {
+    if (Number.isNaN(installationId)) {
       return c.json({ error: 'Missing or invalid installation_id parameter' }, 400);
     }
 
@@ -230,7 +229,10 @@ export function createApiRouter(db: Database) {
         },
       });
     } catch (err) {
-      logger.error({ err, installationId, user: user.githubLogin }, 'Failed to fetch installation settings');
+      logger.error(
+        { err, installationId, user: user.githubLogin },
+        'Failed to fetch installation settings',
+      );
       return c.json({ error: 'Failed to fetch installation settings' }, 500);
     }
   });
@@ -304,28 +306,49 @@ export function createApiRouter(db: Database) {
         : DEFAULT_REPO_SETTINGS;
 
       const settingsUpdate: RepoSettings = {
-        enableSemgrep: typeof body.enableSemgrep === 'boolean' ? body.enableSemgrep : currentSettings.enableSemgrep,
-        enableTrivy: typeof body.enableTrivy === 'boolean' ? body.enableTrivy : currentSettings.enableTrivy,
+        enableSemgrep:
+          typeof body.enableSemgrep === 'boolean'
+            ? body.enableSemgrep
+            : currentSettings.enableSemgrep,
+        enableTrivy:
+          typeof body.enableTrivy === 'boolean' ? body.enableTrivy : currentSettings.enableTrivy,
         enableCpd: typeof body.enableCpd === 'boolean' ? body.enableCpd : currentSettings.enableCpd,
-        enableMemory: typeof body.enableMemory === 'boolean' ? body.enableMemory : currentSettings.enableMemory,
-        customRules: typeof body.customRules === 'string'
-          ? (body.customRules as string).split('\n').map((r: string) => r.trim()).filter(Boolean)
-          : currentSettings.customRules,
-        ignorePatterns: Array.isArray(body.ignorePatterns) ? body.ignorePatterns as string[] : currentSettings.ignorePatterns,
-        reviewLevel: typeof body.reviewLevel === 'string' ? body.reviewLevel as RepoSettings['reviewLevel'] : currentSettings.reviewLevel,
+        enableMemory:
+          typeof body.enableMemory === 'boolean' ? body.enableMemory : currentSettings.enableMemory,
+        customRules:
+          typeof body.customRules === 'string'
+            ? (body.customRules as string)
+                .split('\n')
+                .map((r: string) => r.trim())
+                .filter(Boolean)
+            : currentSettings.customRules,
+        ignorePatterns: Array.isArray(body.ignorePatterns)
+          ? (body.ignorePatterns as string[])
+          : currentSettings.ignorePatterns,
+        reviewLevel:
+          typeof body.reviewLevel === 'string'
+            ? (body.reviewLevel as RepoSettings['reviewLevel'])
+            : currentSettings.reviewLevel,
       };
 
       await upsertInstallationSettings(db, installationId, {
         providerChain: mergedChain,
-        aiReviewEnabled: typeof body.aiReviewEnabled === 'boolean' ? body.aiReviewEnabled : undefined,
+        aiReviewEnabled:
+          typeof body.aiReviewEnabled === 'boolean' ? body.aiReviewEnabled : undefined,
         reviewMode: typeof body.reviewMode === 'string' ? body.reviewMode : undefined,
         settings: settingsUpdate,
       });
 
-      logger.info({ installationId, user: user.githubLogin, chainLength: mergedChain.length }, 'Installation settings updated');
+      logger.info(
+        { installationId, user: user.githubLogin, chainLength: mergedChain.length },
+        'Installation settings updated',
+      );
       return c.json({ message: 'Installation settings updated' });
     } catch (err) {
-      logger.error({ err, installationId, user: user.githubLogin }, 'Failed to update installation settings');
+      logger.error(
+        { err, installationId, user: user.githubLogin },
+        'Failed to update installation settings',
+      );
       return c.json({ error: 'Failed to update installation settings' }, 500);
     }
   });
@@ -365,7 +388,7 @@ export function createApiRouter(db: Database) {
 
       // Fetch global settings for reference
       const globalRow = await getInstallationSettings(db, repo.installationId);
-      let globalSettings = undefined;
+      let globalSettings;
       if (globalRow) {
         const gChain = (globalRow.providerChain ?? []) as DbProviderChainEntry[];
         const gSettings = (globalRow.settings ?? DEFAULT_REPO_SETTINGS) as RepoSettings;
@@ -489,29 +512,51 @@ export function createApiRouter(db: Database) {
       // Build settings update
       const currentSettings = (repo.settings ?? {}) as RepoSettings;
       const settingsUpdate: RepoSettings = {
-        enableSemgrep: typeof body.enableSemgrep === 'boolean' ? body.enableSemgrep : currentSettings.enableSemgrep,
-        enableTrivy: typeof body.enableTrivy === 'boolean' ? body.enableTrivy : currentSettings.enableTrivy,
+        enableSemgrep:
+          typeof body.enableSemgrep === 'boolean'
+            ? body.enableSemgrep
+            : currentSettings.enableSemgrep,
+        enableTrivy:
+          typeof body.enableTrivy === 'boolean' ? body.enableTrivy : currentSettings.enableTrivy,
         enableCpd: typeof body.enableCpd === 'boolean' ? body.enableCpd : currentSettings.enableCpd,
-        enableMemory: typeof body.enableMemory === 'boolean' ? body.enableMemory : currentSettings.enableMemory,
-        customRules: typeof body.customRules === 'string'
-          ? (body.customRules as string).split('\n').map((r: string) => r.trim()).filter(Boolean)
-          : currentSettings.customRules,
-        ignorePatterns: Array.isArray(body.ignorePatterns) ? body.ignorePatterns as string[] : currentSettings.ignorePatterns,
-        reviewLevel: typeof body.reviewLevel === 'string' ? body.reviewLevel as RepoSettings['reviewLevel'] : currentSettings.reviewLevel,
+        enableMemory:
+          typeof body.enableMemory === 'boolean' ? body.enableMemory : currentSettings.enableMemory,
+        customRules:
+          typeof body.customRules === 'string'
+            ? (body.customRules as string)
+                .split('\n')
+                .map((r: string) => r.trim())
+                .filter(Boolean)
+            : currentSettings.customRules,
+        ignorePatterns: Array.isArray(body.ignorePatterns)
+          ? (body.ignorePatterns as string[])
+          : currentSettings.ignorePatterns,
+        reviewLevel:
+          typeof body.reviewLevel === 'string'
+            ? (body.reviewLevel as RepoSettings['reviewLevel'])
+            : currentSettings.reviewLevel,
       };
 
       await updateRepoSettings(db, repo.id, {
         settings: settingsUpdate,
         reviewMode: typeof body.reviewMode === 'string' ? body.reviewMode : undefined,
-        aiReviewEnabled: typeof body.aiReviewEnabled === 'boolean' ? body.aiReviewEnabled : undefined,
+        aiReviewEnabled:
+          typeof body.aiReviewEnabled === 'boolean' ? body.aiReviewEnabled : undefined,
         providerChain: mergedChain,
-        useGlobalSettings: typeof body.useGlobalSettings === 'boolean' ? body.useGlobalSettings : undefined,
+        useGlobalSettings:
+          typeof body.useGlobalSettings === 'boolean' ? body.useGlobalSettings : undefined,
       });
 
-      logger.info({ repo: repoFullName, user: user.githubLogin, chainLength: mergedChain.length }, 'Settings updated');
+      logger.info(
+        { repo: repoFullName, user: user.githubLogin, chainLength: mergedChain.length },
+        'Settings updated',
+      );
       return c.json({ message: 'Settings updated' });
     } catch (err) {
-      logger.error({ err, repo: repoFullName, user: user.githubLogin }, 'Failed to update settings');
+      logger.error(
+        { err, repo: repoFullName, user: user.githubLogin },
+        'Failed to update settings',
+      );
       return c.json({ error: 'Failed to update settings' }, 500);
     }
   });
@@ -533,7 +578,10 @@ export function createApiRouter(db: Database) {
     }
 
     if (provider === 'ollama') {
-      return c.json({ error: 'Ollama is not available in the SaaS dashboard. Use CLI or Action instead.' }, 400);
+      return c.json(
+        { error: 'Ollama is not available in the SaaS dashboard. Use CLI or Action instead.' },
+        400,
+      );
     }
 
     const validProviders = ['anthropic', 'openai', 'google', 'github', 'qwen'];
@@ -588,7 +636,7 @@ export function createApiRouter(db: Database) {
   router.get('/api/memory/sessions/:id/observations', async (c) => {
     const sessionId = parseInt(c.req.param('id'), 10);
 
-    if (isNaN(sessionId)) {
+    if (Number.isNaN(sessionId)) {
       return c.json({ error: 'Invalid session ID' }, 400);
     }
 
@@ -628,7 +676,10 @@ export function createApiRouter(db: Database) {
     } catch (err) {
       logger.error({ err, user: user.githubLogin }, 'Failed to check runner status');
       return c.json(
-        { error: 'github_unavailable', message: 'Could not check runner status. Please try again.' },
+        {
+          error: 'github_unavailable',
+          message: 'Could not check runner status. Please try again.',
+        },
         502,
       );
     }
@@ -676,18 +727,24 @@ export function createApiRouter(db: Database) {
             return c.json({ error: 'org_permission_denied', message: err.message }, 403);
           case 'creation_timeout':
             return c.json(
-              { error: 'github_error', message: 'Repository creation timed out. Please check GitHub and try again.' },
+              {
+                error: 'github_error',
+                message: 'Repository creation timed out. Please check GitHub and try again.',
+              },
               502,
             );
           case 'secret_failed':
-            return c.json({
-              data: {
-                created: true,
-                repoFullName: err.repoFullName,
-                secretConfigured: false,
-                isPrivate: false,
+            return c.json(
+              {
+                data: {
+                  created: true,
+                  repoFullName: err.repoFullName,
+                  secretConfigured: false,
+                  isPrivate: false,
+                },
               },
-            }, 201);
+              201,
+            );
           default:
             return c.json({ error: 'github_error', message: err.message }, 502);
         }
@@ -709,7 +766,10 @@ export function createApiRouter(db: Database) {
     try {
       const runner = await discoverRunnerRepo(user.githubLogin, token);
       if (!runner) {
-        return c.json({ error: 'runner_not_found', message: 'Runner repo not found. Create it first.' }, 404);
+        return c.json(
+          { error: 'runner_not_found', message: 'Runner repo not found. Create it first.' },
+          404,
+        );
       }
 
       await setRunnerSecret(
@@ -748,7 +808,7 @@ export function createApiRouter(db: Database) {
     const user = c.get('user') as AuthUser;
     const id = parseInt(c.req.param('id'), 10);
 
-    if (isNaN(id)) {
+    if (Number.isNaN(id)) {
       return c.json({ error: 'Invalid observation ID' }, 400);
     }
 
@@ -781,11 +841,7 @@ export function createApiRouter(db: Database) {
         return c.json({ error: 'Forbidden' }, 403);
       }
 
-      const cleared = await clearMemoryObservationsByProject(
-        db,
-        repo.installationId,
-        project,
-      );
+      const cleared = await clearMemoryObservationsByProject(db, repo.installationId, project);
       return c.json({ data: { cleared } });
     } catch (err) {
       logger.error({ err, user: user.githubLogin }, 'Failed to clear project memory observations');
@@ -817,7 +873,7 @@ export function createApiRouter(db: Database) {
     const user = c.get('user') as AuthUser;
     const id = parseInt(c.req.param('id'), 10);
 
-    if (isNaN(id)) {
+    if (Number.isNaN(id)) {
       return c.json({ error: 'Invalid session ID' }, 400);
     }
 

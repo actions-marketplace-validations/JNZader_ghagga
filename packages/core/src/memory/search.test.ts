@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { MemoryStorage, MemoryObservationRow } from '../types.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MemoryObservationRow, MemoryStorage } from '../types.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -71,11 +71,11 @@ describe('searchMemoryForContext', () => {
 
   it('returns null when all files are in excluded directories', async () => {
     const storage = createMockStorage();
-    const result = await searchMemoryForContext(
-      storage,
-      'project',
-      ['src/a.ts', 'lib/b.ts', 'dist/c.js'],
-    );
+    const result = await searchMemoryForContext(storage, 'project', [
+      'src/a.ts',
+      'lib/b.ts',
+      'dist/c.js',
+    ]);
     // All segments after split: 'src' (excluded), 'a' (name, but 'a'.length == 1 ≤ 2),
     // 'lib' (excluded), 'b' (too short), 'dist' (excluded), 'c' (too short)
     // → query is empty string → returns null
@@ -87,7 +87,7 @@ describe('searchMemoryForContext', () => {
     const result = await searchMemoryForContext(
       storage,
       'project',
-      ['ab.ts'],  // 'ab' has length 2, which is ≤ 2
+      ['ab.ts'], // 'ab' has length 2, which is ≤ 2
     );
     expect(result).toBeNull();
   });
@@ -96,13 +96,12 @@ describe('searchMemoryForContext', () => {
 
   it('extracts meaningful path segments as search terms', async () => {
     const storage = createMockStorage({
-      searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockResolvedValue([makeObservation()]),
+      searchObservations: vi
+        .fn<MemoryStorage['searchObservations']>()
+        .mockResolvedValue([makeObservation()]),
     });
 
-    await searchMemoryForContext(storage, 'project', [
-      'src/auth/login.ts',
-      'lib/db/pool.ts',
-    ]);
+    await searchMemoryForContext(storage, 'project', ['src/auth/login.ts', 'lib/db/pool.ts']);
 
     // 'src' excluded, 'auth' kept, 'login' kept (extension removed)
     // 'lib' excluded, 'db' too short (2), 'pool' kept
@@ -121,7 +120,9 @@ describe('searchMemoryForContext', () => {
 
   it('skips node_modules, test, tests, build directories', async () => {
     const storage = createMockStorage({
-      searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockResolvedValue([makeObservation()]),
+      searchObservations: vi
+        .fn<MemoryStorage['searchObservations']>()
+        .mockResolvedValue([makeObservation()]),
     });
 
     await searchMemoryForContext(storage, 'project', [
@@ -146,12 +147,12 @@ describe('searchMemoryForContext', () => {
 
   it('removes file extensions from names', async () => {
     const storage = createMockStorage({
-      searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockResolvedValue([makeObservation()]),
+      searchObservations: vi
+        .fn<MemoryStorage['searchObservations']>()
+        .mockResolvedValue([makeObservation()]),
     });
 
-    await searchMemoryForContext(storage, 'project', [
-      'src/services/payment.service.ts',
-    ]);
+    await searchMemoryForContext(storage, 'project', ['src/services/payment.service.ts']);
 
     const call = vi.mocked(storage.searchObservations).mock.calls[0]!;
     const query = call[1];
@@ -164,25 +165,26 @@ describe('searchMemoryForContext', () => {
 
   it('deduplicates terms using a Set', async () => {
     const storage = createMockStorage({
-      searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockResolvedValue([makeObservation()]),
+      searchObservations: vi
+        .fn<MemoryStorage['searchObservations']>()
+        .mockResolvedValue([makeObservation()]),
     });
 
-    await searchMemoryForContext(storage, 'project', [
-      'src/auth/login.ts',
-      'src/auth/logout.ts',
-    ]);
+    await searchMemoryForContext(storage, 'project', ['src/auth/login.ts', 'src/auth/logout.ts']);
 
     const call = vi.mocked(storage.searchObservations).mock.calls[0]!;
     const query = call[1];
     // 'auth' should appear only once
     const terms = query.split(' ');
-    const authCount = terms.filter(t => t === 'auth').length;
+    const authCount = terms.filter((t) => t === 'auth').length;
     expect(authCount).toBe(1);
   });
 
   it('limits search terms to 10', async () => {
     const storage = createMockStorage({
-      searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockResolvedValue([makeObservation()]),
+      searchObservations: vi
+        .fn<MemoryStorage['searchObservations']>()
+        .mockResolvedValue([makeObservation()]),
     });
 
     const files = Array.from({ length: 15 }, (_, i) => `dir${i}/file${i}.ts`);
@@ -198,16 +200,16 @@ describe('searchMemoryForContext', () => {
 
   it('calls storage.searchObservations with correct project, query, and limit', async () => {
     const storage = createMockStorage({
-      searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockResolvedValue([makeObservation()]),
+      searchObservations: vi
+        .fn<MemoryStorage['searchObservations']>()
+        .mockResolvedValue([makeObservation()]),
     });
 
     await searchMemoryForContext(storage, 'owner/repo', ['src/services/auth.ts']);
 
-    expect(storage.searchObservations).toHaveBeenCalledWith(
-      'owner/repo',
-      expect.any(String),
-      { limit: 3 },
-    );
+    expect(storage.searchObservations).toHaveBeenCalledWith('owner/repo', expect.any(String), {
+      limit: 3,
+    });
   });
 
   // ── No observations found ──
@@ -221,7 +223,9 @@ describe('searchMemoryForContext', () => {
 
   it('returns null when searchObservations returns null', async () => {
     const storage = createMockStorage({
-      searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockResolvedValue(null as any),
+      searchObservations: vi
+        .fn<MemoryStorage['searchObservations']>()
+        .mockResolvedValue(null as any),
     });
 
     const result = await searchMemoryForContext(storage, 'project', ['src/services/auth.ts']);
@@ -236,7 +240,9 @@ describe('searchMemoryForContext', () => {
       makeObservation({ type: 'bugfix', title: 'Race condition', content: 'Fixed async issue' }),
     ];
     const storage = createMockStorage({
-      searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockResolvedValue(observations),
+      searchObservations: vi
+        .fn<MemoryStorage['searchObservations']>()
+        .mockResolvedValue(observations),
     });
 
     const result = await searchMemoryForContext(storage, 'project', ['src/services/auth.ts']);
@@ -258,7 +264,9 @@ describe('searchMemoryForContext', () => {
       }),
     ];
     const storage = createMockStorage({
-      searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockResolvedValue(observations),
+      searchObservations: vi
+        .fn<MemoryStorage['searchObservations']>()
+        .mockResolvedValue(observations),
     });
 
     await searchMemoryForContext(storage, 'project', ['src/services/auth.ts']);
@@ -272,7 +280,9 @@ describe('searchMemoryForContext', () => {
 
   it('returns null when searchObservations throws', async () => {
     const storage = createMockStorage({
-      searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockRejectedValue(new Error('DB timeout')),
+      searchObservations: vi
+        .fn<MemoryStorage['searchObservations']>()
+        .mockRejectedValue(new Error('DB timeout')),
     });
 
     const result = await searchMemoryForContext(storage, 'project', ['src/auth/login.ts']);
@@ -282,7 +292,9 @@ describe('searchMemoryForContext', () => {
   it('logs a warning when an error occurs', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const storage = createMockStorage({
-      searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockRejectedValue(new Error('Connection lost')),
+      searchObservations: vi
+        .fn<MemoryStorage['searchObservations']>()
+        .mockRejectedValue(new Error('Connection lost')),
     });
 
     await searchMemoryForContext(storage, 'project', ['src/auth/login.ts']);
@@ -297,9 +309,13 @@ describe('searchMemoryForContext', () => {
 
   it('returns null when formatMemoryContext throws', async () => {
     const storage = createMockStorage({
-      searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockResolvedValue([makeObservation()]),
+      searchObservations: vi
+        .fn<MemoryStorage['searchObservations']>()
+        .mockResolvedValue([makeObservation()]),
     });
-    mockFormatMemoryContext.mockImplementation(() => { throw new Error('Format error'); });
+    mockFormatMemoryContext.mockImplementation(() => {
+      throw new Error('Format error');
+    });
 
     const result = await searchMemoryForContext(storage, 'project', ['src/auth/login.ts']);
     expect(result).toBeNull();

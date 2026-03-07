@@ -6,10 +6,10 @@
  * (Python + JVM + Go) can exceed container memory limits (2GB on Cloud Run).
  */
 
+import type { ReviewSettings, StaticAnalysisResult, ToolResult } from '../types.js';
+import { runCpd } from './cpd.js';
 import { runSemgrep } from './semgrep.js';
 import { runTrivy } from './trivy.js';
-import { runCpd } from './cpd.js';
-import type { StaticAnalysisResult, ReviewSettings, ToolResult } from '../types.js';
 
 const SKIPPED_RESULT: ToolResult = {
   status: 'skipped',
@@ -53,16 +53,18 @@ export async function runStaticAnalysis(
   const trivyResult = settings.enableTrivy
     ? await safeRun(() => runTrivy(scanPath))
     : SKIPPED_RESULT;
-  console.log(`[ghagga:tools] Trivy: ${trivyResult.status} (${trivyResult.findings.length} findings)`);
+  console.log(
+    `[ghagga:tools] Trivy: ${trivyResult.status} (${trivyResult.findings.length} findings)`,
+  );
 
   const semgrepResult = settings.enableSemgrep
     ? await safeRun(() => runSemgrep(files))
     : SKIPPED_RESULT;
-  console.log(`[ghagga:tools] Semgrep: ${semgrepResult.status} (${semgrepResult.findings.length} findings)`);
+  console.log(
+    `[ghagga:tools] Semgrep: ${semgrepResult.status} (${semgrepResult.findings.length} findings)`,
+  );
 
-  const cpdResult = settings.enableCpd
-    ? await safeRun(() => runCpd(scanPath))
-    : SKIPPED_RESULT;
+  const cpdResult = settings.enableCpd ? await safeRun(() => runCpd(scanPath)) : SKIPPED_RESULT;
   console.log(`[ghagga:tools] CPD: ${cpdResult.status} (${cpdResult.findings.length} findings)`);
 
   return { semgrep: semgrepResult, trivy: trivyResult, cpd: cpdResult };
@@ -85,7 +87,9 @@ export function formatStaticAnalysisContext(result: StaticAnalysisResult): strin
 
   for (const finding of allFindings) {
     const location = finding.line ? `${finding.file}:${finding.line}` : finding.file;
-    lines.push(`- **[${finding.source.toUpperCase()}]** [${finding.severity}] ${location}: ${finding.message}`);
+    lines.push(
+      `- **[${finding.source.toUpperCase()}]** [${finding.severity}] ${location}: ${finding.message}`,
+    );
   }
 
   lines.push('');

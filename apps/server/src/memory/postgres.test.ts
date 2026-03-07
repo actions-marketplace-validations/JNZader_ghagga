@@ -5,7 +5,7 @@
  * functions with correct arguments and map results properly.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PostgresMemoryStorage } from './postgres.js';
 
 // ─── Mock ghagga-db ─────────────────────────────────────────────
@@ -49,16 +49,49 @@ describe('PostgresMemoryStorage — core methods', () => {
   describe('searchObservations', () => {
     it('calls ghagga-db.searchObservations and maps rows to MemoryObservationRow', async () => {
       mockSearchObservations.mockResolvedValueOnce([
-        { id: 1, type: 'pattern', title: 'Title A', content: 'Content A', filePaths: ['src/a.ts'], extra: 'ignored' },
-        { id: 2, type: 'decision', title: 'Title B', content: 'Content B', filePaths: null, extra: 'ignored' },
+        {
+          id: 1,
+          type: 'pattern',
+          title: 'Title A',
+          content: 'Content A',
+          filePaths: ['src/a.ts'],
+          extra: 'ignored',
+        },
+        {
+          id: 2,
+          type: 'decision',
+          title: 'Title B',
+          content: 'Content B',
+          filePaths: null,
+          extra: 'ignored',
+        },
       ]);
 
       const result = await storage.searchObservations('owner/repo', 'search query');
 
-      expect(mockSearchObservations).toHaveBeenCalledWith(fakeDb, 'owner/repo', 'search query', undefined);
+      expect(mockSearchObservations).toHaveBeenCalledWith(
+        fakeDb,
+        'owner/repo',
+        'search query',
+        undefined,
+      );
       expect(result).toEqual([
-        { id: 1, type: 'pattern', title: 'Title A', content: 'Content A', filePaths: ['src/a.ts'], severity: null },
-        { id: 2, type: 'decision', title: 'Title B', content: 'Content B', filePaths: null, severity: null },
+        {
+          id: 1,
+          type: 'pattern',
+          title: 'Title A',
+          content: 'Content A',
+          filePaths: ['src/a.ts'],
+          severity: null,
+        },
+        {
+          id: 2,
+          type: 'decision',
+          title: 'Title B',
+          content: 'Content B',
+          filePaths: null,
+          severity: null,
+        },
       ]);
     });
 
@@ -67,7 +100,10 @@ describe('PostgresMemoryStorage — core methods', () => {
 
       await storage.searchObservations('owner/repo', 'query', { limit: 5, type: 'pattern' });
 
-      expect(mockSearchObservations).toHaveBeenCalledWith(fakeDb, 'owner/repo', 'query', { limit: 5, type: 'pattern' });
+      expect(mockSearchObservations).toHaveBeenCalledWith(fakeDb, 'owner/repo', 'query', {
+        limit: 5,
+        type: 'pattern',
+      });
     });
 
     it('handles null filePaths by mapping to null', async () => {
@@ -76,7 +112,7 @@ describe('PostgresMemoryStorage — core methods', () => {
       ]);
 
       const result = await storage.searchObservations('proj', 'q');
-      expect(result[0]!.filePaths).toBeNull();
+      expect(result[0]?.filePaths).toBeNull();
     });
   });
 
@@ -140,7 +176,10 @@ describe('PostgresMemoryStorage — core methods', () => {
 
       const result = await storage.createSession({ project: 'owner/repo', prNumber: 7 });
 
-      expect(mockCreateMemorySession).toHaveBeenCalledWith(fakeDb, { project: 'owner/repo', prNumber: 7 });
+      expect(mockCreateMemorySession).toHaveBeenCalledWith(fakeDb, {
+        project: 'owner/repo',
+        prNumber: 7,
+      });
       expect(result).toEqual({ id: 42 });
     });
   });
@@ -203,7 +242,10 @@ describe('PostgresMemoryStorage — management methods', () => {
 
       const result = await storage.listObservations({ project: 'acme/app', limit: 10 });
 
-      expect(mockListMemoryObservations).toHaveBeenCalledWith(fakeDb, installationId, { project: 'acme/app', limit: 10 });
+      expect(mockListMemoryObservations).toHaveBeenCalledWith(fakeDb, installationId, {
+        project: 'acme/app',
+        limit: 10,
+      });
       expect(result).toEqual([
         {
           id: 1,
@@ -239,8 +281,8 @@ describe('PostgresMemoryStorage — management methods', () => {
 
       const result = await storage.listObservations();
 
-      expect(result[0]!.filePaths).toBeNull();
-      expect(result[0]!.topicKey).toBeNull();
+      expect(result[0]?.filePaths).toBeNull();
+      expect(result[0]?.topicKey).toBeNull();
     });
   });
 
@@ -365,7 +407,11 @@ describe('PostgresMemoryStorage — management methods', () => {
 
       const result = await storage.clearObservations({ project: 'acme/app' });
 
-      expect(mockClearMemoryObservationsByProject).toHaveBeenCalledWith(fakeDb, installationId, 'acme/app');
+      expect(mockClearMemoryObservationsByProject).toHaveBeenCalledWith(
+        fakeDb,
+        installationId,
+        'acme/app',
+      );
       expect(mockClearAllMemoryObservations).not.toHaveBeenCalled();
       expect(result).toBe(15);
     });

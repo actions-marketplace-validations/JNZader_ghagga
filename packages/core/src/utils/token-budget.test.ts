@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { getContextWindow, calculateTokenBudget } from './token-budget.js';
+import { describe, expect, it } from 'vitest';
+import { calculateTokenBudget, getContextWindow } from './token-budget.js';
 
 describe('getContextWindow', () => {
   it('returns correct window for claude-sonnet-4-20250514', () => {

@@ -5,12 +5,7 @@
  * directly on the GitHub Actions runner.
  */
 
-import type {
-  ToolResult,
-  StaticAnalysisResult,
-  ReviewFinding,
-  FindingSeverity,
-} from 'ghagga-core';
+import type { FindingSeverity, ReviewFinding, StaticAnalysisResult, ToolResult } from 'ghagga-core';
 
 // Re-export core types for convenience
 export type { ToolResult, StaticAnalysisResult, ReviewFinding, FindingSeverity };

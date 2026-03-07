@@ -3,8 +3,8 @@
  * Pure presentational — renders children with correct padding and structure.
  */
 
-import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
 import { Card, CardHeader } from './Card';
 
 describe('Card', () => {

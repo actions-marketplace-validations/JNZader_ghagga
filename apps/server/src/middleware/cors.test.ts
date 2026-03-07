@@ -6,21 +6,18 @@
  * and allows localhost in dev mode.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 // ─── Helper to build app with CORS ─────────────────────────────
 
 function getAllowedOrigins(): string[] {
   const envOrigins = process.env.ALLOWED_ORIGINS;
   if (envOrigins) {
-    return envOrigins.split(',').map(o => o.trim());
+    return envOrigins.split(',').map((o) => o.trim());
   }
-  const defaults = [
-    'https://jnzader.github.io',
-    'https://ghagga.onrender.com',
-  ];
+  const defaults = ['https://jnzader.github.io', 'https://ghagga.onrender.com'];
   if (process.env.NODE_ENV !== 'production') {
     defaults.push('http://localhost:3000', 'http://localhost:5173');
   }
@@ -30,13 +27,16 @@ function getAllowedOrigins(): string[] {
 function createApp() {
   const app = new Hono();
 
-  app.use('*', cors({
-    origin: (origin) => {
-      const allowed = getAllowedOrigins();
-      return allowed.includes(origin) ? origin : '';
-    },
-    credentials: true,
-  }));
+  app.use(
+    '*',
+    cors({
+      origin: (origin) => {
+        const allowed = getAllowedOrigins();
+        return allowed.includes(origin) ? origin : '';
+      },
+      credentials: true,
+    }),
+  );
 
   app.get('/api/reviews', (c) => c.json({ data: [] }));
 
@@ -122,7 +122,9 @@ describe('CORS Restriction', () => {
       const resCustom = await app.request('/api/reviews', {
         headers: { Origin: 'https://custom.example.com' },
       });
-      expect(resCustom.headers.get('access-control-allow-origin')).toBe('https://custom.example.com');
+      expect(resCustom.headers.get('access-control-allow-origin')).toBe(
+        'https://custom.example.com',
+      );
 
       // Default origin should be blocked
       const resDefault = await app.request('/api/reviews', {

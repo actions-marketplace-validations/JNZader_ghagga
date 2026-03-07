@@ -46,7 +46,7 @@ export function formatReviewComment(result: ReviewResult): string {
     for (const finding of result.findings) {
       const src = finding.source ?? 'ai';
       if (!grouped.has(src)) grouped.set(src, []);
-      grouped.get(src)!.push(finding);
+      grouped.get(src)?.push(finding);
     }
 
     // Render order: static tools first, then AI
@@ -69,9 +69,7 @@ export function formatReviewComment(result: ReviewResult): string {
 
       for (const finding of findings) {
         const emoji = SEVERITY_EMOJI[finding.severity] ?? '';
-        const location = finding.line
-          ? `${finding.file}:${finding.line}`
-          : finding.file;
+        const location = finding.line ? `${finding.file}:${finding.line}` : finding.file;
         const message = finding.message.replace(/\|/g, '\\|').replace(/\n/g, ' ');
         comment += `| ${emoji} ${finding.severity} | ${finding.category} | ${location} | ${message} |\n`;
       }

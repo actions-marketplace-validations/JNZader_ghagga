@@ -1,14 +1,10 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth, REDIRECT_KEY } from '@/lib/auth';
-import { isServerAvailable, API_URL } from '@/lib/oauth';
+import { type FormEvent, useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { REDIRECT_KEY, useAuth } from '@/lib/auth';
+import { API_URL, isServerAvailable } from '@/lib/oauth';
 
 export function Login() {
-  const {
-    isAuthenticated,
-    loginWithToken,
-    error,
-  } = useAuth();
+  const { isAuthenticated, loginWithToken, error } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -67,9 +63,7 @@ export function Login() {
             🐦
           </div>
           <h1 className="text-3xl font-bold text-text-primary">GHAGGA</h1>
-          <p className="mt-2 text-text-secondary">
-            Multi-agent AI Code Review
-          </p>
+          <p className="mt-2 text-text-secondary">Multi-agent AI Code Review</p>
         </div>
 
         {/* Login Card */}
@@ -77,9 +71,7 @@ export function Login() {
           {/* ─── Main Login (Web Flow or PAT when server offline) ─ */}
           {!showPatFallback && (
             <>
-              <h2 className="mb-4 text-lg font-semibold text-text-primary">
-                Sign in with GitHub
-              </h2>
+              <h2 className="mb-4 text-lg font-semibold text-text-primary">Sign in with GitHub</h2>
               <p className="mb-6 text-sm text-text-secondary">
                 {serverOnline
                   ? 'Authenticate with your GitHub account — no passwords needed.'
@@ -118,9 +110,7 @@ export function Login() {
               {serverOnline === null && (
                 <div className="flex items-center justify-center gap-2 py-4">
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
-                  <span className="text-sm text-text-secondary">
-                    Checking server...
-                  </span>
+                  <span className="text-sm text-text-secondary">Checking server...</span>
                 </div>
               )}
 
@@ -221,10 +211,7 @@ function PatForm({
   return (
     <form onSubmit={onSubmit}>
       <div className="mb-4">
-        <label
-          htmlFor="token"
-          className="mb-2 block text-sm font-medium text-text-primary"
-        >
+        <label htmlFor="token" className="mb-2 block text-sm font-medium text-text-primary">
           Personal Access Token
         </label>
         <input
@@ -234,7 +221,6 @@ function PatForm({
           onChange={(e) => onChange(e.target.value)}
           placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
           className="input-field"
-          autoFocus
           required
         />
       </div>
