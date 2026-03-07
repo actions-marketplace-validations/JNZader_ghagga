@@ -30,7 +30,7 @@ GHAGGA is a code review tool that posts intelligent comments on your Pull Reques
 | **3 Review Modes** | Simple (single LLM), Workflow (5 specialist agents), Consensus (multi-model voting) |
 | **Static Analysis Trident** | Semgrep (security), Trivy (vulnerabilities), CPD (code duplication) — zero tokens |
 | **Delegated Runner** | Static analysis runs on user-owned GitHub Actions runners (7GB RAM, free for public repos) |
-| **Project Memory** | Learns patterns, decisions, and bug fixes across reviews (PostgreSQL + tsvector FTS) |
+| **Project Memory** | Learns patterns, decisions, and bug fixes across reviews (PostgreSQL + tsvector FTS for Server / SQLite + FTS5 for CLI & Action) |
 | **Multi-Provider** | 6 providers: GitHub Models (free), Anthropic, OpenAI, Google, Ollama (local), Qwen (Alibaba) — bring your own key |
 | **3 Distribution Modes** | SaaS, GitHub Action, CLI |
 | **Comment Trigger** | Type `ghagga review` on any PR to re-trigger a review on demand |

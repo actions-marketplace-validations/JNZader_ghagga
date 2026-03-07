@@ -53,7 +53,7 @@ ghagga review
 ghagga review --mode workflow --format json
 ```
 
-See [CLI](cli.md) for all options and config file support.
+The CLI also includes a local memory database that learns from your reviews. Use `ghagga memory list`, `ghagga memory search <query>`, and `ghagga memory stats` to inspect stored observations. See [CLI](cli.md) for all options, memory subcommands, and config file support.
 
 ## Self-Hosted (Docker)
 

@@ -31,7 +31,7 @@ GHAGGA v2 is a **complete rewrite** from scratch. The v1 codebase (~11,000 lines
 | Runtime | Deno + Node.js + Python | Node.js only |
 | Database | Supabase (hosted PostgreSQL) | Any PostgreSQL (self-hosted or cloud) |
 | Deploy steps | 10+ manual steps | 3 env vars + `docker compose up` |
-| Test suite | 0 tests | 684 tests |
+| Test suite | 0 tests | 1,728 tests |
 | Distribution modes | 1 (webhook only) | 3 (SaaS, Action, CLI) |
 | Static analysis | Semgrep only (via microservice) | Semgrep + Trivy + CPD (direct binary execution) |
 | Memory | Partial (stored but never consumed) | Full pipeline (search → inject → review → extract → persist) |

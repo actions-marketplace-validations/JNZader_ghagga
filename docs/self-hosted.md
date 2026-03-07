@@ -55,8 +55,9 @@ Under **Repository permissions**:
 
 | Permission | Access |
 |-----------|--------|
-| **Contents** | Read-only |
 | **Pull requests** | Read and write |
+| **Actions** | Write |
+| **Secrets** | Read and write |
 | **Metadata** | Read-only (auto-selected) |
 
 Under **Account permissions**: Leave everything as "No access".

@@ -51,7 +51,7 @@ npm install -g ghagga
 npx ghagga --version
 ```
 
-> ✅ **Verification**: Run `ghagga --version` (or `npx ghagga --version`). You should see the version number (e.g., `2.0.1`).
+> ✅ **Verification**: Run `ghagga --version` (or `npx ghagga --version`). You should see the version number (e.g., `2.1.0`).
 
 ---
 
@@ -121,25 +121,29 @@ flowchart LR
     A["ghagga review"] --> B["Compute git diff"]
     B --> C["Detect tech stacks"]
     C --> D["Static analysis\n(if tools installed)"]
-    D --> E["Send to LLM"]
+    D --> M1["Search memory\n(past observations)"]
+    M1 --> E["Send to LLM"]
     E --> F["Format output"]
-    F --> G["Display in terminal"]
+    F --> M2["Persist new\nobservations"]
+    M2 --> G["Display in terminal"]
 ```
 
 1. The CLI runs `git diff` (staged changes first, then falls back to uncommitted changes)
 2. The diff is parsed and the tech stack is auto-detected from file extensions
 3. If Semgrep, Trivy, or CPD are installed locally, static analysis runs first (zero LLM tokens)
-4. The diff + static findings are sent to the configured LLM provider (default: GitHub Models `gpt-4o-mini`)
-5. The LLM returns a structured review with findings, severity, and suggestions
-6. The result is formatted as markdown (default) or JSON and printed to stdout
+4. Relevant observations are retrieved from the local memory database via FTS5 full-text search
+5. The diff + static findings + memory context are sent to the configured LLM provider (default: GitHub Models `gpt-4o-mini`)
+6. The LLM returns a structured review with findings, severity, and suggestions
+7. New observations (decisions, patterns, bugs) are extracted and persisted to memory
+8. The result is formatted as markdown (default) or JSON and printed to stdout
 
-> ⚠️ **Note**: Memory is not available in CLI mode (no PostgreSQL connection). The review pipeline gracefully degrades — you still get static analysis + LLM review, just without project memory context.
+> 💡 **Memory**: The CLI includes a local SQLite memory database (via `sql.js` WASM) stored at `~/.config/ghagga/memory.db`. Past observations are searched using FTS5 full-text search and injected into agent prompts, just like the Server mode. Observations from each review are persisted locally so your project memory grows over time. Use `--no-memory` to disable memory for a single review, or manage stored observations with `ghagga memory`.
 
 ---
 
 ## Commands
 
-The CLI has 4 commands:
+The CLI has 5 commands:
 
 ### `ghagga login`
 
@@ -194,6 +198,21 @@ ghagga review ./src
 ghagga review --mode workflow --provider openai --api-key sk-xxx --verbose
 ```
 
+### `ghagga memory`
+
+Inspect, search, and manage the local review memory database. See [Memory Subcommands](#memory-subcommands) below for full details.
+
+```bash
+# List stored observations
+ghagga memory list
+
+# Search observations
+ghagga memory search "error handling"
+
+# Show database statistics
+ghagga memory stats
+```
+
 ---
 
 ## Review Command Options
@@ -209,8 +228,21 @@ ghagga review --mode workflow --provider openai --api-key sk-xxx --verbose
 | `--no-semgrep` | — | — | Disable Semgrep security analysis |
 | `--no-trivy` | — | — | Disable Trivy vulnerability scanning |
 | `--no-cpd` | — | — | Disable CPD duplicate detection |
+| `--no-memory` | — | — | Disable review memory (skip search and persist steps) |
 | `--config <path>` | `-c` | `.ghagga.json` | Path to config file (must be a file path, not inline JSON) |
 | `--verbose` | `-v` | — | Show real-time progress of each pipeline step |
+
+---
+
+## Global Options
+
+| Option | Description |
+|--------|-------------|
+| `--plain` | Disable styled terminal output (colored headers, spinners). Automatically enabled in non-TTY environments and CI (`!process.stdout.isTTY \|\| !!process.env.CI`). |
+| `--version` | Show version number |
+| `--help` | Show help |
+
+> 💡 **Terminal UI**: The CLI uses [`@clack/prompts`](https://github.com/natemoo-re/clack) for styled terminal output — colored headers, spinners, and structured results. In non-TTY or CI environments, output automatically falls back to plain `console.log` with zero ANSI escape codes. Use `--plain` to force plain output in any environment.
 
 ---
 
@@ -416,6 +448,93 @@ Use exit codes in CI/CD to fail pipelines on review failures:
 ```bash
 ghagga review || echo "Review found issues!"
 ```
+
+---
+
+## Memory Subcommands
+
+The `ghagga memory` command group lets you inspect, search, and manage the local SQLite memory database stored at `~/.config/ghagga/memory.db`.
+
+### `ghagga memory list`
+
+List stored observations from review memory.
+
+```bash
+ghagga memory list
+ghagga memory list --repo octocat/my-app --type pattern --limit 5
+```
+
+Options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--repo <owner/repo>` | — | Filter by repository |
+| `--type <type>` | — | Filter by observation type (`decision`, `pattern`, `bugfix`, `learning`, `architecture`, `config`, `discovery`) |
+| `--limit <n>` | `20` | Maximum rows to display |
+
+### `ghagga memory search <query>`
+
+Search observations by content using FTS5/BM25 full-text search.
+
+```bash
+ghagga memory search "error handling"
+ghagga memory search --repo octocat/my-app "authentication"
+```
+
+Options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--repo <owner/repo>` | Auto-detected from git remote | Scope search to a specific repository |
+| `--limit <n>` | `10` | Maximum results |
+
+### `ghagga memory show <id>`
+
+Show full details of a specific observation, including content, file paths, topic key, and revision count.
+
+```bash
+ghagga memory show 42
+```
+
+### `ghagga memory delete <id>`
+
+Delete a single observation by ID.
+
+```bash
+ghagga memory delete 42
+ghagga memory delete --force 42
+```
+
+Options:
+
+| Option | Description |
+|--------|-------------|
+| `--force` | Skip confirmation prompt |
+
+### `ghagga memory stats`
+
+Show memory database statistics — total observations, counts by type and project, file size, and date range.
+
+```bash
+ghagga memory stats
+```
+
+### `ghagga memory clear`
+
+Clear all observations from memory, or scoped to a single repository.
+
+```bash
+ghagga memory clear
+ghagga memory clear --repo octocat/my-app
+ghagga memory clear --force
+```
+
+Options:
+
+| Option | Description |
+|--------|-------------|
+| `--repo <owner/repo>` | Only clear observations for a specific repository |
+| `--force` | Skip confirmation prompt |
 
 ---
 

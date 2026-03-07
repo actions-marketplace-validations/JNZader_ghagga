@@ -108,6 +108,7 @@ jobs:
 | `enable-semgrep` | No | `true` | Enable Semgrep security analysis |
 | `enable-trivy` | No | `true` | Enable Trivy vulnerability scanning |
 | `enable-cpd` | No | `true` | Enable CPD duplicate detection |
+| `enable-memory` | No | `true` | Enable SQLite review memory (cached across runs) |
 
 #### Action Outputs
 
@@ -139,7 +140,22 @@ ghagga review
 # Review with options
 ghagga review --mode workflow --provider openai --api-key sk-xxx
 ghagga review --provider ollama --model qwen2.5-coder:7b
+
+# Manage review memory
+ghagga memory list
+ghagga memory search "error handling"
+ghagga memory stats
 ```
+
+#### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `ghagga login` | Authenticate with GitHub (free AI models) |
+| `ghagga logout` | Clear stored credentials |
+| `ghagga status` | Show auth and configuration |
+| `ghagga review [path]` | Review local code changes |
+| `ghagga memory <subcommand>` | Inspect, search, and manage review memory (`list`, `search`, `show`, `delete`, `stats`, `clear`) |
 
 #### CLI Options
 
@@ -154,6 +170,8 @@ ghagga review --provider ollama --model qwen2.5-coder:7b
 | `--no-semgrep` | — | — | Disable Semgrep |
 | `--no-trivy` | — | — | Disable Trivy |
 | `--no-cpd` | — | — | Disable CPD |
+| `--no-memory` | — | — | Disable review memory |
+| `--plain` | — | — | Disable styled terminal output (auto-enabled in non-TTY/CI) |
 | `--config <path>` | `-c` | `.ghagga.json` | Path to config file |
 | `--verbose` | `-v` | — | Show real-time progress of each pipeline step |
 
@@ -257,8 +275,8 @@ Each distribution mode (`apps/*`) is a thin adapter:
 | Adapter | Input | Output | Memory | Static Analysis |
 |---------|-------|--------|--------|----------------|
 | **Server** | GitHub webhook | PR comment via GitHub API | Yes (PostgreSQL) | Delegated to runner |
-| **Action** | PR event in GitHub Actions | PR comment via Octokit | No | Direct on runner |
-| **CLI** | Local `git diff` | Terminal output (markdown/json) | No | If installed locally |
+| **Action** | PR event in GitHub Actions | PR comment via Octokit | Yes (SQLite) | Direct on runner |
+| **CLI** | Local `git diff` | Terminal output (markdown/json) | Yes (SQLite) | If installed locally |
 
 ### Review Pipeline
 
@@ -449,7 +467,7 @@ Before any observation is stored in memory, GHAGGA strips sensitive data using 1
 | Password/secret assignments | `password = "..."` | `[REDACTED]` |
 | Base64 credentials | `SECRET=aGVsbG8...` | `[REDACTED_BASE64]` |
 
-> Memory is only available in Server (SaaS) mode (requires PostgreSQL). CLI and Action modes run without memory — the pipeline gracefully degrades.
+> Memory is available in **all 3 distribution modes**: Server uses PostgreSQL + tsvector FTS, while CLI and Action use a lightweight SQLite database (via `sql.js` WASM) with FTS5 full-text search. CLI stores its database at `~/.config/ghagga/memory.db`; Action persists its database across runs via `@actions/cache`.
 
 ---
 
@@ -468,7 +486,7 @@ React SPA deployed on GitHub Pages. Dark theme with GitHub-dark palette and purp
 | **Reviews** | Filterable table with status badges, severity indicators, detail expansion, and pagination |
 | **Settings** | Per-repo or global settings — provider chain, review mode, tools, ignore patterns |
 | **Global Settings** | Installation-wide provider chain and defaults that apply to all repos |
-| **Memory** | Session sidebar + observation cards with debounced search across all stored knowledge |
+| **Memory** | Observation list with severity badges, StatsBar (counts by type/project), session sidebar, delete/clear/purge actions (3-tier confirmation), ObservationDetailModal (PR links, file paths, revision count, relative timestamps), severity and sort filters |
 
 ### Tech Details
 
@@ -479,6 +497,22 @@ React SPA deployed on GitHub Pages. Dark theme with GitHub-dark palette and purp
 - HashRouter for GitHub Pages compatibility (no server-side routing needed)
 - Code-split: lazy-loaded page components with vendor chunk splitting
 - Base path: `/ghagga/app/` for GitHub Pages deployment
+
+### Memory Management
+
+The Memory page provides full CRUD management of review observations and sessions with a **3-tier confirmation system** for destructive actions:
+
+| Tier | Action | Confirmation | Example |
+|------|--------|-------------|---------|
+| **Tier 1** | Delete single observation | Simple confirm modal | Delete one observation |
+| **Tier 2** | Clear repo observations | Type repo name to confirm | Clear all observations for `owner/repo` |
+| **Tier 3** | Purge ALL observations | Type "DELETE ALL" + 5-second countdown | Wipe entire memory database |
+
+Additional management actions:
+- **Delete sessions** — remove individual memory sessions
+- **Clean up empty sessions** — remove sessions with no remaining observations
+
+The **ObservationDetailModal** shows full observation details including PR links, file paths, revision count, and relative timestamps. All destructive actions trigger **Toast notifications** confirming success or failure.
 
 ---
 
@@ -567,13 +601,30 @@ ghagga/
 │   │   └── src/
 │   │       ├── App.tsx            # HashRouter with lazy-loaded routes
 │   │       ├── lib/               # API hooks, auth context, utilities
-│   │       ├── components/        # Layout, Card, StatusBadge, SeverityBadge
+│   │       ├── components/        # Layout, Card, StatusBadge, SeverityBadge,
+│   │       │   │                  #   ConfirmDialog (3-tier), Toast, ObservationDetailModal
+│   │       │   ├── ConfirmDialog.tsx      # 3-tier destructive action confirmation
+│   │       │   ├── Toast.tsx              # Non-blocking success/error notifications
+│   │       │   └── ObservationDetailModal.tsx  # Full observation detail with PR links
 │   │       └── pages/             # Login, Dashboard, Reviews, Settings, Memory
 │   │
 │   ├── cli/                   # ghagga — CLI tool
 │   │   └── src/
 │   │       ├── index.ts           # Commander entry point
-│   │       └── commands/review.ts # Git diff → pipeline → output
+│   │       ├── commands/
+│   │       │   ├── review.ts      # Git diff → pipeline → output
+│   │       │   └── memory/        # Memory management subcommands
+│   │       │       ├── list.ts    # List observations (with filters)
+│   │       │       ├── search.ts  # Full-text search across memory
+│   │       │       ├── show.ts    # Show observation/session detail
+│   │       │       ├── delete.ts  # Delete observation or session
+│   │       │       ├── stats.ts   # Memory statistics by type/repo
+│   │       │       ├── clear.ts   # Clear repo or all observations
+│   │       │       └── utils.ts   # Shared formatting helpers
+│   │       └── ui/                # Terminal UI components
+│   │           ├── tui.ts         # Interactive TUI renderer
+│   │           ├── theme.ts       # Color theme and styling
+│   │           └── format.ts      # Output formatters (table, json)
 │   │
 │   └── action/                # @ghagga/action — GitHub Action
 │       ├── action.yml             # Action definition (node20 runtime)
@@ -686,21 +737,21 @@ pnpm --filter @ghagga/dashboard dev
 ```bash
 pnpm exec turbo typecheck    # Typecheck all packages
 pnpm exec turbo build         # Build all packages
-pnpm exec turbo test          # Run all 1021 tests
+pnpm exec turbo test          # Run all 1,728 tests
 ```
 
 ### Test Suite
 
-1021 tests across 7 packages. All passing.
+1,728 tests across 6 packages. All passing.
 
 | Package | Tests | What's Covered |
 |---------|------:|----------------|
-| `ghagga-core` | 451 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), static analysis tools (semgrep, trivy, cpd), parsers, security audit, review calibration |
-| `ghagga-db` | 64 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto (roundtrip, tamper, edge cases) |
-| `@ghagga/server` | 266 | API routes, webhook handlers, auth middleware, provider validation, Inngest review function, GitHub client, runner dispatch, callback verification |
-| `ghagga` (CLI) | 53 | Config resolution, review command — input validation, output formatting, exit codes |
-| `@ghagga/action` | 185 | Input parsing, output setting, comment formatting, error handling, tool installation, cache management |
-| `@ghagga/dashboard` | 2 | Component rendering |
+| `@ghagga/core` | 526 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), static analysis tools (semgrep, trivy, cpd), parsers, security audit, review calibration |
+| `@ghagga/db` | 118 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto (roundtrip, tamper, edge cases) |
+| `@ghagga/server` | 413 | API routes, webhook handlers, auth middleware, provider validation, Inngest review function, GitHub client, runner dispatch, callback verification |
+| `ghagga` (CLI) | 209 | Config resolution, review command — input validation, output formatting, exit codes |
+| `@ghagga/action` | 195 | Input parsing, output setting, comment formatting, error handling, tool installation, cache management |
+| `@ghagga/dashboard` | 267 | Component rendering |
 
 ---
 
@@ -717,6 +768,7 @@ pnpm exec turbo test          # Run all 1021 tests
 | **Frontend** | React 19 + Vite + Tailwind 3 | Lazy-loaded routes, vendor splitting, dark theme |
 | **Data Fetching** | TanStack Query 5 | Caching, background refetching, optimistic updates |
 | **Charts** | Recharts 2 | Composable React chart components |
+| **UI Patterns** | ConfirmDialog (3-tier) + Toast | Tiered destructive action safety, non-blocking notifications |
 | **CLI** | Commander 13 | Standard CLI framework for Node.js |
 | **Testing** | Vitest 3 | Fast, ESM-native, compatible with Jest API |
 | **Static Analysis** | Semgrep + Trivy + PMD/CPD | Security, vulnerabilities, duplication — zero tokens |
@@ -765,7 +817,7 @@ GHAGGA v2 is a **complete rewrite** from scratch. The v1 codebase (~11,000 lines
 | Runtime | Deno + Node.js + Python | Node.js only |
 | Database | Supabase (hosted PostgreSQL) | Any PostgreSQL (self-hosted or cloud) |
 | Deploy steps | 10+ manual steps | 3 env vars + `docker compose up` |
-| Test suite | 0 tests | 1021 tests |
+| Test suite | 0 tests | 1,728 tests |
 | Distribution modes | 1 (webhook only) | 3 (SaaS, Action, CLI) |
 | Static analysis | Semgrep only (via microservice) | Semgrep + Trivy + CPD (direct binary execution) |
 | Memory | Partial (stored but never consumed) | Full pipeline (search → inject → review → extract → persist) |

@@ -52,6 +52,14 @@ npx ghagga status    # Show auth & config
 npx ghagga logout    # Clear credentials
 ```
 
+### 4. Manage review memory
+
+```bash
+npx ghagga memory list                    # List stored observations
+npx ghagga memory search "error handling" # Search by content
+npx ghagga memory stats                   # Database statistics
+```
+
 ## Global Installation
 
 If you use it frequently:
@@ -64,7 +72,17 @@ ghagga review
 ghagga review -m workflow -v
 ```
 
-## Options
+## Global Options
+
+```
+  --plain     Disable styled terminal output (auto-enabled in non-TTY/CI)
+  --version   Show version number
+  --help      Show help
+```
+
+> The CLI uses [`@clack/prompts`](https://github.com/natemoo-re/clack) for styled terminal output (spinners, colored headers). In non-TTY or CI environments, output automatically falls back to plain `console.log`.
+
+## Review Options
 
 ```
 Usage: ghagga review [options] [path]
@@ -79,8 +97,22 @@ Options:
   --no-semgrep               Disable Semgrep static analysis
   --no-trivy                 Disable Trivy vulnerability scanning
   --no-cpd                   Disable CPD duplicate detection
+  --no-memory                Disable review memory (skip search and persist)
   -c, --config <path>        Path to .ghagga.json config file
 ```
+
+## Memory Subcommands
+
+```bash
+ghagga memory list [--repo <owner/repo>] [--type <type>] [--limit <n>]
+ghagga memory search [--repo <owner/repo>] [--limit <n>] <query>
+ghagga memory show <id>
+ghagga memory delete [--force] <id>
+ghagga memory stats
+ghagga memory clear [--repo <owner/repo>] [--force]
+```
+
+Memory is stored locally at `~/.config/ghagga/memory.db` (SQLite + FTS5). Observations are automatically extracted from reviews and used to provide context in future reviews.
 
 ## BYOK (Bring Your Own Key)
 
@@ -154,8 +186,10 @@ Create a `.ghagga.json` in your project root:
 1. Gets your `git diff` (staged or uncommitted changes)
 2. Parses the diff and detects tech stacks
 3. Runs static analysis (Semgrep, Trivy, CPD) if available
-4. Sends the diff + context to the AI review agent
-5. Returns findings with severity, file, line, and suggestions
+4. Searches local memory for relevant past observations (SQLite + FTS5 at `~/.config/ghagga/memory.db`)
+5. Sends the diff + static findings + memory context to the AI review agent
+6. Returns findings with severity, file, line, and suggestions
+7. Persists new observations (decisions, patterns, bug fixes) to local memory for future reviews
 
 ## Requirements
 

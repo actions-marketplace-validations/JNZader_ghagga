@@ -47,8 +47,10 @@ Each adapter does the minimum work necessary to bridge between its I/O world and
 | Adapter | Input | Output | Memory | Static Analysis |
 |---------|-------|--------|--------|----------------|
 | **Server** | GitHub webhook | PR comment via GitHub API | Yes (PostgreSQL) | Delegated to runner |
-| **Action** | PR event in GitHub Actions | PR comment via Octokit | No | Direct on runner |
-| **CLI** | Local `git diff` | Terminal output (markdown/json) | No | If installed locally |
+| **Action** | PR event in GitHub Actions | PR comment via Octokit | Yes (SQLite) | Direct on runner |
+| **CLI** | Local `git diff` | Terminal output (markdown/json) | Yes (SQLite) | If installed locally |
+
+> Memory uses PostgreSQL + tsvector FTS in Server mode, and a lightweight SQLite database (via `sql.js` WASM) with FTS5 full-text search in CLI and Action modes. This means all three distribution modes have full memory support.
 
 ## Monorepo Structure
 

@@ -7,13 +7,13 @@
 | **Monorepo** | pnpm workspaces + Turborepo | Fast installs, parallel builds, caching |
 | **Language** | TypeScript 5.7 (strict mode) | Type safety across all packages |
 | **Backend** | Hono 4 | Fastest TS framework, 14KB, runs anywhere |
-| **Database** | PostgreSQL 16 + Drizzle ORM | Zero-overhead SQL, tsvector FTS, plain TS migrations |
+| **Database** | PostgreSQL 16 + Drizzle ORM, sql.js (CLI/Action) | Zero-overhead SQL, tsvector FTS, plain TS migrations; WASM SQLite with FTS5 for CLI/Action |
 | **AI** | Vercel AI SDK 4 | Multi-provider (6 providers), streaming, structured output, fallback chains |
 | **Async** | Inngest 3 | Zero-infra durable functions, step checkpointing, automatic retries |
 | **Frontend** | React 19 + Vite + Tailwind 3 | Lazy-loaded routes, vendor splitting, dark theme |
 | **Data Fetching** | TanStack Query 5 | Caching, background refetching, optimistic updates |
 | **Charts** | Recharts 2 | Composable React chart components |
-| **CLI** | Commander 13 | Standard CLI framework for Node.js |
+| **CLI** | Commander 13 + @clack/prompts 0.9 | Standard CLI framework with styled TUI prompts |
 | **Testing** | Vitest 3 | Fast, ESM-native, compatible with Jest API |
 | **Static Analysis** | Semgrep + Trivy + PMD/CPD | Security, vulnerabilities, duplication — zero tokens |
 | **Encryption** | Node.js `crypto` (AES-256-GCM) | No external dependencies for cryptographic operations |
@@ -42,12 +42,13 @@ Zero infrastructure — no Redis. 50k events/month free. Step-based checkpointin
 
 ## Test Suite
 
-684 tests across 30 test files in 5 packages. All passing in ~3 seconds.
+1,728 tests across 6 packages. All passing.
 
 | Package | Tests | What's Covered |
 |---------|------:|----------------|
-| `ghagga-core` | 400 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), tools (semgrep, trivy, cpd), parsers, security audit |
-| `ghagga-db` | 64 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto |
-| `@ghagga/server` | 143 | API routes (74), webhooks (18), auth middleware (12), provider validation (28), Inngest (2), GitHub client (9) |
-| `ghagga` (CLI) | 53 | Config resolution (22), review command (31) |
-| `@ghagga/action` | 24 | Input parsing, output setting, comment formatting, error handling |
+| `@ghagga/core` | 526 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), tools (semgrep, trivy, cpd), parsers, security audit |
+| `@ghagga/db` | 118 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto |
+| `@ghagga/server` | 413 | API routes, webhooks, auth middleware, provider validation, Inngest review function, GitHub client, runner dispatch, callback verification |
+| `ghagga` (CLI) | 209 | Config resolution, review command — input validation, output formatting, exit codes |
+| `@ghagga/action` | 195 | Input parsing, output setting, comment formatting, error handling, tool installation, cache management |
+| `@ghagga/dashboard` | 267 | Component rendering |

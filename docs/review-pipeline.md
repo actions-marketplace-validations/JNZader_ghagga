@@ -85,7 +85,7 @@ Static analysis findings are merged into the agent's response. Deduplication ens
 
 ### Step 8: Memory Persistence
 
-Observations are extracted from the review and stored to PostgreSQL (fire-and-forget). This step never blocks the response — if it fails, the review is still returned successfully.
+Observations are extracted from the review and stored to the memory database — PostgreSQL in Server mode, SQLite in CLI and Action modes (fire-and-forget). This step never blocks the response — if it fails, the review is still returned successfully.
 
 ## Trigger Modes
 
@@ -126,7 +126,7 @@ If an LLM call fails and retries, static analysis doesn't re-run. If memory sear
 | Semgrep | Not installed | Skipped, review continues |
 | Trivy | Not installed | Skipped, review continues |
 | CPD | Not installed | Skipped, review continues |
-| Memory (PostgreSQL) | No database connection | Skipped, no memory context |
+| Memory (PostgreSQL or SQLite) | No database connection | Skipped, no memory context |
 | LLM Provider | API error | Fallback chain attempts next provider |
 | Runner repo | Not configured | LLM-only review (no static analysis) |
 | Inngest | Not configured | Sync execution (no checkpointing) |

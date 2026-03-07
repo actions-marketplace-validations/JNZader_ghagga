@@ -26,8 +26,9 @@ Go from zero to your first AI code review in under 5 minutes. This guide walks y
 
 | Permission | Access | Why |
 |-----------|--------|-----|
-| **Contents** | Read-only | Read PR diffs and file contents for review |
-| **Pull requests** | Read and write | Post review comments on PRs |
+| **Pull requests** | Read and write | Fetch PR diffs and post review comments |
+| **Actions** | Write | Dispatch and manage runner workflows for static analysis |
+| **Secrets** | Read and write | Store and retrieve encrypted LLM API keys per installation |
 | **Metadata** | Read-only | List repositories (auto-selected by GitHub) |
 
 > **Important**: After installing the App, reviews will **NOT** work until you configure at least one LLM provider in the [Dashboard](https://jnzader.github.io/ghagga/app/). Continue to Step 2.

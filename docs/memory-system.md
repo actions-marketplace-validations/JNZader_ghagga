@@ -1,6 +1,6 @@
 # Memory System
 
-GHAGGA learns from past reviews using PostgreSQL full-text search. Design patterns inspired by [Engram](https://github.com/Gentleman-Programming/engram) — implemented directly in PostgreSQL for multi-tenancy and scalability.
+GHAGGA learns from past reviews using full-text search. The Server mode uses PostgreSQL with tsvector FTS; CLI and Action modes use a lightweight SQLite database with FTS5. Design patterns inspired by [Engram](https://github.com/Gentleman-Programming/engram) — implemented for multi-tenancy and scalability.
 
 ## How It Works
 
@@ -12,7 +12,7 @@ flowchart TB
     Extract --> Dedup["Deduplicate<br/>content hash + 15-min window"]
     Dedup --> Upsert["Topic-key upsert<br/>evolve knowledge"]
     Upsert --> Strip["Privacy strip<br/>remove secrets"]
-    Strip --> Store["Store in PostgreSQL"]
+    Strip --> Store["Store in database"]
   end
 
   subgraph Read["Before Review"]
@@ -84,12 +84,65 @@ Before any observation is stored, sensitive data is stripped using 16 regex patt
 
 ## Availability
 
-Memory requires PostgreSQL. It's only available in the Server (SaaS) mode.
+Memory is available in **all 3 distribution modes**:
 
-| Distribution | Memory Available |
-|-------------|-----------------|
-| Server (SaaS) | Yes |
-| CLI | No (no database) |
-| GitHub Action | No (no database) |
+| Distribution | Memory Available | Storage Backend |
+|-------------|-----------------|-----------------|
+| Server (SaaS) | Yes | PostgreSQL + tsvector FTS |
+| CLI | Yes (SQLite + FTS5) | `~/.config/ghagga/memory.db` |
+| GitHub Action | Yes (SQLite + FTS5) | Persisted via `@actions/cache` |
 
-The pipeline degrades gracefully — without memory, reviews still work using only the current diff and static analysis.
+The pipeline degrades gracefully — if the memory database is inaccessible for any reason, reviews still work using only the current diff and static analysis.
+
+## SQLite Storage Backend
+
+CLI and Action modes use a lightweight SQLite database powered by `sql.js` (a WASM build of SQLite). This provides the same memory capabilities as the Server mode without requiring a PostgreSQL installation.
+
+### How It Works
+
+- **CLI**: The database is stored at `~/.config/ghagga/memory.db` (following XDG conventions). It persists across reviews, so project memory grows over time.
+- **Action**: The database is saved and restored between workflow runs using `@actions/cache`. Each repository gets its own cached database file.
+
+### Search
+
+Full-text search uses SQLite's **FTS5** extension, providing fast keyword matching against stored observations. Search queries are constructed from file paths, tech stacks, and diff keywords — the same strategy used by the PostgreSQL backend with tsvector.
+
+### Significance Filter
+
+Not all review findings are worth remembering. Before persisting, observations are filtered by significance — only findings with **critical**, **high**, or **medium** severity are saved to memory. Low and informational findings are discarded to keep the memory database focused and relevant.
+
+### Observation Fields
+
+Each observation stored in memory includes:
+
+- `type` — observation type (decision, pattern, bugfix, etc.)
+- `content` — the observation text
+- `topic_key` — for upsert deduplication
+- `severity` — the severity level of the finding (critical, high, medium)
+- `tags` — contextual tags (file paths, tech stacks)
+- `created_at` / `updated_at` — timestamps
+
+## Dashboard Memory Management
+
+The Dashboard's Memory page provides a full management UI for browsing, inspecting, and cleaning up stored observations and sessions.
+
+### Available Actions
+
+- **View observations** — list with severity badges, filterable by severity and sortable by date/type
+- **View sessions** — session sidebar with observation counts
+- **Observation detail** — ObservationDetailModal showing PR links, file paths, revision count, and relative timestamps
+- **StatsBar** — aggregated counts by observation type and project
+
+### 3-Tier Confirmation System
+
+Destructive actions use a tiered `ConfirmDialog` component to prevent accidental data loss:
+
+| Tier | Action | Confirmation |
+|------|--------|-------------|
+| **Tier 1** | Delete individual observation | Simple confirm modal |
+| **Tier 2** | Clear all observations for a repo | Type the repo name to confirm |
+| **Tier 3** | Purge ALL observations | Type "DELETE ALL" + 5-second countdown timer |
+
+Session management includes deleting individual sessions and cleaning up empty sessions (sessions with no remaining observations).
+
+All destructive actions show Toast notifications confirming success or reporting errors.

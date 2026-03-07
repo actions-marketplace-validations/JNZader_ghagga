@@ -653,10 +653,111 @@ Returns all observations (learned facts) from a specific memory session.
       "sessionId": 1,
       "type": "pattern",
       "content": "This project uses barrel exports in src/index.ts",
+      "severity": null,
       "createdAt": "2025-01-15T12:00:00.000Z"
     }
   ]
 }
+```
+
+### Delete Observation
+
+```
+DELETE /api/memory/observations/:id
+```
+
+Deletes a single observation by ID.
+
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| `id` | Numeric observation ID |
+
+**Response** `200`:
+
+```json
+{ "deleted": true }
+```
+
+**Response** `404`:
+
+```json
+{ "error": "Not found" }
+```
+
+### Clear Project Observations
+
+```
+DELETE /api/memory/projects/:project/observations
+```
+
+Deletes all observations for a specific project.
+
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| `project` | Project identifier (`owner/repo`) |
+
+**Response** `200`:
+
+```json
+{ "deleted": 42 }
+```
+
+### Purge All Observations
+
+```
+DELETE /api/memory/observations
+```
+
+Deletes **all** observations for the current installation.
+
+**Response** `200`:
+
+```json
+{ "deleted": 128 }
+```
+
+### Delete Session
+
+```
+DELETE /api/memory/sessions/:id
+```
+
+Deletes a single memory session by ID.
+
+**Path Parameters**:
+
+| Parameter | Description |
+|-----------|-------------|
+| `id` | Numeric session ID |
+
+**Response** `200`:
+
+```json
+{ "deleted": true }
+```
+
+**Response** `404`:
+
+```json
+{ "error": "Not found" }
+```
+
+### Clean Up Empty Sessions
+
+```
+DELETE /api/memory/sessions/empty
+```
+
+Deletes all sessions that have zero observations.
+
+**Response** `200`:
+
+```json
+{ "deleted": 5 }
 ```
 
 ---
@@ -691,4 +792,9 @@ Internal endpoint used by the [Inngest](https://www.inngest.com/) platform for d
 | `POST` | `/api/providers/validate` | Bearer | Validate provider API key |
 | `GET` | `/api/memory/sessions` | Bearer | List memory sessions |
 | `GET` | `/api/memory/sessions/:id/observations` | Bearer | List session observations |
+| `DELETE` | `/api/memory/observations/:id` | Bearer | Delete a single observation |
+| `DELETE` | `/api/memory/projects/:project/observations` | Bearer | Clear all observations for a project |
+| `DELETE` | `/api/memory/observations` | Bearer | Purge all observations for the installation |
+| `DELETE` | `/api/memory/sessions/:id` | Bearer | Delete a single session |
+| `DELETE` | `/api/memory/sessions/empty` | Bearer | Clean up empty sessions |
 | `*` | `/api/inngest` | Inngest | Inngest durable functions (internal) |

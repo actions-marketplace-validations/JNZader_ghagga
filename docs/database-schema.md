@@ -112,6 +112,7 @@ Individual observations extracted from reviews.
 | `content` | text | Full observation content |
 | `topic_key` | varchar(255) | For upsert deduplication |
 | `file_paths` | jsonb | Related file paths (default `[]`) |
+| `severity` | varchar(10) | Severity level of the finding (`critical`, `high`, `medium`, or null for legacy observations) |
 | `content_hash` | varchar(64) | SHA-256 hash of content for deduplication |
 | `revision_count` | integer | How many times this topic was updated (default `1`) |
 | `created_at` | timestamp | Creation timestamp |

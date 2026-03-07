@@ -128,7 +128,7 @@ sequenceDiagram
 4. The diff + static findings are sent to the configured **LLM provider** (default: GitHub Models `gpt-4o-mini`)
 5. The LLM returns a structured review, which is **posted as a PR comment**
 
-> ⚠️ **Note**: Memory is not available in Action mode (no PostgreSQL connection). The review pipeline gracefully degrades — you still get static analysis + LLM review, just without project memory context.
+> 💡 **Memory**: The Action includes a local SQLite memory database (via `sql.js` WASM) that persists across workflow runs using `@actions/cache`. Past observations are searched using FTS5 full-text search and injected into agent prompts, so your project memory grows over time — just like the Server mode, but without PostgreSQL.
 
 ---
 
@@ -146,6 +146,7 @@ All configuration is done via Action inputs in the workflow YAML. The Action doe
 | `enable-semgrep` | No | `true` | Enable Semgrep security analysis (auto-installed and cached) |
 | `enable-trivy` | No | `true` | Enable Trivy vulnerability scanning (auto-installed and cached) |
 | `enable-cpd` | No | `true` | Enable PMD/CPD copy-paste detection (auto-installed and cached) |
+| `enable-memory` | No | `true` | Enable SQLite review memory (cached across runs) |
 
 ---
 
