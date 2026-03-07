@@ -1,5 +1,3 @@
-// Re-export all shared API types from the @ghagga/types package.
-// Dashboard-only types (if any) can be added below.
 export type {
   DayStats,
   Finding,
@@ -24,4 +22,4 @@ export type {
   Stats,
   User,
   ValidationResponse,
-} from '@ghagga/types';
+} from './api.js';

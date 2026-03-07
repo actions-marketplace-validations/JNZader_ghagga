@@ -1,0 +1,29 @@
+{
+  "name": "@ghagga/types",
+  "version": "2.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared API types for GHAGGA dashboard and server",
+  "author": "JNZader",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}
