@@ -18,6 +18,9 @@ import {
   getMemoryStats,
 } from 'ghagga-db';
 import type { Database } from 'ghagga-db';
+import type { memoryObservations } from 'ghagga-db';
+
+type ObservationRow = typeof memoryObservations.$inferSelect;
 
 /**
  * PostgreSQL-backed memory storage.
@@ -42,7 +45,7 @@ export class PostgresMemoryStorage implements MemoryStorage {
     options?: { limit?: number; type?: string },
   ): Promise<MemoryObservationRow[]> {
     const rows = await searchObservations(this.db, project, query, options);
-    return rows.map((row) => ({
+    return rows.map((row: ObservationRow) => ({
       id: row.id,
       type: row.type,
       title: row.title,
@@ -90,7 +93,7 @@ export class PostgresMemoryStorage implements MemoryStorage {
 
   async listObservations(options?: ListObservationsOptions): Promise<MemoryObservationDetail[]> {
     const rows = await listMemoryObservations(this.db, this.installationId, options);
-    return rows.map((row) => ({
+    return rows.map((row: ObservationRow) => ({
       id: row.id,
       type: row.type,
       title: row.title,
