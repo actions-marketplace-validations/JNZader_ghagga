@@ -1,7 +1,7 @@
 # Server Specification
 
 > **Origin**: Archived from `ghagga-v2-rewrite` change, domain `server` (2026-03-07)
-> **Last synced**: `server-hardening` change (2026-03-07) — added CORS, rate limiting, security headers, body size limit, middleware order requirements
+> **Last synced**: `reviews-by-day` change (2026-03-07) — added reviewsByDay daily aggregation requirement to /api/stats
 
 ## Purpose
 
@@ -359,3 +359,53 @@ The system MUST expose a health check endpoint.
 - WHEN GET /health is called
 - THEN the response MUST return HTTP 200 with { "status": "ok" }
 - AND the response SHOULD include database connectivity status
+
+### Requirement: Reviews By Day Aggregation
+
+> **Added by**: `reviews-by-day` change (2026-03-07)
+
+The system MUST provide daily review aggregation data via the `/api/stats` endpoint.
+
+A `getReviewsByDay` query function MUST:
+- Query the `reviews` table grouped by `DATE(created_at)`
+- Return entries for the last 30 days only
+- Filter by `repository_id`
+- Return shape: `{ date: string (YYYY-MM-DD), total: number, passed: number, failed: number }`
+- Results MUST be sorted by date ascending (oldest first)
+- Days with zero reviews SHOULD be omitted (sparse array)
+
+The `GET /api/stats` endpoint MUST:
+- Call `getReviewsByDay` with the resolved `repo.id`
+- Return the result as `reviewsByDay` in the response data
+- NOT modify any other fields in the stats response
+- Match the dashboard's `DayStats` type exactly
+
+#### Scenario: Repository with reviews in last 30 days
+
+- GIVEN a repository with reviews on 2026-02-10 (2 PASSED, 1 FAILED) and 2026-02-12 (1 PASSED)
+- WHEN `GET /api/stats?repo=owner/repo` is called
+- THEN `reviewsByDay` contains entries for those dates with correct totals and breakdowns
+
+#### Scenario: Repository with no reviews
+
+- GIVEN a repository with zero reviews
+- WHEN `GET /api/stats?repo=owner/repo` is called
+- THEN `reviewsByDay` is `[]`
+
+#### Scenario: Reviews older than 30 days excluded
+
+- GIVEN a repository with reviews only from 60 days ago
+- WHEN `GET /api/stats?repo=owner/repo` is called
+- THEN `reviewsByDay` is `[]`
+
+#### Scenario: Multiple reviews same day
+
+- GIVEN 5 reviews on the same day (3 PASSED, 1 FAILED, 1 SKIPPED)
+- WHEN `GET /api/stats?repo=owner/repo` is called
+- THEN the day entry shows `total: 5, passed: 3, failed: 1`
+
+#### Scenario: Ordering
+
+- GIVEN reviews on dates 2026-03-05, 2026-03-01, 2026-03-03
+- WHEN `GET /api/stats?repo=owner/repo` is called
+- THEN `reviewsByDay` is ordered: 2026-03-01, 2026-03-03, 2026-03-05
