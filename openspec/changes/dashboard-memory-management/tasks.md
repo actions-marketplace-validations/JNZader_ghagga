@@ -69,3 +69,14 @@
 - [x] 7.2 Run TypeScript type checking (`pnpm typecheck` or `tsc --noEmit`) — verify no type errors across the monorepo
 - [x] 7.3 Run linter (`pnpm lint`) — verify no lint violations in new/modified files
 - [x] 7.4 Manual scenario walkthrough: verify all 56 scenarios (S1-S56) are covered by tests or verifiable through code inspection
+
+## Phase 8: Bug Fixes & Session Deletion (Full-Stack)
+
+- [x] 8.1 Fix `createSession` timing in `packages/core/src/memory/persist.ts` — move call to AFTER filtering significant findings, early return if none; update 5 tests in `persist.test.ts`
+- [x] 8.2 Fix dedup sessionId reassignment in `packages/db/src/queries.ts` and `packages/core/src/memory/sqlite.ts` — when dedup finds existing with different sessionId, update to new sessionId
+- [x] 8.3 Add `ON DELETE CASCADE` to `memoryObservations.sessionId` FK in `packages/db/src/schema.ts` and `packages/core/src/memory/sqlite.ts`
+- [x] 8.4 Add `deleteMemorySession(db, installationId, sessionId)` and `clearEmptyMemorySessions(db, installationId, project?)` to `packages/db/src/queries.ts` with tests
+- [x] 8.5 Add `DELETE /api/memory/sessions/empty` and `DELETE /api/memory/sessions/:id` routes to `apps/server/src/routes/api.ts` with tests
+- [x] 8.6 Confirm no changes needed to `apps/server/src/memory/postgres.ts` — DELETE routes call DB queries directly
+- [x] 8.7 Add `useDeleteSession()` and `useCleanupEmptySessions()` hooks to `apps/dashboard/src/lib/api.ts` with tests
+- [x] 8.8 Wire session deletion into `apps/dashboard/src/pages/Memory.tsx` — delete button on SessionItem, "Clean up empty sessions" button, ConfirmDialogs with Tier 1/2 based on observation count
