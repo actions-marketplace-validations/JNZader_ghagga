@@ -8,7 +8,7 @@
 import 'dotenv/config';
 
 import { serve } from '@hono/node-server';
-import { createDatabaseFromEnv } from 'ghagga-db';
+import { createDatabaseFromEnv, sql } from 'ghagga-db';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
@@ -17,6 +17,7 @@ import { rateLimiter } from 'hono-rate-limiter';
 import { serve as serveInngest } from 'inngest/hono';
 import { inngest } from './inngest/client.js';
 import { reviewFunction } from './inngest/review.js';
+import { githubCircuitBreaker } from './lib/circuit-breaker.js';
 import { logger } from './lib/logger.js';
 import { authMiddleware } from './middleware/auth.js';
 import { createApiRouter } from './routes/api.js';
@@ -138,6 +139,36 @@ app.use('/webhook', webhookLimiter);
 // Health check
 app.get('/health', (c) => {
   return c.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Detailed health check — reports database, uptime, memory, and circuit breaker state
+app.get('/health/detailed', async (c) => {
+  const startTime = Date.now();
+
+  const checks: Record<string, { ok: boolean; latencyMs?: number; error?: string }> = {};
+
+  // Database check
+  try {
+    const dbStart = Date.now();
+    await db.execute(sql`SELECT 1`);
+    checks.database = { ok: true, latencyMs: Date.now() - dbStart };
+  } catch (e) {
+    checks.database = { ok: false, error: e instanceof Error ? e.message : 'Unknown error' };
+  }
+
+  const healthy = Object.values(checks).every((check) => check.ok);
+
+  return c.json(
+    {
+      status: healthy ? 'healthy' : 'degraded',
+      uptime: Math.floor(process.uptime()),
+      memoryMB: Math.floor(process.memoryUsage().rss / 1024 / 1024),
+      checks,
+      githubCircuitBreaker: githubCircuitBreaker.getState(),
+      responseTimeMs: Date.now() - startTime,
+    },
+    healthy ? 200 : 503,
+  );
 });
 
 // Static analysis tools run locally in the GitHub Action (not on this server)

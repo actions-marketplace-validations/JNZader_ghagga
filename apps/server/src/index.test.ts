@@ -1,12 +1,14 @@
 /**
  * Server entry point tests.
  *
- * Tests the error handler (Fix #1: no stack traces leaked) and
- * SIGTERM graceful shutdown registration (Fix #8).
+ * Tests the error handler (Fix #1: no stack traces leaked),
+ * SIGTERM graceful shutdown registration (Fix #8),
+ * and the detailed health check endpoint (Fix #12).
  */
 
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SimpleCircuitBreaker } from './lib/circuit-breaker.js';
 
 // ─── Fix #1: Error handler does not leak stack traces ───────────
 
@@ -109,5 +111,98 @@ describe('Graceful shutdown (SIGTERM)', () => {
     expect(exitSpy).toHaveBeenCalledWith(0);
 
     exitSpy.mockRestore();
+  });
+});
+
+// ─── Fix #12: Detailed health check endpoint ────────────────────
+
+describe('GET /health/detailed', () => {
+  /**
+   * Build a mini Hono app that replicates the /health/detailed handler
+   * from index.ts, using a mock database object.
+   */
+  function createApp(dbExecute: () => Promise<unknown>) {
+    const app = new Hono();
+    const breaker = new SimpleCircuitBreaker();
+
+    const mockDb = { execute: dbExecute };
+
+    app.get('/health/detailed', async (c) => {
+      const startTime = Date.now();
+      const checks: Record<string, { ok: boolean; latencyMs?: number; error?: string }> = {};
+
+      try {
+        const dbStart = Date.now();
+        await mockDb.execute();
+        checks.database = { ok: true, latencyMs: Date.now() - dbStart };
+      } catch (e) {
+        checks.database = { ok: false, error: e instanceof Error ? e.message : 'Unknown error' };
+      }
+
+      const healthy = Object.values(checks).every((check) => check.ok);
+
+      return c.json(
+        {
+          status: healthy ? 'healthy' : 'degraded',
+          uptime: Math.floor(process.uptime()),
+          memoryMB: Math.floor(process.memoryUsage().rss / 1024 / 1024),
+          checks,
+          githubCircuitBreaker: breaker.getState(),
+          responseTimeMs: Date.now() - startTime,
+        },
+        healthy ? 200 : 503,
+      );
+    });
+
+    return app;
+  }
+
+  it('returns 200 with healthy status when database is reachable', async () => {
+    const app = createApp(() => Promise.resolve([{ '?column?': 1 }]));
+
+    const res = await app.request('/health/detailed');
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.status).toBe('healthy');
+    expect(json.checks).toHaveProperty('database');
+    expect((json.checks as Record<string, { ok: boolean }>).database.ok).toBe(true);
+  });
+
+  it('returns 503 with degraded status when database is unreachable', async () => {
+    const app = createApp(() => Promise.reject(new Error('ECONNREFUSED')));
+
+    const res = await app.request('/health/detailed');
+
+    expect(res.status).toBe(503);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.status).toBe('degraded');
+    const dbCheck = (json.checks as Record<string, { ok: boolean; error?: string }>).database;
+    expect(dbCheck.ok).toBe(false);
+    expect(dbCheck.error).toBe('ECONNREFUSED');
+  });
+
+  it('includes uptime, memoryMB, responseTimeMs, and circuit breaker state', async () => {
+    const app = createApp(() => Promise.resolve([{ '?column?': 1 }]));
+
+    const res = await app.request('/health/detailed');
+    const json = (await res.json()) as Record<string, unknown>;
+
+    expect(typeof json.uptime).toBe('number');
+    expect(typeof json.memoryMB).toBe('number');
+    expect(typeof json.responseTimeMs).toBe('number');
+    expect(json.githubCircuitBreaker).toBe('closed');
+  });
+
+  it('reports database latency in milliseconds', async () => {
+    const app = createApp(() => Promise.resolve([{ '?column?': 1 }]));
+
+    const res = await app.request('/health/detailed');
+    const json = (await res.json()) as Record<string, unknown>;
+    const dbCheck = (json.checks as Record<string, { ok: boolean; latencyMs?: number }>).database;
+
+    expect(dbCheck.ok).toBe(true);
+    expect(typeof dbCheck.latencyMs).toBe('number');
+    expect(dbCheck.latencyMs).toBeGreaterThanOrEqual(0);
   });
 });
