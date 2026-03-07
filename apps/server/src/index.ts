@@ -35,19 +35,9 @@ const app = new Hono();
 // ── Global error handler ────────────────────────────────────────
 // Catches any unhandled error in routes/middleware and logs it.
 app.onError((err, c) => {
-  const path = new URL(c.req.url).pathname;
-  logger.error(
-    { err, method: c.req.method, path, status: 500 },
-    `Unhandled error on ${c.req.method} ${path}`,
-  );
+  logger.error({ err, method: c.req.method, path: new URL(c.req.url).pathname }, 'Unhandled error');
 
-  return c.json(
-    {
-      error: 'Internal server error',
-      ...(process.env.NODE_ENV !== 'production' && { detail: err.message, stack: err.stack }),
-    },
-    500,
-  );
+  return c.json({ error: 'Internal server error' }, 500);
 });
 
 // ── Request logging middleware ───────────────────────────────────
@@ -188,7 +178,7 @@ app.route('/', apiRouter);
 
 const port = parseInt(process.env.PORT ?? '3000', 10);
 
-serve({ fetch: app.fetch, port }, (info) => {
+const server = serve({ fetch: app.fetch, port }, (info) => {
   logger.info({ port: info.port }, `Server running on http://localhost:${info.port}`);
 
   // Keepalive: self-ping every 5 minutes to prevent Render free tier cold starts.
@@ -207,4 +197,20 @@ serve({ fetch: app.fetch, port }, (info) => {
 
     logger.info({ url, intervalMs: FIVE_MINUTES }, 'Keepalive enabled');
   }
+});
+
+// ─── Graceful Shutdown ──────────────────────────────────────────
+
+const SHUTDOWN_TIMEOUT_MS = 30_000;
+
+process.on('SIGTERM', () => {
+  logger.info('Received SIGTERM, draining connections...');
+  server.close(() => {
+    logger.info('Server closed gracefully');
+    process.exit(0);
+  });
+  setTimeout(() => {
+    logger.warn('Forced shutdown after timeout');
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
 });

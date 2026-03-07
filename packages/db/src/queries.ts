@@ -386,6 +386,15 @@ export async function getSessionsByProject(
   return rows;
 }
 
+export async function getSessionById(db: Database, sessionId: number) {
+  const [session] = await db
+    .select()
+    .from(memorySessions)
+    .where(eq(memorySessions.id, sessionId))
+    .limit(1);
+  return session ?? null;
+}
+
 // ─── Memory: Observations ───────────────────────────────────────
 
 function computeContentHash(content: string, type: string, title: string): string {

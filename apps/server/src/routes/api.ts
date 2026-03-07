@@ -24,6 +24,7 @@ import {
   getReviewStats,
   getReviewsByDay,
   getReviewsByRepoId,
+  getSessionById,
   getSessionsByProject,
   updateRepoSettings,
   upsertInstallationSettings,
@@ -135,11 +136,10 @@ export function createApiRouter(db: Database) {
     const user = c.get('user') as AuthUser;
 
     try {
-      const allRepos = [];
-      for (const installationId of user.installationIds) {
-        const repos = await getReposByInstallationId(db, installationId);
-        allRepos.push(...repos);
-      }
+      const repoArrays = await Promise.all(
+        user.installationIds.map((id) => getReposByInstallationId(db, id)),
+      );
+      const allRepos = repoArrays.flat();
 
       return c.json({ data: allRepos });
     } catch (err) {
@@ -153,17 +153,16 @@ export function createApiRouter(db: Database) {
     const user = c.get('user') as AuthUser;
 
     try {
-      const results = [];
-      for (const id of user.installationIds) {
-        const inst = await getInstallationById(db, id);
-        if (inst) {
-          results.push({
-            id: inst.id,
-            accountLogin: inst.accountLogin,
-            accountType: inst.accountType,
-          });
-        }
-      }
+      const installationsRaw = await Promise.all(
+        user.installationIds.map((id) => getInstallationById(db, id)),
+      );
+      const results = installationsRaw
+        .filter((inst): inst is NonNullable<typeof inst> => inst != null)
+        .map((inst) => ({
+          id: inst.id,
+          accountLogin: inst.accountLogin,
+          accountType: inst.accountType,
+        }));
       return c.json({ data: results });
     } catch (err) {
       logger.error({ err, user: user.githubLogin }, 'Failed to fetch installations');
@@ -196,14 +195,7 @@ export function createApiRouter(db: Database) {
           data: {
             installationId,
             accountLogin: inst?.accountLogin ?? '',
-            providerChain: chain.map((entry) => ({
-              provider: entry.provider,
-              model: entry.model,
-              hasApiKey: entry.encryptedApiKey != null,
-              maskedApiKey: entry.encryptedApiKey
-                ? maskApiKey(decrypt(entry.encryptedApiKey))
-                : undefined,
-            })),
+            providerChain: buildProviderChainView(chain),
             aiReviewEnabled: row.aiReviewEnabled,
             reviewMode: row.reviewMode,
             enableSemgrep: settings.enableSemgrep,
@@ -381,14 +373,7 @@ export function createApiRouter(db: Database) {
       const chain = (repo.providerChain ?? []) as DbProviderChainEntry[];
 
       // Build view: mask keys, never expose encrypted values
-      const providerChainView = chain.map((entry) => ({
-        provider: entry.provider,
-        model: entry.model,
-        hasApiKey: entry.encryptedApiKey != null,
-        maskedApiKey: entry.encryptedApiKey
-          ? maskApiKey(decrypt(entry.encryptedApiKey))
-          : undefined,
-      }));
+      const providerChainView = buildProviderChainView(chain);
 
       // Fetch global settings for reference
       const globalRow = await getInstallationSettings(db, repo.installationId);
@@ -397,14 +382,7 @@ export function createApiRouter(db: Database) {
         const gChain = (globalRow.providerChain ?? []) as DbProviderChainEntry[];
         const gSettings = (globalRow.settings ?? DEFAULT_REPO_SETTINGS) as RepoSettings;
         globalSettings = {
-          providerChain: gChain.map((entry) => ({
-            provider: entry.provider,
-            model: entry.model,
-            hasApiKey: entry.encryptedApiKey != null,
-            maskedApiKey: entry.encryptedApiKey
-              ? maskApiKey(decrypt(entry.encryptedApiKey))
-              : undefined,
-          })),
+          providerChain: buildProviderChainView(gChain),
           aiReviewEnabled: globalRow.aiReviewEnabled,
           reviewMode: globalRow.reviewMode,
           enableSemgrep: gSettings.enableSemgrep,
@@ -638,15 +616,26 @@ export function createApiRouter(db: Database) {
 
   // ── GET /api/memory/sessions/:id/observations ───────────────
   router.get('/api/memory/sessions/:id/observations', async (c) => {
+    const user = c.get('user') as AuthUser;
     const sessionId = parseInt(c.req.param('id'), 10);
 
     if (Number.isNaN(sessionId)) {
       return c.json({ error: 'Invalid session ID' }, 400);
     }
 
-    // Note: For a more thorough authorization check, we'd look up
-    // the session's project and verify installation access. For now,
-    // we rely on the auth middleware ensuring the user is authenticated.
+    // Authorization: verify the session's project belongs to the user's installations
+    const session = await getSessionById(db, sessionId);
+
+    if (!session) {
+      return c.json({ error: 'Session not found' }, 404);
+    }
+
+    const repo = await getRepoByFullName(db, session.project);
+
+    if (!repo || !user.installationIds.includes(repo.installationId)) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
     const observations = await getObservationsBySession(db, sessionId);
 
     return c.json({ data: observations });
@@ -909,4 +898,17 @@ function maskApiKey(key: string): string {
   const prefix = key.slice(0, 3);
   const suffix = key.slice(-4);
   return `${prefix}...${suffix}`;
+}
+
+/**
+ * Build a safe provider chain view for API responses.
+ * Decrypts and masks API keys — never exposes raw encrypted values.
+ */
+export function buildProviderChainView(chain: DbProviderChainEntry[]) {
+  return chain.map((entry) => ({
+    provider: entry.provider,
+    model: entry.model,
+    hasApiKey: entry.encryptedApiKey != null,
+    maskedApiKey: entry.encryptedApiKey ? maskApiKey(decrypt(entry.encryptedApiKey)) : undefined,
+  }));
 }

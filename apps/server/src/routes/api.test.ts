@@ -21,6 +21,7 @@ const mockUpdateRepoSettings = vi.fn();
 const mockGetInstallationSettings = vi.fn();
 const mockUpsertInstallationSettings = vi.fn();
 const mockGetInstallationById = vi.fn();
+const mockGetSessionById = vi.fn();
 const mockGetSessionsByProject = vi.fn();
 const mockGetObservationsBySession = vi.fn();
 const mockEncrypt = vi.fn();
@@ -41,6 +42,7 @@ vi.mock('ghagga-db', () => ({
   getInstallationSettings: (...args: unknown[]) => mockGetInstallationSettings(...args),
   upsertInstallationSettings: (...args: unknown[]) => mockUpsertInstallationSettings(...args),
   getInstallationById: (...args: unknown[]) => mockGetInstallationById(...args),
+  getSessionById: (...args: unknown[]) => mockGetSessionById(...args),
   getSessionsByProject: (...args: unknown[]) => mockGetSessionsByProject(...args),
   getObservationsBySession: (...args: unknown[]) => mockGetObservationsBySession(...args),
   encrypt: (...args: unknown[]) => mockEncrypt(...args),
@@ -419,7 +421,7 @@ describe('GET /api/stats', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('GET /api/repositories', () => {
-  it('returns repos from all user installations', async () => {
+  it('returns repos from all user installations (parallelized)', async () => {
     const user = { ...DEFAULT_USER, installationIds: [100, 200] };
     mockGetReposByInstallationId
       .mockResolvedValueOnce([{ id: 1, fullName: 'org/repo-a' }])
@@ -1394,7 +1396,9 @@ describe('GET /api/memory/sessions', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('GET /api/memory/sessions/:id/observations', () => {
-  it('returns observations for a session', async () => {
+  it('returns observations when user owns the session installation', async () => {
+    mockGetSessionById.mockResolvedValueOnce({ id: 5, project: 'owner/repo' });
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
     const fakeObservations = [
       { id: 1, title: 'Decision A', type: 'decision' },
       { id: 2, title: 'Pattern B', type: 'pattern' },
@@ -1407,7 +1411,38 @@ describe('GET /api/memory/sessions/:id/observations', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.data).toEqual(fakeObservations);
+    expect(mockGetSessionById).toHaveBeenCalledWith(mockDb, 5);
+    expect(mockGetRepoByFullName).toHaveBeenCalledWith(mockDb, 'owner/repo');
     expect(mockGetObservationsBySession).toHaveBeenCalledWith(mockDb, 5);
+  });
+
+  it('returns 403 when session belongs to another installation', async () => {
+    mockGetSessionById.mockResolvedValueOnce({ id: 5, project: 'other/repo' });
+    mockGetRepoByFullName.mockResolvedValueOnce({
+      ...FAKE_REPO,
+      installationId: 999,
+      fullName: 'other/repo',
+    });
+
+    const app = createApp();
+    const res = await app.request('/api/memory/sessions/5/observations');
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe('Forbidden');
+    expect(mockGetObservationsBySession).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when session does not exist', async () => {
+    mockGetSessionById.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request('/api/memory/sessions/999/observations');
+
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toBe('Session not found');
+    expect(mockGetObservationsBySession).not.toHaveBeenCalled();
   });
 
   it('returns 400 for invalid (non-numeric) session ID', async () => {
@@ -1419,7 +1454,22 @@ describe('GET /api/memory/sessions/:id/observations', () => {
     expect(json.error).toBe('Invalid session ID');
   });
 
-  it('returns empty array when session has no observations', async () => {
+  it('returns 403 when session project has no matching repo', async () => {
+    mockGetSessionById.mockResolvedValueOnce({ id: 5, project: 'orphan/repo' });
+    mockGetRepoByFullName.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request('/api/memory/sessions/5/observations');
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe('Forbidden');
+    expect(mockGetObservationsBySession).not.toHaveBeenCalled();
+  });
+
+  it('returns empty array when authorized session has no observations', async () => {
+    mockGetSessionById.mockResolvedValueOnce({ id: 99, project: 'owner/repo' });
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
     mockGetObservationsBySession.mockResolvedValueOnce([]);
 
     const app = createApp();
