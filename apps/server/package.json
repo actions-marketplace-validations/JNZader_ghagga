@@ -22,6 +22,7 @@
     "ghagga-core": "workspace:*",
     "ghagga-db": "workspace:*",
     "hono": "^4.7.0",
+    "hono-rate-limiter": "^0.5.3",
     "inngest": "^3.29.0",
     "libsodium-wrappers": "^0.7.15",
     "pino": "^10.3.1"

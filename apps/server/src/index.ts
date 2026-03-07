@@ -9,8 +9,11 @@ import 'dotenv/config';
 
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { secureHeaders } from 'hono/secure-headers';
+import { bodyLimit } from 'hono/body-limit';
 import { serve } from '@hono/node-server';
 import { serve as serveInngest } from 'inngest/hono';
+import { rateLimiter } from 'hono-rate-limiter';
 
 import { createDatabaseFromEnv } from 'ghagga-db';
 
@@ -70,8 +73,76 @@ app.use('*', async (c, next) => {
   }
 });
 
-// CORS — allow all origins for the GitHub Pages dashboard
-app.use('*', cors());
+// ── Security headers ────────────────────────────────────────────
+app.use('*', secureHeaders({
+  xFrameOptions: 'DENY',
+  xContentTypeOptions: 'nosniff',
+  strictTransportSecurity: 'max-age=31536000; includeSubDomains',
+  referrerPolicy: 'strict-origin-when-cross-origin',
+  contentSecurityPolicy: {
+    defaultSrc: ["'self'"],
+  },
+}));
+
+// ── Body size limits ────────────────────────────────────────────
+// Webhook gets 5MB (GitHub payloads can be large); everything else gets 1MB.
+// Applied as a conditional middleware to avoid double-matching on /webhook.
+app.use('*', async (c, next) => {
+  const path = new URL(c.req.url).pathname;
+  const maxSize = path === '/webhook' ? 5 * 1024 * 1024 : 1024 * 1024;
+  const limiter = bodyLimit({ maxSize });
+  return limiter(c, next);
+});
+
+// ── CORS — restricted origins ───────────────────────────────────
+function getAllowedOrigins(): string[] {
+  const envOrigins = process.env.ALLOWED_ORIGINS;
+  if (envOrigins) {
+    return envOrigins.split(',').map(o => o.trim());
+  }
+  const defaults = [
+    'https://jnzader.github.io',
+    'https://ghagga.onrender.com',
+  ];
+  if (process.env.NODE_ENV !== 'production') {
+    defaults.push('http://localhost:3000', 'http://localhost:5173');
+  }
+  return defaults;
+}
+
+app.use('*', cors({
+  origin: (origin) => {
+    const allowed = getAllowedOrigins();
+    return allowed.includes(origin) ? origin : '';
+  },
+  credentials: true,
+}));
+
+// ── Rate limiting ───────────────────────────────────────────────
+const apiLimiter = rateLimiter({
+  windowMs: 60 * 1000,
+  limit: 100,
+  keyGenerator: (c) => c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? 'unknown',
+  standardHeaders: 'draft-6',
+});
+
+const oauthLimiter = rateLimiter({
+  windowMs: 60 * 1000,
+  limit: 10,
+  keyGenerator: (c) => c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? 'unknown',
+  standardHeaders: 'draft-6',
+});
+
+const webhookLimiter = rateLimiter({
+  windowMs: 60 * 1000,
+  limit: 200,
+  keyGenerator: (c) => c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? 'unknown',
+  standardHeaders: 'draft-6',
+});
+
+app.use('/api/*', apiLimiter);
+app.use('/auth/*', oauthLimiter);
+app.use('/webhook', webhookLimiter);
 
 // Health check
 app.get('/health', (c) => {
