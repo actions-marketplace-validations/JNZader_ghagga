@@ -28,6 +28,7 @@ import {
   deriveCallbackSecret,
   discoverRunnerRepo,
   dispatchWorkflow,
+  getCallbackTtlMs,
   RunnerCreationError,
   type RunnerErrorCode,
   setRunnerSecret,
@@ -145,6 +146,7 @@ describe('verifyCallbackSignature', () => {
 
   afterEach(() => {
     delete process.env.STATE_SECRET;
+    delete process.env.CALLBACK_TTL_MINUTES;
     vi.useRealTimers();
   });
 
@@ -168,24 +170,27 @@ describe('verifyCallbackSignature', () => {
     expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(true);
   });
 
-  it('rejects callback at exactly 11 minutes (S-R3.2)', () => {
-    const callbackId = makeCallbackId(11 * 60 * 1000); // exactly 11 min
+  it('rejects callback at exactly the TTL (S-R3.2)', () => {
+    const ttl = getCallbackTtlMs();
+    const callbackId = makeCallbackId(ttl); // exactly at TTL
     const secret = deriveCallbackSecret(callbackId);
     const signature = computeSignature(payload, secret);
 
     expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(false);
   });
 
-  it('accepts callback at 11 minutes minus 1s (S-R3.3)', () => {
-    const callbackId = makeCallbackId(11 * 60 * 1000 - 1000); // 11 min - 1s (margin for CI)
+  it('accepts callback at TTL minus 1s (S-R3.3)', () => {
+    const ttl = getCallbackTtlMs();
+    const callbackId = makeCallbackId(ttl - 1000); // TTL - 1s (margin for CI)
     const secret = deriveCallbackSecret(callbackId);
     const signature = computeSignature(payload, secret);
 
     expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(true);
   });
 
-  it('rejects callback older than 11 minutes — 12 min (S-R3.4)', () => {
-    const callbackId = makeCallbackId(12 * 60 * 1000); // 12 min
+  it('rejects callback older than TTL — TTL + 1 min (S-R3.4)', () => {
+    const ttl = getCallbackTtlMs();
+    const callbackId = makeCallbackId(ttl + 60 * 1000); // TTL + 1 min
     const secret = deriveCallbackSecret(callbackId);
     const signature = computeSignature(payload, secret);
 
@@ -193,7 +198,8 @@ describe('verifyCallbackSignature', () => {
   });
 
   it('logs warning when callback is expired (S-R3.4)', () => {
-    const callbackId = makeCallbackId(12 * 60 * 1000);
+    const ttl = getCallbackTtlMs();
+    const callbackId = makeCallbackId(ttl + 60 * 1000);
     const secret = deriveCallbackSecret(callbackId);
     const signature = computeSignature(payload, secret);
 
@@ -211,14 +217,16 @@ describe('verifyCallbackSignature', () => {
     const now = Date.now();
     vi.useFakeTimers({ now });
 
+    const ttl = getCallbackTtlMs();
+
     // Create callbackId at "now"
     const ts = now.toString(36);
     const callbackId = `550e8400-e29b-41d4-a716-446655440000.${ts}`;
     const secret = deriveCallbackSecret(callbackId);
     const signature = computeSignature(payload, secret);
 
-    // Advance to 11 min - 1ms
-    vi.advanceTimersByTime(11 * 60 * 1000 - 1);
+    // Advance to TTL - 1ms
+    vi.advanceTimersByTime(ttl - 1);
 
     expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(true);
   });
@@ -227,15 +235,63 @@ describe('verifyCallbackSignature', () => {
     const now = Date.now();
     vi.useFakeTimers({ now });
 
+    const ttl = getCallbackTtlMs();
+
     const ts = now.toString(36);
     const callbackId = `550e8400-e29b-41d4-a716-446655440000.${ts}`;
     const secret = deriveCallbackSecret(callbackId);
     const signature = computeSignature(payload, secret);
 
-    // Advance to exactly 11 min
-    vi.advanceTimersByTime(11 * 60 * 1000);
+    // Advance to exactly TTL
+    vi.advanceTimersByTime(ttl);
 
     expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(false);
+  });
+
+  // ─── Dynamic TTL via CALLBACK_TTL_MINUTES env var ─────────────
+
+  it('uses CALLBACK_TTL_MINUTES env var to override the default TTL', () => {
+    process.env.CALLBACK_TTL_MINUTES = '15';
+
+    const now = Date.now();
+    vi.useFakeTimers({ now });
+
+    const ts = now.toString(36);
+    const callbackId = `550e8400-e29b-41d4-a716-446655440000.${ts}`;
+    const secret = deriveCallbackSecret(callbackId);
+    const signature = computeSignature(payload, secret);
+
+    // At 14 min (under 15 min TTL) → still valid
+    vi.advanceTimersByTime(14 * 60 * 1000);
+    expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(true);
+
+    // At exactly 15 min → expired
+    vi.advanceTimersByTime(1 * 60 * 1000);
+    expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(false);
+  });
+
+  it('falls back to 11 minutes when CALLBACK_TTL_MINUTES is invalid (non-numeric)', () => {
+    process.env.CALLBACK_TTL_MINUTES = 'abc';
+
+    expect(getCallbackTtlMs()).toBe(11 * 60 * 1000);
+  });
+
+  it('falls back to 11 minutes when CALLBACK_TTL_MINUTES is less than 1', () => {
+    process.env.CALLBACK_TTL_MINUTES = '0';
+
+    expect(getCallbackTtlMs()).toBe(11 * 60 * 1000);
+  });
+
+  it('falls back to 11 minutes when CALLBACK_TTL_MINUTES is negative', () => {
+    process.env.CALLBACK_TTL_MINUTES = '-5';
+
+    expect(getCallbackTtlMs()).toBe(11 * 60 * 1000);
+  });
+
+  it('returns correct milliseconds for a valid CALLBACK_TTL_MINUTES value', () => {
+    process.env.CALLBACK_TTL_MINUTES = '20';
+
+    expect(getCallbackTtlMs()).toBe(20 * 60 * 1000);
   });
 
   // ─── Tampered inputs (S-R4.2, S-R4.3) ────────────────────────

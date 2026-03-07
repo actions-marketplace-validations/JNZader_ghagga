@@ -105,7 +105,14 @@ export interface DiscoveredRunner {
 // Map<string, StoredSecret> store, ensuring callbacks survive server
 // restarts and container redeploys.
 
-const CALLBACK_SECRET_TTL_MS = 11 * 60 * 1000; // 11 minutes
+/**
+ * Return the callback TTL in milliseconds.
+ * Reads `CALLBACK_TTL_MINUTES` from env (defaults to 11, minimum 1).
+ */
+export function getCallbackTtlMs(): number {
+  const minutes = parseInt(process.env.CALLBACK_TTL_MINUTES ?? '11', 10);
+  return (Number.isNaN(minutes) || minutes < 1 ? 11 : minutes) * 60 * 1000;
+}
 
 /**
  * Derive a callback secret deterministically using HMAC-SHA256.
@@ -126,7 +133,7 @@ export function deriveCallbackSecret(callbackId: string): string {
  *
  * Steps:
  * 1. Extract timestamp from callbackId (after last `.`)
- * 2. Reject if older than CALLBACK_SECRET_TTL_MS (11 minutes)
+ * 2. Reject if older than getCallbackTtlMs() (default 11 minutes)
  * 3. Derive secret via deriveCallbackSecret
  * 4. Validate `sha256=` prefix on signatureHeader
  * 5. Compute expected HMAC over payload
@@ -152,7 +159,7 @@ export function verifyCallbackSignature(
   }
 
   // Step 2: Check TTL
-  if (Date.now() - timestamp >= CALLBACK_SECRET_TTL_MS) {
+  if (Date.now() - timestamp >= getCallbackTtlMs()) {
     logger.warn({ callbackId }, 'Callback expired — TTL exceeded');
     return false;
   }

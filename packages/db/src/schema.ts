@@ -173,6 +173,7 @@ export const memoryObservations = pgTable(
     index('idx_observations_topic_key').on(t.topicKey),
     index('idx_observations_type').on(t.type),
     index('idx_observations_content_hash').on(t.contentHash),
+    index('idx_observations_created_at').on(t.createdAt),
   ],
 );
 
