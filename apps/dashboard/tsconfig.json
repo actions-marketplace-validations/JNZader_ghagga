@@ -10,7 +10,7 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "baseUrl": ".",
-    "types": ["@testing-library/jest-dom/vitest"],
+
     "paths": {
       "@/*": ["./src/*"]
     }
