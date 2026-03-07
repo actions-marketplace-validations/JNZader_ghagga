@@ -26,6 +26,38 @@ export function resolveProjectId(repoPath: string): string {
 }
 
 /**
+ * Get diff of staged files only.
+ * Returns an empty string if there are no staged changes or on error.
+ */
+export function getStagedDiff(repoPath: string): string {
+  try {
+    return execSync('git diff --cached', {
+      cwd: repoPath,
+      encoding: 'utf-8',
+      maxBuffer: 10 * 1024 * 1024,
+    });
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Get list of staged file paths.
+ * Returns an empty array if there are no staged files or on error.
+ */
+export function getStagedFiles(repoPath: string): string[] {
+  try {
+    const output = execSync('git diff --cached --name-only', {
+      cwd: repoPath,
+      encoding: 'utf-8',
+    });
+    return output.trim().split('\n').filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Normalize a git remote URL to "owner/repo" format.
  *
  * Handles:

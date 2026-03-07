@@ -18,13 +18,15 @@ import type {
   ReviewMode,
   LLMProvider,
   ReviewSettings,
+  ReviewResult,
   ReviewStatus,
   ProgressCallback,
   ProgressEvent,
   MemoryStorage,
 } from 'ghagga-core';
-import { resolveProjectId } from '../lib/git.js';
+import { resolveProjectId, getStagedDiff } from '../lib/git.js';
 import { getConfigDir } from '../lib/config.js';
+import { reviewCommitMessage } from './review-commit-msg.js';
 import * as tui from '../ui/tui.js';
 import { formatMarkdownResult } from '../ui/format.js';
 import { resolveStepIcon } from '../ui/theme.js';
@@ -43,6 +45,11 @@ export interface ReviewOptions {
   memory: boolean;
   config?: string;
   verbose: boolean;
+  // Hook-oriented flags (Phase 2: cli-git-hooks)
+  staged?: boolean;
+  commitMsg?: string;
+  exitOnIssues?: boolean;
+  quick?: boolean;
 }
 
 interface GhaggaConfig {
@@ -68,11 +75,60 @@ export async function reviewCommand(
   let memoryStorage: MemoryStorage | undefined;
 
   try {
-    // Step 1: Get the git diff
-    const diff = getGitDiff(repoPath);
+    // ── Mutual exclusivity check: --staged and --commit-msg ──
+    if (options.staged && options.commitMsg) {
+      tui.log.error('❌ --staged and --commit-msg are mutually exclusive. Use one or the other.');
+      process.exit(1);
+    }
+
+    // ── Commit message review path (bypasses file-based pipeline) ──
+    if (options.commitMsg) {
+      const commitMsgFile = resolve(options.commitMsg);
+
+      if (!existsSync(commitMsgFile)) {
+        tui.log.error(`❌ Commit message file not found: ${commitMsgFile}`);
+        process.exit(1);
+      }
+
+      const message = readFileSync(commitMsgFile, 'utf-8');
+
+      if (options.format !== 'json') {
+        tui.intro('🤖 GHAGGA Commit Message Review');
+      }
+
+      const result = await reviewCommitMessage({
+        message,
+        provider: options.provider,
+        model: options.model,
+        apiKey: options.apiKey,
+        quick: options.quick,
+      });
+
+      // Output the result
+      if (options.format === 'json') {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        tui.log.message(formatMarkdownResult(result));
+      }
+
+      // Exit code: --exit-on-issues overrides default behavior
+      const exitCode = resolveExitCode(result, options.exitOnIssues ?? false);
+      if (options.format !== 'json') {
+        tui.outro('Commit message review complete');
+      }
+      process.exit(exitCode);
+    }
+
+    // ── Step 1: Get the git diff ─────────────────────────────
+    const diff = options.staged
+      ? getStagedDiff(repoPath)
+      : getGitDiff(repoPath);
 
     if (!diff || diff.trim().length === 0) {
-      tui.log.info('ℹ️  No changes detected. Stage some changes or make commits to review.');
+      const msg = options.staged
+        ? 'ℹ️  No staged changes found. Stage files with `git add` first.'
+        : 'ℹ️  No changes detected. Stage some changes or make commits to review.';
+      tui.log.info(msg);
       process.exit(0);
     }
 
@@ -86,7 +142,11 @@ export async function reviewCommand(
     if (options.format !== 'json') {
       tui.intro('🤖 GHAGGA Code Review');
       tui.log.message(`   Mode: ${options.mode} | Provider: ${options.provider} | Model: ${options.model}`);
-      tui.log.step('   Analyzing...\n');
+      if (options.staged) {
+        tui.log.step('   Reviewing staged changes...\n');
+      } else {
+        tui.log.step('   Analyzing...\n');
+      }
     }
 
     // Step 4.5: Initialize memory storage (SQLite, file-backed)
@@ -123,6 +183,8 @@ export async function reviewCommand(
       },
       memoryStorage,
       onProgress,
+      // --quick: disable AI review, use static analysis only
+      ...(options.quick ? { aiReviewEnabled: false } : {}),
     });
 
     // Step 5.5: Persist memory to disk
@@ -135,8 +197,8 @@ export async function reviewCommand(
       tui.log.message(formatMarkdownResult(result));
     }
 
-    // Step 7: Exit code based on status
-    const exitCode = getExitCode(result.status);
+    // Step 7: Exit code — --exit-on-issues overrides default behavior
+    const exitCode = resolveExitCode(result, options.exitOnIssues ?? false);
     if (options.format !== 'json') {
       tui.outro('Review complete');
     }
@@ -262,6 +324,27 @@ function createProgressHandler(): ProgressCallback {
 }
 
 // ─── Exit Code ──────────────────────────────────────────────────
+
+/**
+ * Resolve the exit code for the review process.
+ *
+ * When `exitOnIssues` is true (hook mode), checks findings for
+ * critical/high severity — returns 1 if any found, 0 otherwise.
+ * When false, delegates to the default status-based exit code.
+ */
+function resolveExitCode(
+  result: ReviewResult,
+  exitOnIssues: boolean,
+): number {
+  if (exitOnIssues) {
+    const hasBlockingIssues = result.findings.some(
+      (f) => f.severity === 'critical' || f.severity === 'high',
+    );
+    return hasBlockingIssues ? 1 : 0;
+  }
+  // Default behavior: use status-based exit code
+  return getExitCode(result.status);
+}
 
 /**
  * Map review status to process exit code.

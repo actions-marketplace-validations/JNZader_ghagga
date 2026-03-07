@@ -33,6 +33,7 @@ import { loginCommand } from './commands/login.js';
 import { logoutCommand } from './commands/logout.js';
 import { statusCommand } from './commands/status.js';
 import { memoryCommand } from './commands/memory/index.js';
+import { hooksCommand } from './commands/hooks/index.js';
 import * as tui from './ui/tui.js';
 
 // Read version from package.json at runtime (no hardcoded strings)
@@ -117,6 +118,10 @@ program
   .option('--no-memory', 'Disable review memory')
   .option('-c, --config <path>', 'Path to .ghagga.json config file')
   .option('-v, --verbose', 'Show detailed progress during review')
+  .option('--staged', 'Review only staged changes (for pre-commit hooks)')
+  .option('--commit-msg <file>', 'Validate commit message from file path')
+  .option('--exit-on-issues', 'Exit with code 1 if critical/high issues found')
+  .option('--quick', 'Static analysis only — skip LLM review')
   .action(async (path: string, options: ReviewCommandOptions) => {
     // ── Auto-resolve auth from stored config ──────────────────
     const config = loadConfig();
@@ -165,8 +170,8 @@ program
       process.exit(1);
     }
 
-    // ── Validate API key (not required for ollama) ─────────────
-    if (!options.apiKey && options.provider !== 'ollama') {
+    // ── Validate API key (not required for ollama or --quick mode) ──
+    if (!options.apiKey && options.provider !== 'ollama' && !options.quick) {
       tui.log.error('❌ No API key available.\n');
       tui.log.error('   Quick fix: run "ghagga login" to authenticate with GitHub (free!)');
       tui.log.error('   Or pass --api-key <key> or set GHAGGA_API_KEY.');
@@ -187,7 +192,7 @@ program
       mode: options.mode as ReviewMode,
       provider,
       model,
-      apiKey: options.apiKey!,
+      apiKey: options.apiKey ?? '',
       format: options.format as 'markdown' | 'json',
       semgrep: options.semgrep,
       trivy: options.trivy,
@@ -195,12 +200,20 @@ program
       memory: options.memory,
       config: options.config,
       verbose: options.verbose ?? false,
+      staged: options.staged ?? false,
+      commitMsg: options.commitMsg,
+      exitOnIssues: options.exitOnIssues ?? false,
+      quick: options.quick ?? false,
     });
   });
 
 // ─── Memory ─────────────────────────────────────────────────────
 
 program.addCommand(memoryCommand);
+
+// ─── Hooks ──────────────────────────────────────────────────────
+
+program.addCommand(hooksCommand);
 
 program.parse();
 
@@ -218,4 +231,9 @@ interface ReviewCommandOptions {
   memory: boolean;
   config?: string;
   verbose: boolean;
+  // Hook-oriented flags (Phase 2: cli-git-hooks)
+  staged?: boolean;
+  commitMsg?: string;
+  exitOnIssues?: boolean;
+  quick?: boolean;
 }
