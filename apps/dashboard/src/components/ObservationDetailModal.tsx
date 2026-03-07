@@ -149,7 +149,7 @@ export function ObservationDetailModal({ observation, onClose }: ObservationDeta
                 Files
               </h3>
               <div className="flex flex-wrap gap-2">
-                {observation.filePaths.map((path) => (
+                {observation.filePaths.map((path: string) => (
                   <span
                     key={path}
                     className="rounded bg-surface-bg px-2 py-1 font-mono text-xs text-text-secondary"

@@ -267,7 +267,7 @@ function ObservationCard({
           </p>
           {observation.filePaths.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">
-              {visiblePaths.map((path) => (
+              {visiblePaths.map((path: string) => (
                 <span
                   key={path}
                   className="rounded bg-surface-bg px-2 py-1 font-mono text-xs text-text-secondary"
@@ -578,7 +578,7 @@ export function Memory() {
           obs.title.toLowerCase().includes(q) ||
           obs.content.toLowerCase().includes(q) ||
           obs.type.toLowerCase().includes(q) ||
-          obs.filePaths.some((p) => p.toLowerCase().includes(q)),
+          obs.filePaths.some((p: string) => p.toLowerCase().includes(q)),
       );
     }
 

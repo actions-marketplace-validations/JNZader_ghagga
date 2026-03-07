@@ -12,7 +12,7 @@ import {
   useUpdateInstallationSettings,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import type { ProviderChainUpdate, ReviewMode } from '@/lib/types';
+import type { ProviderChainUpdate, ProviderChainView, ReviewMode } from '@/lib/types';
 
 export function GlobalSettings() {
   const { data: installations, isLoading: instLoading } = useInstallations();
@@ -80,7 +80,7 @@ export function GlobalSettings() {
       setIgnorePatterns(settings.ignorePatterns.join('\n'));
 
       setProviderChain(
-        settings.providerChain.map((entry) => ({
+        settings.providerChain.map((entry: ProviderChainView) => ({
           provider: entry.provider,
           model: entry.model,
           apiKey: '',

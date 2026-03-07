@@ -4,7 +4,7 @@ import { SeverityBadge } from '@/components/SeverityBadge';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useRepositories, useReviews } from '@/lib/api';
 import { useSelectedRepo } from '@/lib/repo-context';
-import type { Review, ReviewStatus } from '@/lib/types';
+import type { Finding, Review, ReviewStatus } from '@/lib/types';
 
 function ReviewDetail({ review, onClose }: { review: Review; onClose: () => void }) {
   return (
@@ -64,7 +64,7 @@ function ReviewDetail({ review, onClose }: { review: Review; onClose: () => void
                   </tr>
                 </thead>
                 <tbody>
-                  {review.findings.map((finding, idx) => (
+                  {review.findings.map((finding: Finding, idx: number) => (
                     <tr key={idx} className="border-b border-surface-border/50">
                       <td className="py-2.5 pr-4">
                         <SeverityBadge severity={finding.severity} />
@@ -103,7 +103,7 @@ export function Reviews() {
   const totalPages = Math.ceil(total / pageSize);
 
   // Client-side filtering for status and search
-  const filteredReviews = reviews.filter((review) => {
+  const filteredReviews = reviews.filter((review: Review) => {
     if (statusFilter && review.status !== statusFilter) return false;
     if (search) {
       const q = search.toLowerCase();
@@ -190,7 +190,7 @@ export function Reviews() {
                   </td>
                 </tr>
               ) : (
-                filteredReviews.map((review) => (
+                filteredReviews.map((review: Review) => (
                   <tr
                     key={review.id}
                     onClick={() => setSelectedReview(review)}

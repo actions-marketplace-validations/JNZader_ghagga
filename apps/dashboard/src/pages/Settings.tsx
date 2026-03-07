@@ -5,7 +5,7 @@ import { ProviderChainEditor } from '@/components/settings/ProviderChainEditor';
 import type { ProviderEntryState } from '@/components/settings/ProviderEntry';
 import { useRepositories, useSettings, useUpdateSettings } from '@/lib/api';
 import { useSelectedRepo } from '@/lib/repo-context';
-import type { ProviderChainUpdate, ReviewMode } from '@/lib/types';
+import type { ProviderChainUpdate, ProviderChainView, ReviewMode } from '@/lib/types';
 
 export function Settings() {
   const { selectedRepo, setSelectedRepo } = useSelectedRepo();
@@ -53,7 +53,7 @@ export function Settings() {
 
       // Map server chain view to local entry state
       setProviderChain(
-        settings.providerChain.map((entry) => ({
+        settings.providerChain.map((entry: ProviderChainView) => ({
           provider: entry.provider,
           model: entry.model,
           apiKey: '',
@@ -75,7 +75,7 @@ export function Settings() {
     // If switching to custom and the repo has no chain yet, pre-fill from global
     if (!useGlobal && settings?.globalSettings && providerChain.length === 0) {
       setProviderChain(
-        settings.globalSettings.providerChain.map((entry) => ({
+        settings.globalSettings.providerChain.map((entry: ProviderChainView) => ({
           provider: entry.provider,
           model: entry.model,
           apiKey: '',
@@ -265,7 +265,7 @@ export function Settings() {
                     {globalSettings.providerChain.length === 0
                       ? 'Not configured'
                       : globalSettings.providerChain
-                          .map((e) => `${e.provider} (${e.model})`)
+                          .map((e: ProviderChainView) => `${e.provider} (${e.model})`)
                           .join(' → ')}
                   </p>
                 </div>
