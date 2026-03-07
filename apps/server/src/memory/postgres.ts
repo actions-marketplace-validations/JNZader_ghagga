@@ -51,6 +51,7 @@ export class PostgresMemoryStorage implements MemoryStorage {
       title: row.title,
       content: row.content,
       filePaths: row.filePaths ?? null,
+      severity: row.severity ?? null,
     }));
   }
 
@@ -62,6 +63,7 @@ export class PostgresMemoryStorage implements MemoryStorage {
     content: string;
     topicKey?: string;
     filePaths?: string[];
+    severity?: string;
   }): Promise<MemoryObservationRow> {
     const row = await saveObservation(this.db, data);
     return {
@@ -70,6 +72,7 @@ export class PostgresMemoryStorage implements MemoryStorage {
       title: row.title,
       content: row.content,
       filePaths: row.filePaths ?? null,
+      severity: row.severity ?? null,
     };
   }
 
@@ -99,6 +102,7 @@ export class PostgresMemoryStorage implements MemoryStorage {
       title: row.title,
       content: row.content,
       filePaths: row.filePaths ?? null,
+      severity: row.severity ?? null,
       project: row.project,
       topicKey: row.topicKey ?? null,
       revisionCount: row.revisionCount,
@@ -116,6 +120,7 @@ export class PostgresMemoryStorage implements MemoryStorage {
       title: row.title,
       content: row.content,
       filePaths: row.filePaths ?? null,
+      severity: row.severity ?? null,
       project: row.project,
       topicKey: row.topicKey ?? null,
       revisionCount: row.revisionCount,
