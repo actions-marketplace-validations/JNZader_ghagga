@@ -7,7 +7,22 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
-import { useRunnerStatus, useCreateRunner, useConfigureRunnerSecret } from './api';
+import {
+  useRunnerStatus,
+  useCreateRunner,
+  useConfigureRunnerSecret,
+  useReviews,
+  useStats,
+  useRepositories,
+  useSettings,
+  useUpdateSettings,
+  useValidateProvider,
+  useInstallations,
+  useInstallationSettings,
+  useUpdateInstallationSettings,
+  useMemorySessions,
+  useObservations,
+} from './api';
 import { createWrapper, createTestQueryClient } from '../test/test-utils';
 import type { QueryClient } from '@tanstack/react-query';
 
@@ -289,5 +304,409 @@ describe('useConfigureRunnerSecret', () => {
     });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useReviews
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useReviews', () => {
+  it('returns paginated reviews', async () => {
+    const reviews = [
+      { id: 1, repo: 'acme/app', prNumber: 42, status: 'PASSED', mode: 'simple', summary: 'All good', findings: [], createdAt: '2026-01-01' },
+    ];
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({
+        data: reviews,
+        pagination: { page: 1, limit: 20, offset: 0 },
+      }),
+    );
+
+    const { result } = renderHook(() => useReviews('acme/app', 1), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data).toEqual({
+      reviews,
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    });
+  });
+
+  it('passes repo filter param in URL', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: [], pagination: { page: 1, limit: 20, offset: 0 } }),
+    );
+
+    const { result } = renderHook(() => useReviews('acme/app'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain('repo=acme%2Fapp');
+  });
+
+  it('passes page param in URL', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: [], pagination: { page: 3, limit: 20, offset: 40 } }),
+    );
+
+    const { result } = renderHook(() => useReviews(undefined, 3), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain('page=3');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useStats
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useStats', () => {
+  it('returns stats when repo is provided', async () => {
+    const stats = { totalReviews: 10, passed: 8, failed: 2, needsHumanReview: 0, skipped: 0, passRate: 80, reviewsByDay: [] };
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: stats }));
+
+    const { result } = renderHook(() => useStats('acme/app'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(stats);
+  });
+
+  it('does not fetch when repo is empty string (enabled: false)', () => {
+    const { result } = renderHook(() => useStats(''), {
+      wrapper: createWrapper(),
+    });
+
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useRepositories
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useRepositories', () => {
+  it('returns repository list', async () => {
+    const repos = [
+      { id: 1, fullName: 'acme/app', owner: 'acme', name: 'app', isActive: true },
+    ];
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: repos }));
+
+    const { result } = renderHook(() => useRepositories(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(repos);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useSettings
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useSettings', () => {
+  it('returns settings when repo is provided', async () => {
+    const settings = {
+      repoId: 1,
+      repoFullName: 'acme/app',
+      useGlobalSettings: true,
+      aiReviewEnabled: true,
+      providerChain: [],
+      reviewMode: 'simple',
+      enableSemgrep: true,
+      enableTrivy: true,
+      enableCpd: false,
+      enableMemory: true,
+      customRules: '',
+      ignorePatterns: [],
+    };
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: settings }));
+
+    const { result } = renderHook(() => useSettings('acme/app'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(settings);
+  });
+
+  it('does not fetch when repo is empty string (enabled: false)', () => {
+    const { result } = renderHook(() => useSettings(''), {
+      wrapper: createWrapper(),
+    });
+
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useUpdateSettings
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useUpdateSettings', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+  });
+
+  it('sends PUT to /api/settings with JSON body', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ message: 'Settings updated' }),
+    );
+
+    const { result } = renderHook(() => useUpdateSettings(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        repoFullName: 'acme/app',
+        enableSemgrep: false,
+      });
+    });
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/settings');
+    expect(options.method).toBe('PUT');
+    expect(JSON.parse(options.body)).toEqual({
+      repoFullName: 'acme/app',
+      enableSemgrep: false,
+    });
+  });
+
+  it('invalidates settings cache for the repo on success', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ message: 'Settings updated' }),
+    );
+
+    const { result } = renderHook(() => useUpdateSettings(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ repoFullName: 'acme/app' });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['settings', 'acme/app'],
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useValidateProvider
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useValidateProvider', () => {
+  it('sends POST to /api/providers/validate with payload', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ valid: true, models: ['gpt-4o'] }),
+    );
+
+    const { result } = renderHook(() => useValidateProvider(), {
+      wrapper: createWrapper(),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ provider: 'openai' as const, apiKey: 'sk-test' });
+    });
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/providers/validate');
+    expect(options.method).toBe('POST');
+    expect(JSON.parse(options.body)).toEqual({ provider: 'openai', apiKey: 'sk-test' });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useInstallations
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useInstallations', () => {
+  it('returns installation list', async () => {
+    const installations = [
+      { id: 100, accountLogin: 'acme', accountType: 'Organization' },
+    ];
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: installations }));
+
+    const { result } = renderHook(() => useInstallations(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(installations);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useInstallationSettings
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useInstallationSettings', () => {
+  it('returns settings when installationId is provided', async () => {
+    const settings = {
+      installationId: 100,
+      accountLogin: 'acme',
+      providerChain: [],
+      aiReviewEnabled: true,
+      reviewMode: 'simple',
+      enableSemgrep: true,
+      enableTrivy: true,
+      enableCpd: false,
+      enableMemory: true,
+      customRules: '',
+      ignorePatterns: [],
+    };
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: settings }));
+
+    const { result } = renderHook(() => useInstallationSettings(100), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(settings);
+  });
+
+  it('does not fetch when installationId is 0 (enabled: false)', () => {
+    const { result } = renderHook(() => useInstallationSettings(0), {
+      wrapper: createWrapper(),
+    });
+
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useUpdateInstallationSettings
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useUpdateInstallationSettings', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+  });
+
+  it('sends PUT to /api/installation-settings', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ message: 'Settings updated' }),
+    );
+
+    const { result } = renderHook(() => useUpdateInstallationSettings(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        installationId: 100,
+        aiReviewEnabled: false,
+      });
+    });
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/installation-settings');
+    expect(options.method).toBe('PUT');
+  });
+
+  it('invalidates both installation-settings and settings cache on success', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ message: 'Settings updated' }),
+    );
+
+    const { result } = renderHook(() => useUpdateInstallationSettings(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ installationId: 100 });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['installation-settings', 100],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['settings'],
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useMemorySessions
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useMemorySessions', () => {
+  it('returns sessions when project is provided', async () => {
+    const sessions = [
+      { id: 1, project: 'acme/app', prNumber: 42, summary: 'Learned patterns', createdAt: '2026-01-01', observationCount: 5 },
+    ];
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: sessions }));
+
+    const { result } = renderHook(() => useMemorySessions('acme/app'), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(sessions);
+  });
+
+  it('does not fetch when project is empty string (enabled: false)', () => {
+    const { result } = renderHook(() => useMemorySessions(''), {
+      wrapper: createWrapper(),
+    });
+
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useObservations
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useObservations', () => {
+  it('returns observations when sessionId is provided', async () => {
+    const observations = [
+      { id: 1, sessionId: 1, type: 'pattern', title: 'Uses async/await', content: 'Prefers async', filePaths: ['src/index.ts'], createdAt: '2026-01-01' },
+    ];
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: observations }));
+
+    const { result } = renderHook(() => useObservations(1), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual(observations);
+  });
+
+  it('does not fetch when sessionId is 0 (enabled: false)', () => {
+    const { result } = renderHook(() => useObservations(0), {
+      wrapper: createWrapper(),
+    });
+
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

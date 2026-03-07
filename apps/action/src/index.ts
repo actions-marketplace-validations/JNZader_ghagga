@@ -255,4 +255,9 @@ async function run(): Promise<void> {
 
 // ─── Execute ────────────────────────────────────────────────────
 
-run();
+export { run };
+
+// Only auto-run when executed directly (not imported by tests)
+if (process.env['NODE_ENV'] !== 'test') {
+  run();
+}

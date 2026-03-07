@@ -16,12 +16,14 @@ const mockGetInput = vi.fn();
 const mockSetOutput = vi.fn();
 const mockSetFailed = vi.fn();
 const mockInfo = vi.fn();
+const mockWarning = vi.fn();
 
 vi.mock('@actions/core', () => ({
   getInput: (...args: unknown[]) => mockGetInput(...args),
   setOutput: (...args: unknown[]) => mockSetOutput(...args),
   setFailed: (...args: unknown[]) => mockSetFailed(...args),
   info: (...args: unknown[]) => mockInfo(...args),
+  warning: (...args: unknown[]) => mockWarning(...args),
 }));
 
 const mockCreateComment = vi.fn().mockResolvedValue({});
@@ -42,15 +44,33 @@ vi.mock('@actions/github', () => ({
   }),
 }));
 
+const mockRestoreCache = vi.fn();
+const mockSaveCache = vi.fn();
+
+vi.mock('@actions/cache', () => ({
+  restoreCache: (...args: unknown[]) => mockRestoreCache(...args),
+  saveCache: (...args: unknown[]) => mockSaveCache(...args),
+}));
+
 const mockReviewPipeline = vi.fn();
+const mockSqliteCreate = vi.fn();
 
 vi.mock('ghagga-core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('ghagga-core')>();
   return {
     ...actual,
     reviewPipeline: (...args: unknown[]) => mockReviewPipeline(...args),
+    SqliteMemoryStorage: {
+      create: (...args: unknown[]) => mockSqliteCreate(...args),
+    },
   };
 });
+
+const mockRunLocalAnalysis = vi.fn();
+
+vi.mock('./tools/index.js', () => ({
+  runLocalAnalysis: (...args: unknown[]) => mockRunLocalAnalysis(...args),
+}));
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -304,5 +324,173 @@ describe('GitHub Action', () => {
       expect(mockSetOutput).toHaveBeenCalledWith('status', 'SKIPPED');
       expect(mockSetOutput).toHaveBeenCalledWith('findings-count', 0);
     });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Integration tests — invoke run() directly (enabled by T2.5 guard)
+// ═══════════════════════════════════════════════════════════════
+
+import { run } from './index.js';
+
+const defaultStaticAnalysis = {
+  semgrep: { status: 'skipped' as const, findings: [], executionTimeMs: 0 },
+  trivy: { status: 'skipped' as const, findings: [], executionTimeMs: 0 },
+  cpd: { status: 'skipped' as const, findings: [], executionTimeMs: 0 },
+};
+
+describe('run() — integration', () => {
+  const mockMemoryStorage = {
+    searchObservations: vi.fn().mockResolvedValue([]),
+    saveObservation: vi.fn().mockResolvedValue({}),
+    createSession: vi.fn().mockResolvedValue({ id: 1 }),
+    endSession: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    // Default inputs: github provider, memory enabled
+    mockGetInput.mockImplementation((name: string) => {
+      const inputs: Record<string, string> = {
+        'provider': 'github',
+        'model': '',
+        'mode': 'simple',
+        'api-key': '',
+        'github-token': 'ghp_faketoken',
+        'enable-semgrep': 'true',
+        'enable-trivy': 'true',
+        'enable-cpd': 'true',
+        'enable-memory': 'true',
+      };
+      return inputs[name] ?? '';
+    });
+
+    process.env['GITHUB_TOKEN'] = 'ghp_faketoken';
+
+    mockPullsGet.mockResolvedValue({
+      data: 'diff --git a/file.ts b/file.ts\n+const x = 1;',
+    });
+
+    mockRunLocalAnalysis.mockResolvedValue(defaultStaticAnalysis);
+    mockReviewPipeline.mockResolvedValue(makeResult());
+    mockSqliteCreate.mockResolvedValue(mockMemoryStorage);
+    mockRestoreCache.mockResolvedValue(undefined);
+    mockSaveCache.mockResolvedValue(undefined);
+  });
+
+  it('happy path: calls reviewPipeline, posts comment, sets outputs', async () => {
+    await run();
+
+    expect(mockRunLocalAnalysis).toHaveBeenCalled();
+    expect(mockReviewPipeline).toHaveBeenCalledWith(
+      expect.objectContaining({
+        diff: expect.stringContaining('diff --git'),
+        mode: 'simple',
+        provider: 'github',
+      }),
+    );
+    expect(mockCreateComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: 'test-owner',
+        repo: 'test-repo',
+        issue_number: 42,
+      }),
+    );
+    expect(mockSetOutput).toHaveBeenCalledWith('status', 'PASSED');
+    expect(mockSetOutput).toHaveBeenCalledWith('findings-count', 0);
+    expect(mockSetFailed).not.toHaveBeenCalled();
+  });
+
+  it('empty diff: sets output status=SKIPPED without calling reviewPipeline', async () => {
+    mockPullsGet.mockResolvedValue({ data: '' });
+
+    await run();
+
+    expect(mockReviewPipeline).not.toHaveBeenCalled();
+    expect(mockSetOutput).toHaveBeenCalledWith('status', 'SKIPPED');
+    expect(mockSetOutput).toHaveBeenCalledWith('findings-count', 0);
+  });
+
+  it('FAILED review: calls setFailed with "critical issues"', async () => {
+    mockReviewPipeline.mockResolvedValue(
+      makeResult({
+        status: 'FAILED',
+        findings: [
+          { severity: 'high', category: 'security', file: 'a.ts', message: 'bad', source: 'ai' },
+        ],
+      }),
+    );
+
+    await run();
+
+    expect(mockSetFailed).toHaveBeenCalledWith(
+      expect.stringContaining('critical issues'),
+    );
+  });
+
+  it('pipeline error: calls setFailed with "GHAGGA review failed"', async () => {
+    mockReviewPipeline.mockRejectedValue(new Error('API timeout'));
+
+    await run();
+
+    expect(mockSetFailed).toHaveBeenCalledWith(
+      expect.stringContaining('GHAGGA review failed: API timeout'),
+    );
+  });
+
+  it('missing github token: calls setFailed', async () => {
+    mockGetInput.mockImplementation((name: string) => {
+      if (name === 'github-token') return '';
+      return '';
+    });
+    delete process.env['GITHUB_TOKEN'];
+
+    await run();
+
+    expect(mockSetFailed).toHaveBeenCalledWith(
+      expect.stringContaining('GitHub token is required'),
+    );
+  });
+
+  it('paid provider with no api-key: calls setFailed', async () => {
+    mockGetInput.mockImplementation((name: string) => {
+      const inputs: Record<string, string> = {
+        'provider': 'anthropic',
+        'model': '',
+        'mode': 'simple',
+        'api-key': '',
+        'github-token': 'ghp_faketoken',
+      };
+      return inputs[name] ?? '';
+    });
+
+    await run();
+
+    expect(mockSetFailed).toHaveBeenCalledWith(
+      expect.stringContaining('API key is required for provider "anthropic"'),
+    );
+  });
+
+  it('memory lifecycle: restoreCache → create SQLite → reviewPipeline → close → saveCache', async () => {
+    await run();
+
+    // Cache restored first
+    expect(mockRestoreCache).toHaveBeenCalled();
+
+    // SQLite memory created
+    expect(mockSqliteCreate).toHaveBeenCalledWith('/tmp/ghagga-memory.db');
+
+    // Memory passed to pipeline
+    expect(mockReviewPipeline).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memoryStorage: mockMemoryStorage,
+      }),
+    );
+
+    // After pipeline: close, then save cache
+    expect(mockMemoryStorage.close).toHaveBeenCalled();
+    expect(mockSaveCache).toHaveBeenCalled();
   });
 });
