@@ -97,7 +97,7 @@ describe('persistReviewObservations', () => {
 
   it('creates a memory session with project and prNumber', async () => {
     const storage = createMockStorage();
-    await persistReviewObservations(storage, 'owner/repo', 42, makeResult());
+    await persistReviewObservations(storage, 'owner/repo', 42, makeResult([makeFinding({ severity: 'critical' })]));
 
     expect(storage.createSession).toHaveBeenCalledWith({
       project: 'owner/repo',
@@ -151,7 +151,8 @@ describe('persistReviewObservations', () => {
 
     await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    // No significant findings → no observations, no summary
+    // No significant findings → no session, no observations, no summary
+    expect(storage.createSession).not.toHaveBeenCalled();
     expect(storage.saveObservation).not.toHaveBeenCalled();
   });
 
@@ -361,6 +362,7 @@ describe('persistReviewObservations', () => {
 
     await persistReviewObservations(storage, 'project', 1, result);
 
+    expect(storage.createSession).not.toHaveBeenCalled();
     expect(storage.saveObservation).not.toHaveBeenCalled();
   });
 
@@ -370,6 +372,7 @@ describe('persistReviewObservations', () => {
 
     await persistReviewObservations(storage, 'project', 1, result);
 
+    expect(storage.createSession).not.toHaveBeenCalled();
     expect(storage.saveObservation).not.toHaveBeenCalled();
   });
 
@@ -401,7 +404,7 @@ describe('persistReviewObservations', () => {
     });
 
     await expect(
-      persistReviewObservations(storage, 'project', 1, makeResult([]))
+      persistReviewObservations(storage, 'project', 1, makeResult([makeFinding({ severity: 'critical' })]))
     ).resolves.toBeUndefined();
   });
 

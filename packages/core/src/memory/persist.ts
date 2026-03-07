@@ -64,11 +64,12 @@ export async function persistReviewObservations(
   try {
     if (!storage) return;
 
+    // Extract significant findings first — skip session if nothing to persist
+    const significantFindings = result.findings.filter(isSignificantFinding);
+    if (significantFindings.length === 0) return;
+
     // Create a memory session for this review
     const session = await storage.createSession({ project, prNumber });
-
-    // Extract significant findings as observations
-    const significantFindings = result.findings.filter(isSignificantFinding);
 
     for (const finding of significantFindings) {
       const sanitizedMessage = stripPrivateData(finding.message);
@@ -96,17 +97,15 @@ export async function persistReviewObservations(
     }
 
     // Save a summary observation for the overall review
-    if (significantFindings.length > 0) {
-      await storage.saveObservation({
-        sessionId: session.id,
-        project,
-        type: 'decision',
-        title: `PR #${prNumber} review: ${result.status}`,
-        content: stripPrivateData(result.summary),
-        topicKey: `pr-${prNumber}-review`,
-        filePaths: significantFindings.map((f) => f.file),
-      });
-    }
+    await storage.saveObservation({
+      sessionId: session.id,
+      project,
+      type: 'decision',
+      title: `PR #${prNumber} review: ${result.status}`,
+      content: stripPrivateData(result.summary),
+      topicKey: `pr-${prNumber}-review`,
+      filePaths: significantFindings.map((f) => f.file),
+    });
 
     // End the session with a summary
     await storage.endSession(

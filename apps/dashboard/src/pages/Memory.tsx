@@ -10,6 +10,8 @@ import {
   useDeleteObservation,
   useClearRepoMemory,
   usePurgeAllMemory,
+  useDeleteSession,
+  useCleanupEmptySessions,
   ApiError,
 } from '@/lib/api';
 import { useSelectedRepo } from '@/lib/repo-context';
@@ -71,16 +73,20 @@ function SessionItem({
   session,
   isActive,
   onClick,
+  onDelete,
+  isMutating,
 }: {
   session: MemorySession;
   isActive: boolean;
   onClick: () => void;
+  onDelete: (session: MemorySession) => void;
+  isMutating: boolean;
 }) {
   return (
     <button
       onClick={onClick}
       className={cn(
-        'w-full rounded-lg border px-4 py-3 text-left transition-colors',
+        'group relative w-full rounded-lg border px-4 py-3 text-left transition-colors',
         isActive
           ? 'border-primary-500/50 bg-primary-600/10'
           : 'border-surface-border bg-surface-card hover:bg-surface-hover',
@@ -90,9 +96,33 @@ function SessionItem({
         <span className="text-sm font-medium text-primary-400">
           PR #{session.prNumber}
         </span>
-        <span className="text-xs text-text-muted">
-          {session.observationCount} obs
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-text-muted">
+            {session.observationCount} obs
+          </span>
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(session);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.stopPropagation();
+                onDelete(session);
+              }
+            }}
+            title="Delete session"
+            aria-label="Delete session"
+            className={cn(
+              'rounded-md p-1 text-text-muted opacity-0 transition-all hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100',
+              isMutating && 'pointer-events-none opacity-50',
+            )}
+          >
+            <TrashIcon className="h-3.5 w-3.5" />
+          </span>
+        </div>
       </div>
       <p className="mt-1 line-clamp-2 text-sm text-text-secondary">
         {session.summary}
@@ -242,16 +272,22 @@ export function Memory() {
   const deleteObservation = useDeleteObservation();
   const clearRepoMemory = useClearRepoMemory();
   const purgeAllMemory = usePurgeAllMemory();
+  const deleteSession = useDeleteSession();
+  const cleanupEmptySessions = useCleanupEmptySessions();
 
   const isMutating =
     deleteObservation.isPending ||
     clearRepoMemory.isPending ||
-    purgeAllMemory.isPending;
+    purgeAllMemory.isPending ||
+    deleteSession.isPending ||
+    cleanupEmptySessions.isPending;
 
   // ── Dialog state ──────────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = useState<Observation | null>(null);
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [showPurgeDialog, setShowPurgeDialog] = useState(false);
+  const [deleteSessionTarget, setDeleteSessionTarget] = useState<MemorySession | null>(null);
+  const [showCleanupDialog, setShowCleanupDialog] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
 
   // Reset session when repo changes
@@ -266,6 +302,8 @@ export function Memory() {
   // ── Computed values ───────────────────────────────────────────
   const totalObservationCount =
     sessions?.reduce((sum, s) => sum + s.observationCount, 0) ?? 0;
+
+  const hasEmptySessions = sessions?.some((s) => s.observationCount === 0) ?? false;
 
   // Filter observations by search
   const filteredObservations = observations?.filter((obs) => {
@@ -348,6 +386,48 @@ export function Memory() {
     });
   }
 
+  function handleDeleteSession() {
+    if (!deleteSessionTarget) return;
+    setDialogError(null);
+
+    deleteSession.mutate(
+      { sessionId: deleteSessionTarget.id },
+      {
+        onSuccess: () => {
+          const deletedId = deleteSessionTarget.id;
+          setDeleteSessionTarget(null);
+          if (selectedSessionId === deletedId) {
+            setSelectedSessionId(null);
+          }
+          addToast({ message: 'Session deleted', type: 'success' });
+        },
+        onError: (error) => {
+          setDialogError(getErrorMessage(error));
+        },
+      },
+    );
+  }
+
+  function handleCleanupEmptySessions() {
+    setDialogError(null);
+
+    cleanupEmptySessions.mutate(
+      { project: selectedRepo || undefined },
+      {
+        onSuccess: (data) => {
+          setShowCleanupDialog(false);
+          addToast({
+            message: `Removed ${data.deletedCount} empty session${data.deletedCount === 1 ? '' : 's'}`,
+            type: 'success',
+          });
+        },
+        onError: (error) => {
+          setDialogError(getErrorMessage(error));
+        },
+      },
+    );
+  }
+
   // ── Render ────────────────────────────────────────────────────
 
   return (
@@ -419,6 +499,19 @@ export function Memory() {
           <div className="flex gap-6">
             {/* Sessions sidebar */}
             <div className="w-72 flex-shrink-0 space-y-2">
+              {hasEmptySessions && (
+                <button
+                  onClick={() => {
+                    setDialogError(null);
+                    setShowCleanupDialog(true);
+                  }}
+                  disabled={isMutating}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-surface-border px-3 py-2 text-xs font-medium text-text-muted transition-colors hover:border-primary-500/30 hover:text-primary-400 disabled:opacity-50"
+                >
+                  <TrashIcon className="h-3.5 w-3.5" />
+                  Clean up empty sessions
+                </button>
+              )}
               {sessionsLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
@@ -434,6 +527,11 @@ export function Memory() {
                     session={session}
                     isActive={selectedSessionId === session.id}
                     onClick={() => setSelectedSessionId(session.id)}
+                    onDelete={(s) => {
+                      setDialogError(null);
+                      setDeleteSessionTarget(s);
+                    }}
+                    isMutating={isMutating}
                   />
                 ))
               )}
@@ -565,6 +663,58 @@ export function Memory() {
         confirmPlaceholder='Type "DELETE ALL" to confirm'
         countdownSeconds={5}
         isLoading={purgeAllMemory.isPending}
+        error={dialogError}
+      />
+
+      {/* ── Delete session ─────────────────────────────────────── */}
+      <ConfirmDialog
+        open={deleteSessionTarget !== null}
+        onConfirm={handleDeleteSession}
+        onCancel={() => {
+          if (!deleteSession.isPending) {
+            setDeleteSessionTarget(null);
+            setDialogError(null);
+          }
+        }}
+        title="Delete session"
+        description={
+          deleteSessionTarget
+            ? deleteSessionTarget.observationCount > 0
+              ? `This will delete the session for PR #${deleteSessionTarget.prNumber} and its ${deleteSessionTarget.observationCount} observation${deleteSessionTarget.observationCount === 1 ? '' : 's'}. This cannot be undone.`
+              : `Delete empty session for PR #${deleteSessionTarget.prNumber}?`
+            : ''
+        }
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        confirmText={
+          deleteSessionTarget && deleteSessionTarget.observationCount > 0
+            ? `PR #${deleteSessionTarget.prNumber}`
+            : undefined
+        }
+        confirmPlaceholder={
+          deleteSessionTarget && deleteSessionTarget.observationCount > 0
+            ? `Type "PR #${deleteSessionTarget.prNumber}" to confirm`
+            : undefined
+        }
+        isLoading={deleteSession.isPending}
+        error={dialogError}
+      />
+
+      {/* ── Cleanup empty sessions ─────────────────────────────── */}
+      <ConfirmDialog
+        open={showCleanupDialog}
+        onConfirm={handleCleanupEmptySessions}
+        onCancel={() => {
+          if (!cleanupEmptySessions.isPending) {
+            setShowCleanupDialog(false);
+            setDialogError(null);
+          }
+        }}
+        title="Clean up empty sessions"
+        description="Remove all sessions that have no observations. This cannot be undone."
+        confirmLabel="Clean Up"
+        confirmVariant="danger"
+        isLoading={cleanupEmptySessions.isPending}
         error={dialogError}
       />
     </div>

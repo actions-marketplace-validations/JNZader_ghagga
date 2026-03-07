@@ -27,6 +27,8 @@ const mockDecrypt = vi.fn();
 const mockDeleteMemoryObservation = vi.fn();
 const mockClearMemoryObservationsByProject = vi.fn();
 const mockClearAllMemoryObservations = vi.fn();
+const mockDeleteMemorySession = vi.fn();
+const mockClearEmptyMemorySessions = vi.fn();
 
 vi.mock('ghagga-db', () => ({
   getReviewsByRepoId: (...args: unknown[]) => mockGetReviewsByRepoId(...args),
@@ -44,6 +46,8 @@ vi.mock('ghagga-db', () => ({
   deleteMemoryObservation: (...args: unknown[]) => mockDeleteMemoryObservation(...args),
   clearMemoryObservationsByProject: (...args: unknown[]) => mockClearMemoryObservationsByProject(...args),
   clearAllMemoryObservations: (...args: unknown[]) => mockClearAllMemoryObservations(...args),
+  deleteMemorySession: (...args: unknown[]) => mockDeleteMemorySession(...args),
+  clearEmptyMemorySessions: (...args: unknown[]) => mockClearEmptyMemorySessions(...args),
   DEFAULT_REPO_SETTINGS: {
     enableSemgrep: true,
     enableTrivy: true,
@@ -1961,6 +1965,169 @@ describe('DELETE /api/memory/observations (purge-all)', () => {
     expect(res.status).toBe(500);
     const json = await res.json();
     expect(json.error).toBe('Failed to purge all memory observations');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// DELETE /api/memory/sessions/empty
+// ═══════════════════════════════════════════════════════════════════
+
+describe('DELETE /api/memory/sessions/empty', () => {
+  it('returns 200 with deletedCount when empty sessions are cleaned up', async () => {
+    mockClearEmptyMemorySessions.mockResolvedValueOnce({ deletedCount: 5 });
+
+    const app = createApp();
+    const res = await app.request('/api/memory/sessions/empty', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deletedCount: 5 });
+    expect(mockClearEmptyMemorySessions).toHaveBeenCalledWith(mockDb, 100, undefined);
+  });
+
+  it('passes project query parameter when provided', async () => {
+    mockClearEmptyMemorySessions.mockResolvedValueOnce({ deletedCount: 2 });
+
+    const app = createApp();
+    const res = await app.request('/api/memory/sessions/empty?project=owner/repo', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deletedCount: 2 });
+    expect(mockClearEmptyMemorySessions).toHaveBeenCalledWith(mockDb, 100, 'owner/repo');
+  });
+
+  it('returns 200 with deletedCount:0 when no empty sessions exist', async () => {
+    mockClearEmptyMemorySessions.mockResolvedValueOnce({ deletedCount: 0 });
+
+    const app = createApp();
+    const res = await app.request('/api/memory/sessions/empty', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deletedCount: 0 });
+  });
+
+  it('sums counts across multiple installations', async () => {
+    mockClearEmptyMemorySessions
+      .mockResolvedValueOnce({ deletedCount: 3 }) // installation 100
+      .mockResolvedValueOnce({ deletedCount: 2 }); // installation 200
+
+    const multiInstallUser = {
+      githubUserId: 1,
+      githubLogin: 'testuser',
+      installationIds: [100, 200],
+    };
+
+    const app = createApp(multiInstallUser);
+    const res = await app.request('/api/memory/sessions/empty', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deletedCount: 5 });
+    expect(mockClearEmptyMemorySessions).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns 500 when an error occurs', async () => {
+    mockClearEmptyMemorySessions.mockRejectedValueOnce(new Error('DB error'));
+
+    const app = createApp();
+    const res = await app.request('/api/memory/sessions/empty', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('Failed to cleanup empty memory sessions');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// DELETE /api/memory/sessions/:id
+// ═══════════════════════════════════════════════════════════════════
+
+describe('DELETE /api/memory/sessions/:id', () => {
+  it('returns 200 with deleted:true when session is deleted', async () => {
+    mockDeleteMemorySession.mockResolvedValueOnce({ deleted: true });
+
+    const app = createApp();
+    const res = await app.request('/api/memory/sessions/10', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deleted: true });
+    expect(mockDeleteMemorySession).toHaveBeenCalledWith(mockDb, 100, 10);
+  });
+
+  it('returns 404 when session is not found', async () => {
+    mockDeleteMemorySession.mockResolvedValueOnce({ deleted: false });
+
+    const app = createApp();
+    const res = await app.request('/api/memory/sessions/999', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toBe('Session not found');
+  });
+
+  it('returns 400 for invalid session ID', async () => {
+    const app = createApp();
+    const res = await app.request('/api/memory/sessions/abc', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('Invalid session ID');
+  });
+
+  it('tries each installationId until session is found', async () => {
+    mockDeleteMemorySession
+      .mockResolvedValueOnce({ deleted: false }) // installation 100 — not found
+      .mockResolvedValueOnce({ deleted: true }); // installation 200 — found
+
+    const multiInstallUser = {
+      githubUserId: 1,
+      githubLogin: 'testuser',
+      installationIds: [100, 200],
+    };
+
+    const app = createApp(multiInstallUser);
+    const res = await app.request('/api/memory/sessions/10', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deleted: true });
+    expect(mockDeleteMemorySession).toHaveBeenCalledTimes(2);
+    expect(mockDeleteMemorySession).toHaveBeenCalledWith(mockDb, 100, 10);
+    expect(mockDeleteMemorySession).toHaveBeenCalledWith(mockDb, 200, 10);
+  });
+
+  it('returns 500 when an error occurs', async () => {
+    mockDeleteMemorySession.mockRejectedValueOnce(new Error('DB error'));
+
+    const app = createApp();
+    const res = await app.request('/api/memory/sessions/10', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('Failed to delete memory session');
   });
 });
 

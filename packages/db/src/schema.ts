@@ -155,7 +155,7 @@ export const memoryObservations = pgTable(
   'memory_observations',
   {
     id: serial('id').primaryKey(),
-    sessionId: integer('session_id').references(() => memorySessions.id),
+    sessionId: integer('session_id').references(() => memorySessions.id, { onDelete: 'cascade' }),
     project: varchar('project', { length: 255 }).notNull(),
     type: varchar('type', { length: 30 }).notNull(), // decision | pattern | bugfix | learning | architecture | config | discovery
     title: varchar('title', { length: 500 }).notNull(),

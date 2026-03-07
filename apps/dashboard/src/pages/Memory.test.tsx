@@ -22,6 +22,8 @@ const mockPurgeMutate = vi.fn();
 const mockUseDeleteObservation = vi.fn();
 const mockUseClearRepoMemory = vi.fn();
 const mockUsePurgeAllMemory = vi.fn();
+const mockUseDeleteSession = vi.fn();
+const mockUseCleanupEmptySessions = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   useRepositories: () => mockUseRepositories(),
@@ -30,6 +32,8 @@ vi.mock('@/lib/api', () => ({
   useDeleteObservation: () => mockUseDeleteObservation(),
   useClearRepoMemory: () => mockUseClearRepoMemory(),
   usePurgeAllMemory: () => mockUsePurgeAllMemory(),
+  useDeleteSession: () => mockUseDeleteSession(),
+  useCleanupEmptySessions: () => mockUseCleanupEmptySessions(),
   ApiError: class ApiError extends Error {
     status: number;
     constructor(status: number, message: string) {
@@ -130,6 +134,14 @@ beforeEach(() => {
   });
   mockUsePurgeAllMemory.mockReturnValue({
     mutate: mockPurgeMutate,
+    isPending: false,
+  });
+  mockUseDeleteSession.mockReturnValue({
+    mutate: vi.fn(),
+    isPending: false,
+  });
+  mockUseCleanupEmptySessions.mockReturnValue({
+    mutate: vi.fn(),
     isPending: false,
   });
 });

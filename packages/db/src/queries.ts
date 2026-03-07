@@ -406,6 +406,15 @@ export async function saveObservation(
     .limit(1);
 
   if (existing) {
+    // If the existing observation is from a different session, reassign it
+    if (data.sessionId != null && existing.sessionId !== data.sessionId) {
+      const [updated] = await db
+        .update(memoryObservations)
+        .set({ sessionId: data.sessionId, updatedAt: new Date() })
+        .where(eq(memoryObservations.id, existing.id))
+        .returning();
+      return updated!;
+    }
     return existing; // Skip duplicate
   }
 
@@ -843,4 +852,71 @@ export async function deleteMappingsByInstallationId(
   await db
     .delete(githubUserMappings)
     .where(eq(githubUserMappings.installationId, installationId));
+}
+
+// ─── Memory: Session Deletion ───────────────────────────────────
+
+/**
+ * Delete a single memory session, scoped to installation.
+ * CASCADE will handle deleting associated observations.
+ * Returns whether a session was actually deleted.
+ */
+export async function deleteMemorySession(
+  db: Database,
+  installationId: number,
+  sessionId: number,
+): Promise<{ deleted: boolean }> {
+  const result = await db
+    .delete(memorySessions)
+    .where(
+      and(
+        eq(memorySessions.id, sessionId),
+        inArray(
+          memorySessions.project,
+          db
+            .select({ fullName: repositories.fullName })
+            .from(repositories)
+            .where(eq(repositories.installationId, installationId)),
+        ),
+      ),
+    )
+    .returning({ id: memorySessions.id });
+
+  return { deleted: result.length > 0 };
+}
+
+/**
+ * Delete all empty memory sessions (sessions with 0 observations).
+ * Scoped to installation, with optional project filter.
+ * Returns the count of deleted sessions.
+ */
+export async function clearEmptyMemorySessions(
+  db: Database,
+  installationId: number,
+  project?: string,
+): Promise<{ deletedCount: number }> {
+  const conditions: SQL[] = [
+    inArray(
+      memorySessions.project,
+      db
+        .select({ fullName: repositories.fullName })
+        .from(repositories)
+        .where(eq(repositories.installationId, installationId)),
+    ),
+    sql`NOT EXISTS (
+      SELECT 1 FROM ${memoryObservations}
+      WHERE ${memoryObservations.sessionId} = ${memorySessions.id}
+    )`,
+  ];
+
+  if (project) {
+    conditions.push(eq(memorySessions.project, project));
+  }
+
+  const result = await db
+    .delete(memorySessions)
+    .where(and(...conditions))
+    .returning({ id: memorySessions.id });
+
+  return { deletedCount: result.length };
 }

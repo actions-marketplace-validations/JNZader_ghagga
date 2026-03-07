@@ -23,6 +23,8 @@ import {
   deleteMemoryObservation,
   clearMemoryObservationsByProject,
   clearAllMemoryObservations,
+  deleteMemorySession,
+  clearEmptyMemorySessions,
 } from 'ghagga-db';
 import type { Database } from 'ghagga-db';
 import type { RepoSettings, DbProviderChainEntry } from 'ghagga-db';
@@ -788,6 +790,48 @@ export function createApiRouter(db: Database) {
     } catch (err) {
       logger.error({ err, user: user.githubLogin }, 'Failed to clear project memory observations');
       return c.json({ error: 'Failed to clear project memory observations' }, 500);
+    }
+  });
+
+  // ── DELETE /api/memory/sessions/empty ──────────────────────────
+  // Cleanup empty sessions (registered before :id route)
+  router.delete('/api/memory/sessions/empty', async (c) => {
+    const user = c.get('user') as AuthUser;
+    const project = c.req.query('project');
+
+    try {
+      let totalDeleted = 0;
+      for (const installationId of user.installationIds) {
+        const { deletedCount } = await clearEmptyMemorySessions(db, installationId, project);
+        totalDeleted += deletedCount;
+      }
+      return c.json({ data: { deletedCount: totalDeleted } });
+    } catch (err) {
+      logger.error({ err, user: user.githubLogin }, 'Failed to cleanup empty memory sessions');
+      return c.json({ error: 'Failed to cleanup empty memory sessions' }, 500);
+    }
+  });
+
+  // ── DELETE /api/memory/sessions/:id ───────────────────────────
+  router.delete('/api/memory/sessions/:id', async (c) => {
+    const user = c.get('user') as AuthUser;
+    const id = parseInt(c.req.param('id'), 10);
+
+    if (isNaN(id)) {
+      return c.json({ error: 'Invalid session ID' }, 400);
+    }
+
+    try {
+      for (const installationId of user.installationIds) {
+        const { deleted } = await deleteMemorySession(db, installationId, id);
+        if (deleted) {
+          return c.json({ data: { deleted: true } });
+        }
+      }
+      return c.json({ error: 'Session not found' }, 404);
+    } catch (err) {
+      logger.error({ err, user: user.githubLogin }, 'Failed to delete memory session');
+      return c.json({ error: 'Failed to delete memory session' }, 500);
     }
   });
 

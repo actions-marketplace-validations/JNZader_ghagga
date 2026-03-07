@@ -25,6 +25,8 @@ import {
   useDeleteObservation,
   useClearRepoMemory,
   usePurgeAllMemory,
+  useDeleteSession,
+  useCleanupEmptySessions,
 } from './api';
 import { createWrapper, createTestQueryClient } from '../test/test-utils';
 import type { QueryClient } from '@tanstack/react-query';
@@ -914,6 +916,161 @@ describe('usePurgeAllMemory', () => {
 
     act(() => {
       result.current.mutate();
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useDeleteSession
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useDeleteSession', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+  });
+
+  it('sends DELETE to /api/memory/sessions/:id', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { deleted: true } }),
+    );
+
+    const { result } = renderHook(() => useDeleteSession(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ sessionId: 7 });
+    });
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/memory/sessions/7');
+    expect(options.method).toBe('DELETE');
+  });
+
+  it('invalidates sessions and observations cache on success', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { deleted: true } }),
+    );
+
+    const { result } = renderHook(() => useDeleteSession(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ sessionId: 7 });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['memory', 'sessions'],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['memory', 'observations'],
+    });
+  });
+
+  it('reports error on API failure (404)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Session not found' }), { status: 404 }),
+    );
+
+    const { result } = renderHook(() => useDeleteSession(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => {
+      result.current.mutate({ sessionId: 999 });
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useCleanupEmptySessions
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useCleanupEmptySessions', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+  });
+
+  it('sends DELETE to /api/memory/sessions/empty with project param', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { deletedCount: 3 } }),
+    );
+
+    const { result } = renderHook(() => useCleanupEmptySessions(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ project: 'acme/app' });
+    });
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/memory/sessions/empty?project=acme%2Fapp');
+    expect(options.method).toBe('DELETE');
+  });
+
+  it('sends DELETE without project param when not provided', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { deletedCount: 5 } }),
+    );
+
+    const { result } = renderHook(() => useCleanupEmptySessions(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({});
+    });
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/memory/sessions/empty');
+    expect(url).not.toContain('?project');
+    expect(options.method).toBe('DELETE');
+  });
+
+  it('invalidates sessions cache on success', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { deletedCount: 2 } }),
+    );
+
+    const { result } = renderHook(() => useCleanupEmptySessions(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ project: 'acme/app' });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['memory', 'sessions'],
+    });
+  });
+
+  it('reports error on API failure (500)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response('Internal Server Error', { status: 500 }),
+    );
+
+    const { result } = renderHook(() => useCleanupEmptySessions(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => {
+      result.current.mutate({ project: 'acme/app' });
     });
 
     await waitFor(() => expect(result.current.isError).toBe(true));

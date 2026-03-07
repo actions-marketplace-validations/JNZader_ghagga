@@ -71,6 +71,8 @@ import {
   deleteMemoryObservation,
   clearMemoryObservationsByProject,
   clearAllMemoryObservations,
+  deleteMemorySession,
+  clearEmptyMemorySessions,
   getMemoryObservation,
   listMemoryObservations,
   getMemoryStats,
@@ -1477,5 +1479,92 @@ describe('getMemoryStats', () => {
     expect(result.totalObservations).toBe(0);
     expect(result.oldestDate).toBeNull();
     expect(result.newestDate).toBeNull();
+  });
+});
+
+// ─── Memory: Session Deletion ──────────────────────────────────
+
+describe('deleteMemorySession', () => {
+  it('should return { deleted: true } when session is deleted', async () => {
+    const { db } = createDeleteMockDb([{ id: 10 }]);
+
+    const result = await deleteMemorySession(db, 100, 10);
+
+    expect(result).toEqual({ deleted: true });
+  });
+
+  it('should return { deleted: false } when session is not found', async () => {
+    const { db } = createDeleteMockDb([]);
+
+    const result = await deleteMemorySession(db, 100, 999);
+
+    expect(result).toEqual({ deleted: false });
+  });
+
+  it('should return { deleted: false } when session belongs to different installation — IDOR prevention', async () => {
+    const { db } = createDeleteMockDb([]);
+
+    const result = await deleteMemorySession(db, 100, 10);
+
+    expect(result).toEqual({ deleted: false });
+  });
+
+  it('should call db.delete with the memorySessions table', async () => {
+    const { db, mockDelete } = createDeleteMockDb([]);
+
+    await deleteMemorySession(db, 100, 10);
+
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
+  it('should call db.select for the installation subquery', async () => {
+    const { db, mockSelect } = createDeleteMockDb([]);
+
+    await deleteMemorySession(db, 100, 10);
+
+    expect(mockSelect).toHaveBeenCalled();
+  });
+});
+
+describe('clearEmptyMemorySessions', () => {
+  it('should return deletedCount when empty sessions exist', async () => {
+    const deletedRows = [{ id: 1 }, { id: 2 }, { id: 3 }];
+    const { db } = createDeleteMockDb(deletedRows);
+
+    const result = await clearEmptyMemorySessions(db, 100);
+
+    expect(result).toEqual({ deletedCount: 3 });
+  });
+
+  it('should return deletedCount 0 when no empty sessions exist', async () => {
+    const { db } = createDeleteMockDb([]);
+
+    const result = await clearEmptyMemorySessions(db, 100);
+
+    expect(result).toEqual({ deletedCount: 0 });
+  });
+
+  it('should accept optional project filter', async () => {
+    const { db } = createDeleteMockDb([{ id: 1 }]);
+
+    const result = await clearEmptyMemorySessions(db, 100, 'acme/widgets');
+
+    expect(result).toEqual({ deletedCount: 1 });
+  });
+
+  it('should call db.delete with the memorySessions table', async () => {
+    const { db, mockDelete } = createDeleteMockDb([]);
+
+    await clearEmptyMemorySessions(db, 100);
+
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
+  it('should call db.select for the installation subquery', async () => {
+    const { db, mockSelect } = createDeleteMockDb([]);
+
+    await clearEmptyMemorySessions(db, 100);
+
+    expect(mockSelect).toHaveBeenCalled();
   });
 });

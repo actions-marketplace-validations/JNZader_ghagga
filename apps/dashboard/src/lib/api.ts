@@ -254,6 +254,34 @@ export function usePurgeAllMemory() {
   });
 }
 
+export function useDeleteSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ sessionId }: { sessionId: number }) =>
+      fetchData<{ deleted: boolean }>(`/api/memory/sessions/${sessionId}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['memory', 'sessions'] });
+      void queryClient.invalidateQueries({ queryKey: ['memory', 'observations'] });
+    },
+  });
+}
+
+export function useCleanupEmptySessions() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ project }: { project?: string } = {}) =>
+      fetchData<{ deletedCount: number }>(
+        `/api/memory/sessions/empty${project ? `?project=${encodeURIComponent(project)}` : ''}`,
+        { method: 'DELETE' },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['memory', 'sessions'] });
+    },
+  });
+}
+
 // ─── Runner ───────────────────────────────────────────────
 
 export function useRunnerStatus(ownerLogin?: string) {

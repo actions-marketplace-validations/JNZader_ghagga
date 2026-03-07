@@ -32,7 +32,7 @@ const SCHEMA_SQL = `
 
   CREATE TABLE IF NOT EXISTS memory_observations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id INTEGER REFERENCES memory_sessions(id),
+    session_id INTEGER REFERENCES memory_sessions(id) ON DELETE CASCADE,
     project TEXT NOT NULL,
     type TEXT NOT NULL,
     title TEXT NOT NULL,
@@ -174,8 +174,25 @@ export class SqliteMemoryStorage implements MemoryStorage {
 
     if (dedupRows.length > 0 && dedupRows[0]!.values.length > 0) {
       const row = dedupRows[0]!.values[0]!;
+      const existingId = row[0] as number;
+
+      // If the existing observation is from a different session, reassign it
+      if (data.sessionId != null) {
+        const existingSessionRows = this.db.exec(
+          `SELECT session_id FROM memory_observations WHERE id = ?`,
+          [existingId],
+        );
+        const existingSessionId = existingSessionRows[0]?.values[0]?.[0] as number | null;
+        if (existingSessionId !== data.sessionId) {
+          this.db.run(
+            `UPDATE memory_observations SET session_id = ?, updated_at = datetime('now') WHERE id = ?`,
+            [data.sessionId, existingId],
+          );
+        }
+      }
+
       return {
-        id: row[0] as number,
+        id: existingId,
         type: row[1] as string,
         title: row[2] as string,
         content: row[3] as string,
