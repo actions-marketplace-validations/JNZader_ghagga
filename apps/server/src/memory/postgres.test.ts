@@ -57,8 +57,8 @@ describe('PostgresMemoryStorage — core methods', () => {
 
       expect(mockSearchObservations).toHaveBeenCalledWith(fakeDb, 'owner/repo', 'search query', undefined);
       expect(result).toEqual([
-        { id: 1, type: 'pattern', title: 'Title A', content: 'Content A', filePaths: ['src/a.ts'] },
-        { id: 2, type: 'decision', title: 'Title B', content: 'Content B', filePaths: null },
+        { id: 1, type: 'pattern', title: 'Title A', content: 'Content A', filePaths: ['src/a.ts'], severity: null },
+        { id: 2, type: 'decision', title: 'Title B', content: 'Content B', filePaths: null, severity: null },
       ]);
     });
 
@@ -110,6 +110,7 @@ describe('PostgresMemoryStorage — core methods', () => {
         title: 'New Pattern',
         content: 'Details here',
         filePaths: ['src/auth.ts'],
+        severity: null,
       });
     });
 
@@ -210,6 +211,7 @@ describe('PostgresMemoryStorage — management methods', () => {
           title: 'Auth pattern',
           content: 'Use JWT',
           filePaths: ['src/auth.ts'],
+          severity: null,
           project: 'acme/app',
           topicKey: 'auth',
           revisionCount: 2,
@@ -267,6 +269,7 @@ describe('PostgresMemoryStorage — management methods', () => {
         title: 'Auth pattern',
         content: 'Use JWT',
         filePaths: ['src/auth.ts'],
+        severity: null,
         project: 'acme/app',
         topicKey: 'auth',
         revisionCount: 1,
