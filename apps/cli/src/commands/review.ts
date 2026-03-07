@@ -12,6 +12,7 @@ import { resolve, join } from 'node:path';
 import {
   reviewPipeline,
   DEFAULT_SETTINGS,
+  SqliteMemoryStorage,
 } from 'ghagga-core';
 import type {
   ReviewMode,
@@ -22,7 +23,10 @@ import type {
   FindingSeverity,
   ProgressCallback,
   ProgressEvent,
+  MemoryStorage,
 } from 'ghagga-core';
+import { resolveProjectId } from '../lib/git.js';
+import { getConfigDir } from '../lib/config.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -35,6 +39,7 @@ export interface ReviewOptions {
   semgrep: boolean;
   trivy: boolean;
   cpd: boolean;
+  memory: boolean;
   config?: string;
   verbose: boolean;
 }
@@ -59,6 +64,8 @@ export async function reviewCommand(
 ): Promise<void> {
   const repoPath = resolve(targetPath);
 
+  let memoryStorage: MemoryStorage | undefined;
+
   try {
     // Step 1: Get the git diff
     const diff = getGitDiff(repoPath);
@@ -79,6 +86,20 @@ export async function reviewCommand(
     console.log(`   Mode: ${options.mode} | Provider: ${options.provider} | Model: ${options.model}`);
     console.log('   Analyzing...\n');
 
+    // Step 4.5: Initialize memory storage (SQLite, file-backed)
+    const repoFullName = resolveProjectId(repoPath);
+
+    if (options.memory) {
+      try {
+        const dbPath = join(getConfigDir(), 'memory.db');
+        memoryStorage = await SqliteMemoryStorage.create(dbPath);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.warn(`\u26a0\ufe0f  Failed to initialize memory: ${msg}`);
+        memoryStorage = undefined;
+      }
+    }
+
     // Step 5: Run the review pipeline
     const onProgress: ProgressCallback | undefined = options.verbose
       ? createProgressHandler()
@@ -92,14 +113,17 @@ export async function reviewCommand(
       apiKey: options.apiKey,
       settings,
       context: {
-        repoFullName: 'local/review',
+        repoFullName,
         prNumber: 0,
         commitMessages: [],
         fileList: [],
       },
-      db: undefined,
+      memoryStorage,
       onProgress,
     });
+
+    // Step 5.5: Persist memory to disk
+    await memoryStorage?.close();
 
     // Step 6: Output the result
     if (options.format === 'json') {
@@ -112,6 +136,9 @@ export async function reviewCommand(
     const exitCode = getExitCode(result.status);
     process.exit(exitCode);
   } catch (error) {
+    // Ensure memory is persisted even on error
+    await memoryStorage?.close().catch(() => {});
+
     const message = error instanceof Error ? error.message : String(error);
     console.error(`\n\u274c Review failed: ${message}`);
     process.exit(1);
@@ -196,7 +223,7 @@ function mergeSettings(
     enableSemgrep: options.semgrep ?? fileConfig.enableSemgrep ?? DEFAULT_SETTINGS.enableSemgrep,
     enableTrivy: options.trivy ?? fileConfig.enableTrivy ?? DEFAULT_SETTINGS.enableTrivy,
     enableCpd: options.cpd ?? fileConfig.enableCpd ?? DEFAULT_SETTINGS.enableCpd,
-    enableMemory: false, // Memory is disabled in CLI mode
+    enableMemory: options.memory ?? true, // Memory enabled by default, --no-memory disables
     customRules: fileConfig.customRules ?? DEFAULT_SETTINGS.customRules,
     ignorePatterns: fileConfig.ignorePatterns ?? DEFAULT_SETTINGS.ignorePatterns,
     reviewLevel: (fileConfig.reviewLevel as ReviewSettings['reviewLevel']) ?? DEFAULT_SETTINGS.reviewLevel,

@@ -27,6 +27,7 @@ const logger = rootLogger.child({ module: 'review' });
 import type { ReviewInput, ReviewMode, LLMProvider, ReviewLevel, ProviderChainEntry, StaticAnalysisResult } from 'ghagga-core';
 import { createDatabaseFromEnv, saveReview, decrypt } from 'ghagga-db';
 import type { Database, DbProviderChainEntry } from 'ghagga-db';
+import { PostgresMemoryStorage } from '../memory/postgres.js';
 
 // ─── Inngest Function ───────────────────────────────────────────
 
@@ -246,6 +247,8 @@ export const reviewFunction = inngest.createFunction(
         logger.warn({ repoFullName }, 'Database unavailable for memory features');
       }
 
+      const memoryStorage = db ? new PostgresMemoryStorage(db) : undefined;
+
       const input: ReviewInput = {
         diff: context.diff,
         mode: reviewMode as ReviewMode,
@@ -273,7 +276,7 @@ export const reviewFunction = inngest.createFunction(
           commitMessages: context.commitMessages,
           fileList: context.fileList,
         },
-        db,
+        memoryStorage,
       };
 
       return await reviewPipeline(input);

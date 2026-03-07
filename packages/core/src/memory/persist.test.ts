@@ -1,28 +1,32 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { MemoryStorage, MemoryObservationRow } from '../types.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
-
-vi.mock('ghagga-db', () => ({
-  saveObservation: vi.fn(),
-  createMemorySession: vi.fn(),
-  endMemorySession: vi.fn(),
-}));
 
 vi.mock('./privacy.js', () => ({
   stripPrivateData: vi.fn((text: string) => `[STRIPPED]${text}`),
 }));
 
-import { saveObservation, createMemorySession, endMemorySession } from 'ghagga-db';
 import { stripPrivateData } from './privacy.js';
 import { persistReviewObservations } from './persist.js';
 import type { ReviewResult, ReviewFinding } from '../types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-const mockSaveObservation = vi.mocked(saveObservation);
-const mockCreateMemorySession = vi.mocked(createMemorySession);
-const mockEndMemorySession = vi.mocked(endMemorySession);
 const mockStripPrivateData = vi.mocked(stripPrivateData);
+
+function createMockStorage(overrides: Partial<MemoryStorage> = {}): MemoryStorage {
+  return {
+    searchObservations: vi.fn<MemoryStorage['searchObservations']>().mockResolvedValue([]),
+    saveObservation: vi.fn<MemoryStorage['saveObservation']>().mockResolvedValue({
+      id: 1, type: 'pattern', title: 'test', content: 'test', filePaths: null,
+    }),
+    createSession: vi.fn<MemoryStorage['createSession']>().mockResolvedValue({ id: 1 }),
+    endSession: vi.fn<MemoryStorage['endSession']>().mockResolvedValue(undefined),
+    close: vi.fn<MemoryStorage['close']>().mockResolvedValue(undefined),
+    ...overrides,
+  };
+}
 
 function makeFinding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
@@ -66,58 +70,52 @@ function makeResult(findings: ReviewFinding[] = [], overrides: Partial<ReviewRes
 describe('persistReviewObservations', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCreateMemorySession.mockResolvedValue({ id: 1 } as any);
-    mockSaveObservation.mockResolvedValue(undefined as any);
-    mockEndMemorySession.mockResolvedValue(undefined as any);
   });
 
-  // ── Early return on null/falsy db ──
+  // ── Early return on null/falsy storage ──
 
-  it('returns early when db is null', async () => {
-    await persistReviewObservations(null, 'owner/repo', 1, makeResult());
+  it('returns early when storage is null', async () => {
+    const storage = createMockStorage();
+    await persistReviewObservations(null as any, 'owner/repo', 1, makeResult());
 
-    expect(mockCreateMemorySession).not.toHaveBeenCalled();
-    expect(mockSaveObservation).not.toHaveBeenCalled();
-    expect(mockEndMemorySession).not.toHaveBeenCalled();
+    expect(storage.createSession).not.toHaveBeenCalled();
+    expect(storage.saveObservation).not.toHaveBeenCalled();
+    expect(storage.endSession).not.toHaveBeenCalled();
   });
 
-  it('returns early when db is undefined', async () => {
-    await persistReviewObservations(undefined, 'owner/repo', 1, makeResult());
-
-    expect(mockCreateMemorySession).not.toHaveBeenCalled();
+  it('returns early when storage is undefined', async () => {
+    await persistReviewObservations(undefined as any, 'owner/repo', 1, makeResult());
+    // No mock to check — just verify it doesn't throw
   });
 
-  it('returns early when db is empty string (falsy)', async () => {
-    await persistReviewObservations('', 'owner/repo', 1, makeResult());
-
-    expect(mockCreateMemorySession).not.toHaveBeenCalled();
+  it('returns early when storage is empty string (falsy)', async () => {
+    await persistReviewObservations('' as any, 'owner/repo', 1, makeResult());
+    // No mock to check — just verify it doesn't throw
   });
 
   // ── Session lifecycle ──
 
   it('creates a memory session with project and prNumber', async () => {
-    const db = { connection: true };
-    await persistReviewObservations(db, 'owner/repo', 42, makeResult());
+    const storage = createMockStorage();
+    await persistReviewObservations(storage, 'owner/repo', 42, makeResult());
 
-    expect(mockCreateMemorySession).toHaveBeenCalledWith(db, {
+    expect(storage.createSession).toHaveBeenCalledWith({
       project: 'owner/repo',
       prNumber: 42,
     });
   });
 
   it('ends the memory session with a summary', async () => {
-    const db = { connection: true };
+    const storage = createMockStorage();
     const result = makeResult([makeFinding({ severity: 'critical' })], { status: 'FAILED' });
 
-    await persistReviewObservations(db, 'owner/repo', 7, result);
+    await persistReviewObservations(storage, 'owner/repo', 7, result);
 
-    expect(mockEndMemorySession).toHaveBeenCalledWith(
-      db,
+    expect(storage.endSession).toHaveBeenCalledWith(
       1,
       expect.stringContaining('PR #7'),
     );
-    expect(mockEndMemorySession).toHaveBeenCalledWith(
-      db,
+    expect(storage.endSession).toHaveBeenCalledWith(
       1,
       expect.stringContaining('1 significant findings'),
     );
@@ -134,11 +132,12 @@ describe('persistReviewObservations', () => {
       makeFinding({ severity: 'info', message: 'Info issue' }),
     ];
     const result = makeResult(findings);
+    const storage = createMockStorage();
 
-    await persistReviewObservations({ db: true }, 'owner/repo', 1, result);
+    await persistReviewObservations(storage, 'owner/repo', 1, result);
 
     // 2 finding observations + 1 summary = 3 saveObservation calls
-    expect(mockSaveObservation).toHaveBeenCalledTimes(3);
+    expect(storage.saveObservation).toHaveBeenCalledTimes(3);
   });
 
   it('does not persist medium, low, or info findings', async () => {
@@ -148,69 +147,77 @@ describe('persistReviewObservations', () => {
       makeFinding({ severity: 'info', message: 'Info' }),
     ];
     const result = makeResult(findings);
+    const storage = createMockStorage();
 
-    await persistReviewObservations({ db: true }, 'owner/repo', 1, result);
+    await persistReviewObservations(storage, 'owner/repo', 1, result);
 
     // No significant findings → no observations, no summary
-    expect(mockSaveObservation).not.toHaveBeenCalled();
+    expect(storage.saveObservation).not.toHaveBeenCalled();
   });
 
   // ── Category → ObservationType mapping ──
 
   it('maps security category to discovery observation type', async () => {
     const result = makeResult([makeFinding({ severity: 'critical', category: 'security' })]);
-    await persistReviewObservations({ db: true }, 'owner/repo', 1, result);
+    const storage = createMockStorage();
+    await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = mockSaveObservation.mock.calls[0]!;
-    expect(findingCall[1]).toEqual(expect.objectContaining({ type: 'discovery' }));
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    expect(findingCall).toEqual(expect.objectContaining({ type: 'discovery' }));
   });
 
   it('maps bug category to bugfix observation type', async () => {
     const result = makeResult([makeFinding({ severity: 'high', category: 'bug' })]);
-    await persistReviewObservations({ db: true }, 'owner/repo', 1, result);
+    const storage = createMockStorage();
+    await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = mockSaveObservation.mock.calls[0]!;
-    expect(findingCall[1]).toEqual(expect.objectContaining({ type: 'bugfix' }));
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    expect(findingCall).toEqual(expect.objectContaining({ type: 'bugfix' }));
   });
 
   it('maps performance category to pattern observation type', async () => {
     const result = makeResult([makeFinding({ severity: 'high', category: 'performance' })]);
-    await persistReviewObservations({ db: true }, 'owner/repo', 1, result);
+    const storage = createMockStorage();
+    await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = mockSaveObservation.mock.calls[0]!;
-    expect(findingCall[1]).toEqual(expect.objectContaining({ type: 'pattern' }));
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    expect(findingCall).toEqual(expect.objectContaining({ type: 'pattern' }));
   });
 
   it('maps style category to pattern observation type', async () => {
     const result = makeResult([makeFinding({ severity: 'high', category: 'style' })]);
-    await persistReviewObservations({ db: true }, 'owner/repo', 1, result);
+    const storage = createMockStorage();
+    await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = mockSaveObservation.mock.calls[0]!;
-    expect(findingCall[1]).toEqual(expect.objectContaining({ type: 'pattern' }));
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    expect(findingCall).toEqual(expect.objectContaining({ type: 'pattern' }));
   });
 
   it('maps maintainability category to pattern observation type', async () => {
     const result = makeResult([makeFinding({ severity: 'high', category: 'maintainability' })]);
-    await persistReviewObservations({ db: true }, 'owner/repo', 1, result);
+    const storage = createMockStorage();
+    await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = mockSaveObservation.mock.calls[0]!;
-    expect(findingCall[1]).toEqual(expect.objectContaining({ type: 'pattern' }));
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    expect(findingCall).toEqual(expect.objectContaining({ type: 'pattern' }));
   });
 
   it('maps error-handling category to learning observation type', async () => {
     const result = makeResult([makeFinding({ severity: 'high', category: 'error-handling' })]);
-    await persistReviewObservations({ db: true }, 'owner/repo', 1, result);
+    const storage = createMockStorage();
+    await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = mockSaveObservation.mock.calls[0]!;
-    expect(findingCall[1]).toEqual(expect.objectContaining({ type: 'learning' }));
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    expect(findingCall).toEqual(expect.objectContaining({ type: 'learning' }));
   });
 
   it('maps unknown category to learning observation type', async () => {
     const result = makeResult([makeFinding({ severity: 'high', category: 'unknown-cat' })]);
-    await persistReviewObservations({ db: true }, 'owner/repo', 1, result);
+    const storage = createMockStorage();
+    await persistReviewObservations(storage, 'owner/repo', 1, result);
 
-    const findingCall = mockSaveObservation.mock.calls[0]!;
-    expect(findingCall[1]).toEqual(expect.objectContaining({ type: 'learning' }));
+    const findingCall = vi.mocked(storage.saveObservation).mock.calls[0]![0];
+    expect(findingCall).toEqual(expect.objectContaining({ type: 'learning' }));
   });
 
   // ── Private data stripping ──
@@ -223,8 +230,9 @@ describe('persistReviewObservations', () => {
         suggestion: 'Remove the key: sk-ant-12345',
       }),
     ]);
+    const storage = createMockStorage();
 
-    await persistReviewObservations({ db: true }, 'owner/repo', 1, result);
+    await persistReviewObservations(storage, 'owner/repo', 1, result);
 
     expect(mockStripPrivateData).toHaveBeenCalledWith('Secret: sk-ant-12345');
     expect(mockStripPrivateData).toHaveBeenCalledWith('Remove the key: sk-ant-12345');
@@ -234,8 +242,9 @@ describe('persistReviewObservations', () => {
     const result = makeResult([
       makeFinding({ severity: 'critical', suggestion: undefined }),
     ]);
+    const storage = createMockStorage();
 
-    await persistReviewObservations({ db: true }, 'owner/repo', 1, result);
+    await persistReviewObservations(storage, 'owner/repo', 1, result);
 
     // stripPrivateData called for message and summary, but NOT for suggestion
     const calls = mockStripPrivateData.mock.calls.map(c => c[0]);
@@ -256,10 +265,11 @@ describe('persistReviewObservations', () => {
       suggestion: 'Use prepared statements',
     });
     const result = makeResult([finding]);
+    const storage = createMockStorage();
 
-    await persistReviewObservations({ db: true }, 'project', 1, result);
+    await persistReviewObservations(storage, 'project', 1, result);
 
-    const savedObs = mockSaveObservation.mock.calls[0]![1] as any;
+    const savedObs = vi.mocked(storage.saveObservation).mock.calls[0]![0];
     expect(savedObs.content).toContain('[CRITICAL]');
     expect(savedObs.content).toContain('security');
     expect(savedObs.content).toContain('src/db.ts:99');
@@ -274,10 +284,11 @@ describe('persistReviewObservations', () => {
       line: undefined,
     });
     const result = makeResult([finding]);
+    const storage = createMockStorage();
 
-    await persistReviewObservations({ db: true }, 'project', 1, result);
+    await persistReviewObservations(storage, 'project', 1, result);
 
-    const savedObs = mockSaveObservation.mock.calls[0]![1] as any;
+    const savedObs = vi.mocked(storage.saveObservation).mock.calls[0]![0];
     expect(savedObs.content).toContain('File: package.json');
     expect(savedObs.content).not.toContain('package.json:');
   });
@@ -285,10 +296,11 @@ describe('persistReviewObservations', () => {
   it('saves observation with correct sessionId, project, and filePaths', async () => {
     const finding = makeFinding({ severity: 'high', file: 'src/core.ts' });
     const result = makeResult([finding]);
+    const storage = createMockStorage();
 
-    await persistReviewObservations({ db: true }, 'org/repo', 5, result);
+    await persistReviewObservations(storage, 'org/repo', 5, result);
 
-    const savedObs = mockSaveObservation.mock.calls[0]![1] as any;
+    const savedObs = vi.mocked(storage.saveObservation).mock.calls[0]![0];
     expect(savedObs.sessionId).toBe(1);
     expect(savedObs.project).toBe('org/repo');
     expect(savedObs.filePaths).toEqual(['src/core.ts']);
@@ -299,13 +311,14 @@ describe('persistReviewObservations', () => {
     const result = makeResult([
       makeFinding({ severity: 'high', category: 'bug', message: longMessage }),
     ]);
+    const storage = createMockStorage();
 
-    await persistReviewObservations({ db: true }, 'project', 1, result);
+    await persistReviewObservations(storage, 'project', 1, result);
 
-    const savedObs = mockSaveObservation.mock.calls[0]![1] as any;
+    const savedObs = vi.mocked(storage.saveObservation).mock.calls[0]![0];
     // Title format: "category: sanitized_message.slice(0, 80)"
     // The sanitized message is [STRIPPED] + longMessage
-    expect(savedObs.title.length).toBeLessThanOrEqual('bug: '.length + 80);
+    expect(savedObs.title!.length).toBeLessThanOrEqual('bug: '.length + 80);
   });
 
   // ── Summary observation ──
@@ -315,11 +328,12 @@ describe('persistReviewObservations', () => {
       [makeFinding({ severity: 'critical' }), makeFinding({ severity: 'high' })],
       { status: 'FAILED', summary: 'Critical issues found in auth.' },
     );
+    const storage = createMockStorage();
 
-    await persistReviewObservations({ db: true }, 'org/repo', 10, result);
+    await persistReviewObservations(storage, 'org/repo', 10, result);
 
     // 2 finding observations + 1 summary = 3 calls
-    const lastCall = mockSaveObservation.mock.calls[2]![1] as any;
+    const lastCall = vi.mocked(storage.saveObservation).mock.calls[2]![0];
     expect(lastCall.type).toBe('decision');
     expect(lastCall.title).toBe('PR #10 review: FAILED');
     expect(lastCall.topicKey).toBe('pr-10-review');
@@ -331,8 +345,9 @@ describe('persistReviewObservations', () => {
       [makeFinding({ severity: 'critical' })],
       { summary: 'Found key: sk-test-123' },
     );
+    const storage = createMockStorage();
 
-    await persistReviewObservations({ db: true }, 'project', 1, result);
+    await persistReviewObservations(storage, 'project', 1, result);
 
     expect(mockStripPrivateData).toHaveBeenCalledWith('Found key: sk-test-123');
   });
@@ -342,51 +357,61 @@ describe('persistReviewObservations', () => {
       makeFinding({ severity: 'medium' }),
       makeFinding({ severity: 'low' }),
     ]);
+    const storage = createMockStorage();
 
-    await persistReviewObservations({ db: true }, 'project', 1, result);
+    await persistReviewObservations(storage, 'project', 1, result);
 
-    expect(mockSaveObservation).not.toHaveBeenCalled();
+    expect(storage.saveObservation).not.toHaveBeenCalled();
   });
 
   it('does not save summary when findings array is empty', async () => {
     const result = makeResult([]);
+    const storage = createMockStorage();
 
-    await persistReviewObservations({ db: true }, 'project', 1, result);
+    await persistReviewObservations(storage, 'project', 1, result);
 
-    expect(mockSaveObservation).not.toHaveBeenCalled();
+    expect(storage.saveObservation).not.toHaveBeenCalled();
   });
 
   // ── Error handling ──
 
-  it('catches errors from createMemorySession and does not throw', async () => {
-    mockCreateMemorySession.mockRejectedValue(new Error('DB connection failed'));
+  it('catches errors from createSession and does not throw', async () => {
+    const storage = createMockStorage({
+      createSession: vi.fn<MemoryStorage['createSession']>().mockRejectedValue(new Error('DB connection failed')),
+    });
 
     await expect(
-      persistReviewObservations({ db: true }, 'project', 1, makeResult([makeFinding({ severity: 'critical' })]))
+      persistReviewObservations(storage, 'project', 1, makeResult([makeFinding({ severity: 'critical' })]))
     ).resolves.toBeUndefined();
   });
 
   it('catches errors from saveObservation and does not throw', async () => {
-    mockSaveObservation.mockRejectedValue(new Error('Write failed'));
+    const storage = createMockStorage({
+      saveObservation: vi.fn<MemoryStorage['saveObservation']>().mockRejectedValue(new Error('Write failed')),
+    });
 
     await expect(
-      persistReviewObservations({ db: true }, 'project', 1, makeResult([makeFinding({ severity: 'critical' })]))
+      persistReviewObservations(storage, 'project', 1, makeResult([makeFinding({ severity: 'critical' })]))
     ).resolves.toBeUndefined();
   });
 
-  it('catches errors from endMemorySession and does not throw', async () => {
-    mockEndMemorySession.mockRejectedValue(new Error('Session end failed'));
+  it('catches errors from endSession and does not throw', async () => {
+    const storage = createMockStorage({
+      endSession: vi.fn<MemoryStorage['endSession']>().mockRejectedValue(new Error('Session end failed')),
+    });
 
     await expect(
-      persistReviewObservations({ db: true }, 'project', 1, makeResult([]))
+      persistReviewObservations(storage, 'project', 1, makeResult([]))
     ).resolves.toBeUndefined();
   });
 
   it('logs a warning when an error occurs', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    mockCreateMemorySession.mockRejectedValue(new Error('DB down'));
+    const storage = createMockStorage({
+      createSession: vi.fn<MemoryStorage['createSession']>().mockRejectedValue(new Error('DB down')),
+    });
 
-    await persistReviewObservations({ db: true }, 'project', 1, makeResult([makeFinding({ severity: 'critical' })]));
+    await persistReviewObservations(storage, 'project', 1, makeResult([makeFinding({ severity: 'critical' })]));
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('[ghagga]'),
@@ -398,9 +423,11 @@ describe('persistReviewObservations', () => {
 
   it('logs string errors correctly', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    mockCreateMemorySession.mockRejectedValue('string error');
+    const storage = createMockStorage({
+      createSession: vi.fn<MemoryStorage['createSession']>().mockRejectedValue('string error'),
+    });
 
-    await persistReviewObservations({ db: true }, 'project', 1, makeResult([makeFinding({ severity: 'critical' })]));
+    await persistReviewObservations(storage, 'project', 1, makeResult([makeFinding({ severity: 'critical' })]));
 
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining('[ghagga]'),

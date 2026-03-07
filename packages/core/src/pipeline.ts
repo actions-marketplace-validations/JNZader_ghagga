@@ -252,11 +252,10 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
   // Update execution time to cover the full pipeline
   result.metadata.executionTimeMs = Date.now() - startTime;
 
-  // ── Step 8: Persist to memory (fire-and-forget) ────────────
-  if (input.settings.enableMemory && input.db && input.context) {
-    // Don't await — memory persistence shouldn't block the response
-    persistReviewObservations(
-      input.db,
+  // ── Step 8: Persist to memory (awaited for SQLite correctness) ──
+  if (input.settings.enableMemory && input.memoryStorage && input.context) {
+    await persistReviewObservations(
+      input.memoryStorage,
       input.context.repoFullName,
       input.context.prNumber,
       result,
@@ -366,13 +365,13 @@ async function searchMemorySafe(
   input: ReviewInput,
   fileList: string[],
 ): Promise<string | null> {
-  if (!input.settings.enableMemory || !input.db || !input.context) {
+  if (!input.settings.enableMemory || !input.memoryStorage || !input.context) {
     return null;
   }
 
   try {
     return await searchMemoryForContext(
-      input.db,
+      input.memoryStorage,
       input.context.repoFullName,
       fileList,
     );

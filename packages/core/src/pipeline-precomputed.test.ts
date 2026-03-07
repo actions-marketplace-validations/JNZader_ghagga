@@ -145,7 +145,7 @@ function makeInput(overrides: Partial<ReviewInput> = {}): ReviewInput {
       commitMessages: [],
       fileList: [],
     },
-    db: undefined,
+    memoryStorage: undefined,
     ...overrides,
   };
 }
@@ -322,7 +322,7 @@ describe('reviewPipeline — precomputed static analysis', () => {
           ignorePatterns: [],
           reviewLevel: 'normal',
         },
-        db: {} as unknown,
+        memoryStorage: {} as unknown,
       }));
 
       expect(searchMemoryForContext).toHaveBeenCalledOnce();

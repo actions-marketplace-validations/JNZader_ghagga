@@ -6,9 +6,8 @@
  * the same project can benefit from past context.
  */
 
-import { saveObservation, createMemorySession, endMemorySession } from 'ghagga-db';
 import { stripPrivateData } from './privacy.js';
-import type { ReviewResult, ReviewFinding, ObservationType } from '../types.js';
+import type { MemoryStorage, ReviewResult, ReviewFinding, ObservationType } from '../types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -48,27 +47,25 @@ function isSignificantFinding(finding: ReviewFinding): boolean {
  * Persist notable review findings as memory observations.
  *
  * Creates a memory session for the review, extracts significant
- * findings, strips private data, and saves them via ghagga-db.
- * Gracefully handles database errors without propagating them.
+ * findings, strips private data, and saves them via MemoryStorage.
+ * Gracefully handles storage errors without propagating them.
  *
- * @param db - Database instance (typed as unknown for loose coupling)
+ * @param storage - Memory storage backend (SQLite or PostgreSQL)
  * @param project - Project identifier (e.g., "owner/repo")
  * @param prNumber - Pull request number
  * @param result - The completed review result
  */
 export async function persistReviewObservations(
-  db: unknown,
+  storage: MemoryStorage,
   project: string,
   prNumber: number,
   result: ReviewResult,
 ): Promise<void> {
   try {
-    if (!db) return;
-
-    const typedDb = db as Parameters<typeof saveObservation>[0];
+    if (!storage) return;
 
     // Create a memory session for this review
-    const session = await createMemorySession(typedDb, { project, prNumber });
+    const session = await storage.createSession({ project, prNumber });
 
     // Extract significant findings as observations
     const significantFindings = result.findings.filter(isSignificantFinding);
@@ -88,7 +85,7 @@ export async function persistReviewObservations(
         .filter(Boolean)
         .join('\n');
 
-      await saveObservation(typedDb, {
+      await storage.saveObservation({
         sessionId: session.id,
         project,
         type: findingToObservationType(finding),
@@ -100,7 +97,7 @@ export async function persistReviewObservations(
 
     // Save a summary observation for the overall review
     if (significantFindings.length > 0) {
-      await saveObservation(typedDb, {
+      await storage.saveObservation({
         sessionId: session.id,
         project,
         type: 'decision',
@@ -112,8 +109,7 @@ export async function persistReviewObservations(
     }
 
     // End the session with a summary
-    await endMemorySession(
-      typedDb,
+    await storage.endSession(
       session.id,
       `Review of PR #${prNumber}: ${result.status} with ${significantFindings.length} significant findings.`,
     );

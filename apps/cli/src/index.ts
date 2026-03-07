@@ -105,6 +105,7 @@ program
   .option('--no-semgrep', 'Disable Semgrep static analysis')
   .option('--no-trivy', 'Disable Trivy vulnerability scanning')
   .option('--no-cpd', 'Disable CPD duplicate detection')
+  .option('--no-memory', 'Disable review memory')
   .option('-c, --config <path>', 'Path to .ghagga.json config file')
   .option('-v, --verbose', 'Show detailed progress during review')
   .action(async (path: string, options: ReviewCommandOptions) => {
@@ -182,6 +183,7 @@ program
       semgrep: options.semgrep,
       trivy: options.trivy,
       cpd: options.cpd,
+      memory: options.memory,
       config: options.config,
       verbose: options.verbose ?? false,
     });
@@ -200,6 +202,7 @@ interface ReviewCommandOptions {
   semgrep: boolean;
   trivy: boolean;
   cpd: boolean;
+  memory: boolean;
   config?: string;
   verbose: boolean;
 }

@@ -27,7 +27,7 @@ export interface GhaggaCliConfig {
 
 // ─── Paths ──────────────────────────────────────────────────────
 
-function getConfigDir(): string {
+export function getConfigDir(): string {
   const xdgConfig = process.env['XDG_CONFIG_HOME'];
   const base = xdgConfig || join(homedir(), '.config');
   return join(base, 'ghagga');

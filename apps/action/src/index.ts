@@ -22,15 +22,18 @@
 
 import * as core from '@actions/core';
 import * as github from '@actions/github';
+import * as cache from '@actions/cache';
 import {
   reviewPipeline,
   DEFAULT_SETTINGS,
   DEFAULT_MODELS,
   formatReviewComment,
+  SqliteMemoryStorage,
 } from 'ghagga-core';
 import type {
   LLMProvider,
   ReviewMode,
+  MemoryStorage,
 } from 'ghagga-core';
 import { runLocalAnalysis } from './tools/index.js';
 
@@ -47,6 +50,7 @@ async function run(): Promise<void> {
     const enableSemgrep = core.getInput('enable-semgrep') !== 'false';
     const enableTrivy = core.getInput('enable-trivy') !== 'false';
     const enableCpd = core.getInput('enable-cpd') !== 'false';
+    const enableMemory = core.getInput('enable-memory') !== 'false';
 
     // Step 2: Resolve GitHub token (for PR diff fetching + GitHub Models API)
     const githubToken =
@@ -143,6 +147,38 @@ async function run(): Promise<void> {
       `(Semgrep: ${semgrepCount}, Trivy: ${trivyCount}, CPD: ${cpdCount})`,
     );
 
+    // Step 5.6: Initialize review memory (SQLite + @actions/cache)
+    const MEMORY_DB_PATH = '/tmp/ghagga-memory.db';
+    const cacheKey = `ghagga-memory-${repoFullName.replace('/', '-')}`;
+    let memoryStorage: MemoryStorage | undefined;
+
+    if (enableMemory) {
+      // Restore cached database file
+      try {
+        const hitKey = await cache.restoreCache([MEMORY_DB_PATH], cacheKey, [cacheKey]);
+        if (hitKey) {
+          core.info(`🧠 Memory cache hit (key: ${hitKey})`);
+        } else {
+          core.info('🧠 Memory cache miss — starting with fresh database');
+        }
+      } catch (error) {
+        core.warning(
+          `[ghagga] Failed to restore memory cache (non-fatal): ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
+      // Create SQLite memory storage
+      try {
+        memoryStorage = await SqliteMemoryStorage.create(MEMORY_DB_PATH);
+        core.info('🧠 Memory storage initialized');
+      } catch (error) {
+        core.warning(
+          `[ghagga] Failed to initialize memory (non-fatal): ${error instanceof Error ? error.message : String(error)}`,
+        );
+        memoryStorage = undefined;
+      }
+    }
+
     // Step 6: Run the review pipeline
     const result = await reviewPipeline({
       diff: typeof diff === 'string' ? diff : String(diff),
@@ -155,7 +191,7 @@ async function run(): Promise<void> {
         enableSemgrep,
         enableTrivy,
         enableCpd,
-        enableMemory: false, // No memory in Action mode
+        enableMemory,
       },
       context: {
         repoFullName,
@@ -163,7 +199,7 @@ async function run(): Promise<void> {
         commitMessages: [],
         fileList: [],
       },
-      db: undefined,
+      memoryStorage,
       precomputedStaticAnalysis: staticAnalysis,
     });
 
@@ -178,6 +214,27 @@ async function run(): Promise<void> {
     });
 
     core.info(`✅ Review posted to PR #${prNumber}`);
+
+    // Step 7.5: Persist memory to cache
+    if (memoryStorage) {
+      try {
+        await memoryStorage.close();
+        core.info('🧠 Memory database persisted to disk');
+      } catch (error) {
+        core.warning(
+          `[ghagga] Failed to close memory storage (non-fatal): ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+
+      try {
+        await cache.saveCache([MEMORY_DB_PATH], cacheKey);
+        core.info('🧠 Memory cache saved');
+      } catch (error) {
+        core.warning(
+          `[ghagga] Failed to save memory cache (non-fatal): ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
 
     // Step 8: Set outputs
     core.setOutput('status', result.status);

@@ -1003,10 +1003,10 @@ describe('inngest/review — error handling', () => {
       step: step as any,
     } as any);
 
-    // reviewPipeline should have been called with db: undefined
+    // reviewPipeline should have been called with memoryStorage: undefined
     expect(mockReviewPipeline).toHaveBeenCalledWith(
       expect.objectContaining({
-        db: undefined,
+        memoryStorage: undefined,
       }),
     );
   });

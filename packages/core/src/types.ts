@@ -89,10 +89,10 @@ export interface ReviewInput {
   context?: ReviewContext;
 
   /**
-   * Database connection for memory operations.
-   * Undefined in CLI/Action modes — memory gracefully degrades.
+   * Memory storage backend for search and persist operations.
+   * Undefined when memory is disabled or unavailable — pipeline degrades gracefully.
    */
-  db?: unknown;
+  memoryStorage?: MemoryStorage;
 
   /**
    * Optional progress callback for verbose/debug output.
@@ -291,6 +291,50 @@ export interface MemoryObservation {
 
   /** Affected file paths */
   filePaths: string[];
+}
+
+/**
+ * Abstract storage backend for the memory system.
+ * Implemented by SqliteMemoryStorage (CLI/Action) and PostgresMemoryStorage (SaaS).
+ */
+export interface MemoryStorage {
+  searchObservations(
+    project: string,
+    query: string,
+    options?: { limit?: number; type?: string },
+  ): Promise<MemoryObservationRow[]>;
+
+  saveObservation(data: {
+    sessionId?: number;
+    project: string;
+    type: string;
+    title: string;
+    content: string;
+    topicKey?: string;
+    filePaths?: string[];
+  }): Promise<MemoryObservationRow>;
+
+  createSession(data: {
+    project: string;
+    prNumber?: number;
+  }): Promise<{ id: number }>;
+
+  endSession(sessionId: number, summary: string): Promise<void>;
+
+  /** Release resources. SQLite: export to disk. PostgreSQL: no-op. */
+  close(): Promise<void>;
+}
+
+/**
+ * Subset of observation columns returned to consumers.
+ * Both adapters map their full row type to this shape.
+ */
+export interface MemoryObservationRow {
+  id: number;
+  type: string;
+  title: string;
+  content: string;
+  filePaths: string[] | null;
 }
 
 // ─── Configuration Defaults ─────────────────────────────────────

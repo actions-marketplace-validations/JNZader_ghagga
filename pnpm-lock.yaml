@@ -29,6 +29,9 @@ importers:
       '@actions/github':
         specifier: ^6.0.0
         version: 6.0.1
+      fts5-sql-bundle:
+        specifier: ^1.0.2
+        version: 1.0.2
       ghagga-core:
         specifier: workspace:*
         version: link:../../packages/core
@@ -213,9 +216,9 @@ importers:
       ai:
         specifier: ^4.3.0
         version: 4.3.19(react@19.2.4)(zod@3.25.76)
-      ghagga-db:
-        specifier: workspace:^
-        version: link:../db
+      fts5-sql-bundle:
+        specifier: ^1.0.2
+        version: 1.0.2
       minimatch:
         specifier: ^10.0.1
         version: 10.2.4
@@ -243,7 +246,7 @@ importers:
     dependencies:
       drizzle-orm:
         specifier: ^0.39.0
-        version: 0.39.3(@opentelemetry/api@1.9.0)(@types/pg@8.18.0)(pg@8.19.0)
+        version: 0.39.3(@opentelemetry/api@1.9.0)(@types/pg@8.18.0)(@types/sql.js@1.4.9)(pg@8.19.0)(sql.js@1.14.1)
       pg:
         specifier: ^8.13.0
         version: 8.19.0
@@ -2335,6 +2338,9 @@ packages:
   '@types/diff-match-patch@1.0.36':
     resolution: {integrity: sha512-xFdR6tkm0MWvBfO8xXCSsinYxHcqkQUlcHeSpMC2ukzOb6lwQAfDmW+Qt0AvlGd8HpsS28qKsB+oPeJn9I39jg==}
 
+  '@types/emscripten@1.41.5':
+    resolution: {integrity: sha512-cMQm7pxu6BxtHyqJ7mQZ2kXWV5SLmugybFdHCBbJ5eHzOo6VhBckEgAT3//rP5FwPHNPeEiq4SmQ5ucBwsOo4Q==}
+
   '@types/estree@1.0.8':
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
 
@@ -2372,6 +2378,9 @@ packages:
 
   '@types/react@19.2.14':
     resolution: {integrity: sha512-ilcTH/UniCkMdtexkoCN0bI7pMcJDvmQFPvuPvmEaYA/NSfFTAgdUSLAoVjaRJm7+6PvcM+q1zYOwS4wTYMF9w==}
+
+  '@types/sql.js@1.4.9':
+    resolution: {integrity: sha512-ep8b36RKHlgWPqjNG9ToUrPiwkhwh0AEzy883mO5Xnd+cL6VBH1EvSjBAAuxLUFF2Vn/moE3Me6v9E1Lo+48GQ==}
 
   '@types/tedious@4.0.14':
     resolution: {integrity: sha512-KHPsfX/FoVbUGbyYvk1q9MMQHLPeRZhRJZdO45Q4YjvFkv4hMNghCWTvy7rdKessBsmtz4euWCWAB6/tVpI1Iw==}
@@ -3073,6 +3082,10 @@ packages:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
+
+  fts5-sql-bundle@1.0.2:
+    resolution: {integrity: sha512-C7gsO0ZCej7mdjSlV1Nku0L44cg26t1XMCIqSdLrPvWjznMgIOa1lkWgSeOp+g1qeNDF7Gldm6gyAlheykVLkQ==}
+    engines: {node: '>=14.0.0'}
 
   function-bind@1.1.2:
     resolution: {integrity: sha512-7XHNxH7qX9xG5mIwxkhumTox/MIRNcOgDrxWsMt2pAr23WHp6MrRlN7FBSFpCpr+oVO0F744iUgR82nJMfG2SA==}
@@ -3947,6 +3960,9 @@ packages:
   split2@4.2.0:
     resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
     engines: {node: '>= 10.x'}
+
+  sql.js@1.14.1:
+    resolution: {integrity: sha512-gcj8zBWU5cFsi9WUP+4bFNXAyF1iRpA3LLyS/DP5xlrNzGmPIizUeBggKa8DbDwdqaKwUcTEnChtd2grWo/x/A==}
 
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
@@ -6580,6 +6596,9 @@ snapshots:
 
   '@types/diff-match-patch@1.0.36': {}
 
+  '@types/emscripten@1.41.5':
+    optional: true
+
   '@types/estree@1.0.8': {}
 
   '@types/libsodium-wrappers@0.7.14': {}
@@ -6625,6 +6644,12 @@ snapshots:
   '@types/react@19.2.14':
     dependencies:
       csstype: 3.2.3
+
+  '@types/sql.js@1.4.9':
+    dependencies:
+      '@types/emscripten': 1.41.5
+      '@types/node': 22.19.13
+    optional: true
 
   '@types/tedious@4.0.14':
     dependencies:
@@ -7051,11 +7076,13 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.39.3(@opentelemetry/api@1.9.0)(@types/pg@8.18.0)(pg@8.19.0):
+  drizzle-orm@0.39.3(@opentelemetry/api@1.9.0)(@types/pg@8.18.0)(@types/sql.js@1.4.9)(pg@8.19.0)(sql.js@1.14.1):
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
       '@types/pg': 8.18.0
+      '@types/sql.js': 1.4.9
       pg: 8.19.0
+      sql.js: 1.14.1
 
   dunder-proto@1.0.1:
     dependencies:
@@ -7319,6 +7346,8 @@ snapshots:
 
   fsevents@2.3.3:
     optional: true
+
+  fts5-sql-bundle@1.0.2: {}
 
   function-bind@1.1.2: {}
 
@@ -8190,6 +8219,9 @@ snapshots:
   source-map@0.7.6: {}
 
   split2@4.2.0: {}
+
+  sql.js@1.14.1:
+    optional: true
 
   stackback@0.0.2: {}
 

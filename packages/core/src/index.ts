@@ -43,6 +43,8 @@ export type {
   // Memory types
   ObservationType,
   MemoryObservation,
+  MemoryStorage,
+  MemoryObservationRow,
 
   // Progress callback types
   ProgressCallback,
@@ -70,6 +72,7 @@ export type { FallbackProvider, FallbackOptions, FallbackResult } from './provid
 
 export { formatMemoryContext } from './memory/context.js';
 export { stripPrivateData } from './memory/privacy.js';
+export { SqliteMemoryStorage } from './memory/sqlite.js';
 
 // ─── Formatting ─────────────────────────────────────────────────
 

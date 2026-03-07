@@ -63,6 +63,13 @@ inputs:
     required: false
     default: 'true'
 
+  enable-memory:
+    description: >-
+      Enable review memory. Caches observations between runs via @actions/cache.
+      Set to 'false' to disable.
+    required: false
+    default: 'true'
+
 outputs:
   status:
     description: 'Review status: PASSED, FAILED, NEEDS_HUMAN_REVIEW, or SKIPPED'

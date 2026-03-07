@@ -106,7 +106,7 @@ function makeInput(overrides: Partial<ReviewInput> = {}): ReviewInput {
       commitMessages: [],
       fileList: [],
     },
-    db: undefined,
+    memoryStorage: undefined,
     ...overrides,
   };
 }
@@ -327,7 +327,7 @@ index 1234567..abcdefg 100644
           ignorePatterns: [],
           reviewLevel: 'normal',
         },
-        db: {} as any, // Fake db to enable memory
+        memoryStorage: {} as any, // Fake memoryStorage to enable memory
       });
 
       (searchMemoryForContext as MockedFunction<typeof searchMemoryForContext>).mockRejectedValue(
@@ -360,7 +360,7 @@ index 1234567..abcdefg 100644
             ignorePatterns: [],
             reviewLevel: 'normal',
           },
-          db: undefined,
+           memoryStorage: undefined,
         }),
       );
       expect(persistReviewObservations).not.toHaveBeenCalled();
@@ -380,7 +380,7 @@ index 1234567..abcdefg 100644
             ignorePatterns: [],
             reviewLevel: 'normal',
           },
-          db: fakeDb,
+          memoryStorage: fakeDb,
         }),
       );
 
@@ -625,7 +625,7 @@ index 1234567..abcdefg 100644
             ignorePatterns: [],
             reviewLevel: 'normal',
           },
-          db: {} as any,
+          memoryStorage: {} as any,
         }),
       );
 

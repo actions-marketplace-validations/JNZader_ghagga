@@ -13,6 +13,15 @@ import type { ReviewResult, ReviewStatus, FindingSeverity } from 'ghagga-core';
 
 vi.mock('ghagga-core', () => ({
   reviewPipeline: vi.fn(),
+  SqliteMemoryStorage: {
+    create: vi.fn().mockResolvedValue({
+      searchObservations: vi.fn().mockResolvedValue([]),
+      saveObservation: vi.fn().mockResolvedValue({}),
+      createSession: vi.fn().mockResolvedValue({ id: 1 }),
+      endSession: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+    }),
+  },
   DEFAULT_SETTINGS: {
     enableSemgrep: true,
     enableTrivy: true,
@@ -208,6 +217,7 @@ function defaultOptions(overrides: Partial<ReviewOptions> = {}): ReviewOptions {
     semgrep: true,
     trivy: true,
     cpd: true,
+    memory: true,
     verbose: false,
     ...overrides,
   };

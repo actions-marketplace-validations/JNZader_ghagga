@@ -2,22 +2,12 @@
  * Memory search — retrieves relevant past observations for prompt injection.
  *
  * Builds a search query from the file paths in the current diff,
- * then uses PostgreSQL full-text search (via ghagga-db) to find
- * observations from past reviews of the same project.
+ * then uses the MemoryStorage interface to find observations from
+ * past reviews of the same project.
  */
 
-import { searchObservations } from 'ghagga-db';
 import { formatMemoryContext } from './context.js';
-
-// ─── Types ──────────────────────────────────────────────────────
-
-/** Observation shape returned from the database */
-interface Observation {
-  type: string;
-  title: string;
-  content: string;
-  filePaths: string[] | null;
-}
+import type { MemoryStorage } from '../types.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -61,27 +51,26 @@ function buildSearchQuery(fileList: string[]): string {
  * Search past review observations for context relevant to the current diff.
  *
  * Returns a formatted string suitable for injection into agent prompts,
- * or null if no relevant observations are found (or if db is unavailable).
+ * or null if no relevant observations are found (or if storage is unavailable).
  *
- * @param db - Database instance (from ghagga-db). Typed as unknown for loose coupling.
+ * @param storage - Memory storage backend (SQLite or PostgreSQL)
  * @param project - Project identifier (e.g., "owner/repo")
  * @param fileList - List of file paths in the current diff
  * @returns Formatted memory context string, or null
  */
 export async function searchMemoryForContext(
-  db: unknown,
+  storage: MemoryStorage,
   project: string,
   fileList: string[],
 ): Promise<string | null> {
   try {
-    if (!db) return null;
+    if (!storage) return null;
 
     const query = buildSearchQuery(fileList);
     if (!query) return null;
 
     // Search with a reasonable limit — we don't want to flood the prompt
-    const observations = await searchObservations(
-      db as Parameters<typeof searchObservations>[0],
+    const observations = await storage.searchObservations(
       project,
       query,
       { limit: 3 },
@@ -91,7 +80,7 @@ export async function searchMemoryForContext(
 
     // Format observations for prompt injection
     return formatMemoryContext(
-      observations.map((obs: Observation) => ({
+      observations.map((obs) => ({
         type: obs.type,
         title: obs.title,
         content: obs.content,

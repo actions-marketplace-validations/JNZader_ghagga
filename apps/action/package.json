@@ -17,7 +17,8 @@
     "@actions/core": "^1.11.0",
     "@actions/exec": "^1.1.1",
     "@actions/github": "^6.0.0",
-    "ghagga-core": "workspace:*"
+    "ghagga-core": "workspace:*",
+    "fts5-sql-bundle": "^1.0.2"
   },
   "devDependencies": {
     "@stryker-mutator/core": "^9.6.0",
