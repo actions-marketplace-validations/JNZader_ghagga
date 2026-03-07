@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { cn } from '@/lib/cn';
 import type { Observation } from '@/lib/types';
 import { formatRelativeTime, isValidSeverity } from '@/lib/utils';
@@ -48,12 +49,8 @@ export interface ObservationDetailModalProps {
 export function ObservationDetailModal({ observation, onClose }: ObservationDetailModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  // Focus the dialog when opened
-  useEffect(() => {
-    if (observation && dialogRef.current) {
-      dialogRef.current.focus();
-    }
-  }, [observation]);
+  // Trap focus within the dialog while open
+  useFocusTrap(dialogRef, observation !== null);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLDivElement>) => {

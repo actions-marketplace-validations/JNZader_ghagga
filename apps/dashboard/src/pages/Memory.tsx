@@ -1,3 +1,4 @@
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from '@/components/Card';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -384,6 +385,94 @@ function StatsBar({ observations }: { observations: Observation[] }) {
           </span>
         );
       })}
+    </div>
+  );
+}
+
+// ─── Virtualized Observation List ────────────────────────────────
+
+/** Estimated height of a single ObservationCard in pixels */
+const OBSERVATION_CARD_HEIGHT_ESTIMATE = 160;
+
+/** Only virtualize when the list exceeds this threshold */
+const VIRTUALIZATION_THRESHOLD = 20;
+
+function VirtualizedObservationList({
+  observations,
+  onDelete,
+  onClick,
+  isDeleting,
+}: {
+  observations: Observation[];
+  onDelete: (obs: Observation) => void;
+  onClick: (obs: Observation) => void;
+  isDeleting: boolean;
+}) {
+  const parentRef = useRef<HTMLDivElement>(null);
+
+  const shouldVirtualize = observations.length > VIRTUALIZATION_THRESHOLD;
+
+  const virtualizer = useVirtualizer({
+    count: observations.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => OBSERVATION_CARD_HEIGHT_ESTIMATE,
+    overscan: 5,
+    enabled: shouldVirtualize,
+  });
+
+  // For small lists, render all items directly (also works in jsdom tests)
+  if (!shouldVirtualize) {
+    return (
+      <div
+        className="space-y-4"
+        data-testid="observation-list"
+        role="list"
+        aria-label="Observations"
+      >
+        {observations.map((obs) => (
+          <div key={obs.id} role="listitem">
+            <ObservationCard
+              observation={obs}
+              onDelete={onDelete}
+              onClick={onClick}
+              isDeleting={isDeleting}
+            />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={parentRef}
+      data-testid="virtualized-observation-list"
+      className="max-h-[70vh] overflow-y-auto"
+      role="list"
+      aria-label="Observations"
+    >
+      <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+        {virtualizer.getVirtualItems().map((virtualItem) => {
+          const obs = observations[virtualItem.index];
+          return (
+            <div
+              key={obs.id}
+              role="listitem"
+              data-index={virtualItem.index}
+              ref={virtualizer.measureElement}
+              className="absolute left-0 top-0 w-full pb-4"
+              style={{ transform: `translateY(${virtualItem.start}px)` }}
+            >
+              <ObservationCard
+                observation={obs}
+                onDelete={onDelete}
+                onClick={onClick}
+                isDeleting={isDeleting}
+              />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -779,20 +868,15 @@ export function Memory() {
               ) : (
                 <>
                   <StatsBar observations={filteredObservations} />
-                  <div className="space-y-4">
-                    {filteredObservations.map((obs) => (
-                      <ObservationCard
-                        key={obs.id}
-                        observation={obs}
-                        onDelete={(o) => {
-                          setDialogError(null);
-                          setDeleteTarget(o);
-                        }}
-                        onClick={(o) => setSelectedObservation(o)}
-                        isDeleting={isMutating}
-                      />
-                    ))}
-                  </div>
+                  <VirtualizedObservationList
+                    observations={filteredObservations}
+                    onDelete={(o) => {
+                      setDialogError(null);
+                      setDeleteTarget(o);
+                    }}
+                    onClick={(o) => setSelectedObservation(o)}
+                    isDeleting={isMutating}
+                  />
                 </>
               )}
             </div>

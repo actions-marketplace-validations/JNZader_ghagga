@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { cn } from '@/lib/cn';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -53,16 +54,8 @@ export function ConfirmDialog({
     }
   }, [open, countdownSeconds]);
 
-  // ── Focus trap: focus the dialog (or input) when opened ───────
-  useEffect(() => {
-    if (open) {
-      if (confirmText && inputRef.current) {
-        inputRef.current.focus();
-      } else if (dialogRef.current) {
-        dialogRef.current.focus();
-      }
-    }
-  }, [open, confirmText]);
+  // ── Focus trap: trap focus within the dialog while open ────────
+  useFocusTrap(dialogRef, open);
 
   // ── Countdown timer (Tier 3) ──────────────────────────────────
   useEffect(() => {
