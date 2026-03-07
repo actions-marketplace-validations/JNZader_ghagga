@@ -6,8 +6,8 @@
  */
 
 import { Hono } from 'hono';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { authMiddleware } from './auth.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { authMiddleware, tokenCache } from './auth.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -66,6 +66,11 @@ function _makeAuthRequest(token?: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('fetch', mockFetch);
+  tokenCache.clear();
+});
+
+afterEach(() => {
+  tokenCache.clear();
 });
 
 // ─── Missing/Invalid Authorization ──────────────────────────────
@@ -630,5 +635,83 @@ describe('auth middleware — backward compatibility', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.user.installationIds).toEqual([200]);
+  });
+});
+
+// ─── Token Cache ────────────────────────────────────────────────
+
+describe('auth middleware — token cache', () => {
+  it('second request with same token does not call GitHub API', async () => {
+    // First request: GitHub API is called
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: 42, login: 'cacheduser' }),
+    });
+    mockGetRawMappingsByUserId.mockResolvedValue([
+      { id: 1, githubUserId: 42, githubLogin: 'cacheduser', installationId: 100 },
+    ]);
+    mockGetInstallationsByUserId.mockResolvedValue([{ id: 100, accountLogin: 'cacheduser' }]);
+
+    const app = createApp();
+
+    const res1 = await app.request('/test', {
+      headers: { Authorization: 'Bearer cached-token' },
+    });
+    expect(res1.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    // Second request: should use cache, no GitHub API call
+    const res2 = await app.request('/test', {
+      headers: { Authorization: 'Bearer cached-token' },
+    });
+    expect(res2.status).toBe(200);
+    const json2 = await res2.json();
+    expect(json2.user.githubLogin).toBe('cacheduser');
+
+    // fetch should still only have been called once
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('expired cache entry triggers new API call', async () => {
+    // Manually insert an expired cache entry
+    tokenCache.set('expired-token', {
+      user: { id: 42, login: 'expireduser' },
+      expiresAt: Date.now() - 1000, // already expired
+    });
+
+    // When the expired entry is found, the middleware should call GitHub API again
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: 42, login: 'expireduser' }),
+    });
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 1, githubUserId: 42, githubLogin: 'expireduser', installationId: 100 },
+    ]);
+    mockGetInstallationsByUserId.mockResolvedValueOnce([{ id: 100, accountLogin: 'expireduser' }]);
+
+    const app = createApp();
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer expired-token' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const json = await res.json();
+    expect(json.user.githubLogin).toBe('expireduser');
+  });
+
+  it('invalid token is not cached', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+    });
+
+    const app = createApp();
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer bad-token' },
+    });
+
+    expect(res.status).toBe(401);
+    expect(tokenCache.has('bad-token')).toBe(false);
   });
 });

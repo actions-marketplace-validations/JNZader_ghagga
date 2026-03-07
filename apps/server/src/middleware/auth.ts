@@ -35,6 +35,39 @@ declare module 'hono' {
   }
 }
 
+// ─── Token Cache ────────────────────────────────────────────────
+
+interface GitHubUser {
+  id: number;
+  login: string;
+}
+
+interface CachedUser {
+  user: GitHubUser;
+  expiresAt: number;
+}
+
+export const tokenCache = new Map<string, CachedUser>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function getCachedUser(token: string): GitHubUser | null {
+  const cached = tokenCache.get(token);
+  if (cached && cached.expiresAt > Date.now()) return cached.user;
+  tokenCache.delete(token);
+  return null;
+}
+
+function cacheUser(token: string, user: GitHubUser): void {
+  tokenCache.set(token, { user, expiresAt: Date.now() + CACHE_TTL_MS });
+  // Cleanup old entries periodically
+  if (tokenCache.size > 1000) {
+    const now = Date.now();
+    for (const [key, value] of tokenCache) {
+      if (value.expiresAt <= now) tokenCache.delete(key);
+    }
+  }
+}
+
 // ─── Middleware ──────────────────────────────────────────────────
 
 /**
@@ -55,50 +88,59 @@ export function authMiddleware(db: Database) {
       return c.json({ error: 'Missing token' }, 401);
     }
 
-    // Verify token by calling GitHub API
+    // Verify token: check cache first, then call GitHub API
     let githubUserId: number;
     let githubLogin: string;
 
-    try {
-      const response = await fetch('https://api.github.com/user', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github.v3+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-      });
+    const cachedUser = getCachedUser(token);
+    if (cachedUser) {
+      githubUserId = cachedUser.id;
+      githubLogin = cachedUser.login;
+    } else {
+      try {
+        const response = await fetch('https://api.github.com/user', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github.v3+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+        });
 
-      if (!response.ok) {
-        logger.warn({ status: response.status }, 'Token verification failed');
-        return c.json({ error: 'Invalid or expired token' }, 401);
-      }
+        if (!response.ok) {
+          logger.warn({ status: response.status }, 'Token verification failed');
+          return c.json({ error: 'Invalid or expired token' }, 401);
+        }
 
-      const userData = (await response.json()) as {
-        id: number;
-        login: string;
-        expires_at?: string;
-      };
+        const userData = (await response.json()) as {
+          id: number;
+          login: string;
+          expires_at?: string;
+        };
 
-      // Belt-and-suspenders: reject tokens with an expired expires_at field.
-      // GitHub API would likely reject expired tokens anyway, but this catches
-      // edge cases where a stale response is cached or token just expired.
-      if (userData.expires_at && new Date(userData.expires_at) < new Date()) {
-        logger.warn(
-          { expiresAt: userData.expires_at },
-          'Token has expired (expires_at in the past)',
+        // Belt-and-suspenders: reject tokens with an expired expires_at field.
+        // GitHub API would likely reject expired tokens anyway, but this catches
+        // edge cases where a stale response is cached or token just expired.
+        if (userData.expires_at && new Date(userData.expires_at) < new Date()) {
+          logger.warn(
+            { expiresAt: userData.expires_at },
+            'Token has expired (expires_at in the past)',
+          );
+          return c.json({ error: 'Token has expired' }, 401);
+        }
+
+        githubUserId = userData.id;
+        githubLogin = userData.login;
+
+        // Cache the verified user
+        cacheUser(token, { id: githubUserId, login: githubLogin });
+      } catch (err) {
+        logger.error({ err }, 'Failed to call GitHub /user API');
+        return c.json(
+          { error: 'GitHub API is temporarily unavailable. Please try again later.' },
+          503,
+          { 'Retry-After': '30' },
         );
-        return c.json({ error: 'Token has expired' }, 401);
       }
-
-      githubUserId = userData.id;
-      githubLogin = userData.login;
-    } catch (err) {
-      logger.error({ err }, 'Failed to call GitHub /user API');
-      return c.json(
-        { error: 'GitHub API is temporarily unavailable. Please try again later.' },
-        503,
-        { 'Retry-After': '30' },
-      );
     }
 
     // Look up which installations the user has access to
