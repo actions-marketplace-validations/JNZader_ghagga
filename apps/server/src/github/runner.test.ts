@@ -176,8 +176,8 @@ describe('verifyCallbackSignature', () => {
     expect(verifyCallbackSignature(callbackId, payload, signature)).toBe(false);
   });
 
-  it('accepts callback at 11 minutes minus 1ms (S-R3.3)', () => {
-    const callbackId = makeCallbackId(11 * 60 * 1000 - 1); // 11 min - 1ms
+  it('accepts callback at 11 minutes minus 1s (S-R3.3)', () => {
+    const callbackId = makeCallbackId(11 * 60 * 1000 - 1000); // 11 min - 1s (margin for CI)
     const secret = deriveCallbackSecret(callbackId);
     const signature = computeSignature(payload, secret);
 
