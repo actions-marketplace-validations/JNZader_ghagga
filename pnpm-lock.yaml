@@ -156,8 +156,8 @@ importers:
   apps/server:
     dependencies:
       '@hono/node-server':
-        specifier: ^1.13.0
-        version: 1.19.9(hono@4.12.3)
+        specifier: ^1.19.11
+        version: 1.19.11(hono@4.12.5)
       '@octokit/rest':
         specifier: ^21.1.0
         version: 21.1.1
@@ -174,14 +174,14 @@ importers:
         specifier: workspace:*
         version: link:../../packages/db
       hono:
-        specifier: ^4.7.0
-        version: 4.12.3
+        specifier: ^4.12.5
+        version: 4.12.5
       hono-rate-limiter:
         specifier: ^0.5.3
-        version: 0.5.3(hono@4.12.3)
+        version: 0.5.3(hono@4.12.5)
       inngest:
         specifier: ^3.29.0
-        version: 3.52.4(@opentelemetry/core@2.5.1(@opentelemetry/api@1.9.0))(hono@4.12.3)(typescript@5.9.3)(zod@4.3.6)
+        version: 3.52.4(@opentelemetry/core@2.5.1(@opentelemetry/api@1.9.0))(hono@4.12.5)(typescript@5.9.3)(zod@4.3.6)
       libsodium-wrappers:
         specifier: ^0.7.15
         version: 0.7.16
@@ -1317,8 +1317,8 @@ packages:
     engines: {node: '>=6'}
     hasBin: true
 
-  '@hono/node-server@1.19.9':
-    resolution: {integrity: sha512-vHL6w3ecZsky+8P5MD+eFfaGTyCeOHUIFYMGpQGbrBTSmNNoxv0if69rEZ5giu36weC5saFuznL411gRX7bJDw==}
+  '@hono/node-server@1.19.11':
+    resolution: {integrity: sha512-dr8/3zEaB+p0D2n/IUrlPF1HZm586qgJNXK1a9fhg/PzdtkK7Ksd5l312tJX2yBuALqDYBlG20QEbayqPyxn+g==}
     engines: {node: '>=18.14.1'}
     peerDependencies:
       hono: ^4
@@ -2427,6 +2427,9 @@ packages:
   '@types/node@22.19.13':
     resolution: {integrity: sha512-akNQMv0wW5uyRpD2v2IEyRSZiR+BeGuoB6L310EgGObO44HSMNT8z1xzio28V8qOrgYaopIDNA18YgdXd+qTiw==}
 
+  '@types/node@22.19.15':
+    resolution: {integrity: sha512-F0R/h2+dsy5wJAUe3tAU6oqa2qbWY5TpNfL/RGmo1y38hiyO1w3x2jPtt76wmuaJI4DQnOBu21cNXQ2STIUUWg==}
+
   '@types/oracledb@6.5.2':
     resolution: {integrity: sha512-kK1eBS/Adeyis+3OlBDMeQQuasIDLUYXsi2T15ccNJ0iyUpQ4xDF7svFu3+bGVrI0CMBUclPciz+lsQR3JX3TQ==}
 
@@ -3243,8 +3246,8 @@ packages:
       unstorage:
         optional: true
 
-  hono@4.12.3:
-    resolution: {integrity: sha512-SFsVSjp8sj5UumXOOFlkZOG6XS9SJDKw0TbwFeV+AJ8xlST8kxK5Z/5EYa111UY8732lK2S/xB653ceuaoGwpg==}
+  hono@4.12.5:
+    resolution: {integrity: sha512-3qq+FUBtlTHhtYxbxheZgY8NIFnkkC/MR8u5TTsr7YZ3wixryQ3cCwn3iZbg8p8B88iDBBAYSfZDS75t8MN7Vg==}
     engines: {node: '>=16.9.0'}
 
   html-encoding-sniffer@6.0.0:
@@ -5403,9 +5406,9 @@ snapshots:
       protobufjs: 7.5.4
       yargs: 17.7.2
 
-  '@hono/node-server@1.19.9(hono@4.12.3)':
+  '@hono/node-server@1.19.11(hono@4.12.5)':
     dependencies:
-      hono: 4.12.3
+      hono: 4.12.5
 
   '@inngest/ai@0.1.7':
     dependencies:
@@ -6743,6 +6746,11 @@ snapshots:
     dependencies:
       undici-types: 6.21.0
 
+  '@types/node@22.19.15':
+    dependencies:
+      undici-types: 6.21.0
+    optional: true
+
   '@types/oracledb@6.5.2':
     dependencies:
       '@types/node': 22.19.13
@@ -6774,7 +6782,7 @@ snapshots:
   '@types/sql.js@1.4.9':
     dependencies:
       '@types/emscripten': 1.41.5
-      '@types/node': 22.19.13
+      '@types/node': 22.19.15
     optional: true
 
   '@types/tedious@4.0.14':
@@ -7574,11 +7582,11 @@ snapshots:
     dependencies:
       function-bind: 1.1.2
 
-  hono-rate-limiter@0.5.3(hono@4.12.3):
+  hono-rate-limiter@0.5.3(hono@4.12.5):
     dependencies:
-      hono: 4.12.3
+      hono: 4.12.5
 
-  hono@4.12.3: {}
+  hono@4.12.5: {}
 
   html-encoding-sniffer@6.0.0:
     dependencies:
@@ -7626,7 +7634,7 @@ snapshots:
 
   inherits@2.0.4: {}
 
-  inngest@3.52.4(@opentelemetry/core@2.5.1(@opentelemetry/api@1.9.0))(hono@4.12.3)(typescript@5.9.3)(zod@4.3.6):
+  inngest@3.52.4(@opentelemetry/core@2.5.1(@opentelemetry/api@1.9.0))(hono@4.12.5)(typescript@5.9.3)(zod@4.3.6):
     dependencies:
       '@bufbuild/protobuf': 2.11.0
       '@inngest/ai': 0.1.7
@@ -7655,7 +7663,7 @@ snapshots:
       ulid: 2.4.0
       zod: 4.3.6
     optionalDependencies:
-      hono: 4.12.3
+      hono: 4.12.5
       typescript: 5.9.3
     transitivePeerDependencies:
       - '@opentelemetry/core'

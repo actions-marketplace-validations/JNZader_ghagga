@@ -336,10 +336,7 @@ export async function getReviewsByDay(db: Database, repositoryId: number) {
     })
     .from(reviews)
     .where(
-      and(
-        eq(reviews.repositoryId, repositoryId),
-        sql`${reviews.createdAt} >= ${thirtyDaysAgo}`,
-      ),
+      and(eq(reviews.repositoryId, repositoryId), sql`${reviews.createdAt} >= ${thirtyDaysAgo}`),
     )
     .groupBy(sql`date(${reviews.createdAt})`)
     .orderBy(sql`date(${reviews.createdAt}) asc`);

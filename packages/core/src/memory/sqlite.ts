@@ -102,7 +102,10 @@ export class SqliteMemoryStorage implements MemoryStorage {
    * Async factory — handles WASM initialization and file loading.
    * If filePath exists, loads the existing DB. Otherwise, creates a fresh one.
    */
-  static async create(filePath: string, options?: SqliteMemoryStorageOptions): Promise<SqliteMemoryStorage> {
+  static async create(
+    filePath: string,
+    options?: SqliteMemoryStorageOptions,
+  ): Promise<SqliteMemoryStorage> {
     const SQL = await initSqlJs();
 
     let db: DatabaseWithParams;
