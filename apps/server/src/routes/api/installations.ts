@@ -1,0 +1,226 @@
+/**
+ * Installation-related API routes:
+ *   GET /api/installations
+ *   GET /api/installation-settings
+ *   PUT /api/installation-settings
+ */
+
+import type { SaaSProvider } from 'ghagga-core';
+import type { Database, DbProviderChainEntry, RepoSettings } from 'ghagga-db';
+import {
+  DEFAULT_REPO_SETTINGS,
+  encrypt,
+  getInstallationById,
+  getInstallationSettings,
+  upsertInstallationSettings,
+} from 'ghagga-db';
+import { Hono } from 'hono';
+import type { AuthUser } from '../../middleware/auth.js';
+import { buildProviderChainView, logger } from './utils.js';
+
+export function createInstallationsRouter(db: Database) {
+  const router = new Hono();
+
+  // ── GET /api/installations ──────────────────────────────────
+  router.get('/api/installations', async (c) => {
+    const user = c.get('user') as AuthUser;
+
+    try {
+      const installationsRaw = await Promise.all(
+        user.installationIds.map((id) => getInstallationById(db, id)),
+      );
+      const results = installationsRaw
+        .filter((inst): inst is NonNullable<typeof inst> => inst != null)
+        .map((inst) => ({
+          id: inst.id,
+          accountLogin: inst.accountLogin,
+          accountType: inst.accountType,
+        }));
+      return c.json({ data: results });
+    } catch (err) {
+      logger.error({ err, user: user.githubLogin }, 'Failed to fetch installations');
+      return c.json({ error: 'Failed to fetch installations' }, 500);
+    }
+  });
+
+  // ── GET /api/installation-settings ─────────────────────────
+  router.get('/api/installation-settings', async (c) => {
+    const user = c.get('user') as AuthUser;
+    const installationId = parseInt(c.req.query('installation_id') ?? '', 10);
+
+    if (Number.isNaN(installationId)) {
+      return c.json({ error: 'Missing or invalid installation_id parameter' }, 400);
+    }
+
+    if (!user.installationIds.includes(installationId)) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    try {
+      const inst = await getInstallationById(db, installationId);
+      const row = await getInstallationSettings(db, installationId);
+
+      if (row) {
+        const chain = (row.providerChain ?? []) as DbProviderChainEntry[];
+        const settings = (row.settings ?? DEFAULT_REPO_SETTINGS) as RepoSettings;
+
+        return c.json({
+          data: {
+            installationId,
+            accountLogin: inst?.accountLogin ?? '',
+            providerChain: buildProviderChainView(chain),
+            aiReviewEnabled: row.aiReviewEnabled,
+            reviewMode: row.reviewMode,
+            enableSemgrep: settings.enableSemgrep,
+            enableTrivy: settings.enableTrivy,
+            enableCpd: settings.enableCpd,
+            enableMemory: settings.enableMemory,
+            customRules: (settings.customRules ?? []).join('\n'),
+            ignorePatterns: settings.ignorePatterns ?? [],
+          },
+        });
+      }
+
+      // No settings exist yet — return defaults
+      return c.json({
+        data: {
+          installationId,
+          accountLogin: inst?.accountLogin ?? '',
+          providerChain: [],
+          aiReviewEnabled: true,
+          reviewMode: 'simple',
+          enableSemgrep: true,
+          enableTrivy: true,
+          enableCpd: true,
+          enableMemory: true,
+          customRules: '',
+          ignorePatterns: DEFAULT_REPO_SETTINGS.ignorePatterns,
+        },
+      });
+    } catch (err) {
+      logger.error(
+        { err, installationId, user: user.githubLogin },
+        'Failed to fetch installation settings',
+      );
+      return c.json({ error: 'Failed to fetch installation settings' }, 500);
+    }
+  });
+
+  // ── PUT /api/installation-settings ─────────────────────────
+  router.put('/api/installation-settings', async (c) => {
+    const user = c.get('user') as AuthUser;
+
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400);
+    }
+
+    const installationId = body.installationId as number | undefined;
+    if (!installationId || typeof installationId !== 'number') {
+      return c.json({ error: 'Missing or invalid installationId' }, 400);
+    }
+
+    if (!user.installationIds.includes(installationId)) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    try {
+      // Validate and merge provider chain
+      const incomingChain = (body.providerChain ?? []) as Array<{
+        provider: string;
+        model: string;
+        apiKey?: string;
+      }>;
+
+      const VALID_SAAS_PROVIDERS = ['anthropic', 'openai', 'google', 'github', 'qwen'];
+      for (const entry of incomingChain) {
+        if (!VALID_SAAS_PROVIDERS.includes(entry.provider)) {
+          return c.json(
+            { error: `Provider '${entry.provider}' is not available in the SaaS dashboard` },
+            400,
+          );
+        }
+      }
+
+      // Merge API keys with existing
+      const existingRow = await getInstallationSettings(db, installationId);
+      const existingChain = existingRow
+        ? ((existingRow.providerChain ?? []) as DbProviderChainEntry[])
+        : [];
+
+      const mergedChain: DbProviderChainEntry[] = incomingChain.map((entry) => {
+        if (entry.apiKey) {
+          return {
+            provider: entry.provider as SaaSProvider,
+            model: entry.model,
+            encryptedApiKey: encrypt(entry.apiKey),
+          };
+        }
+        if (entry.provider === 'github') {
+          return { provider: 'github' as const, model: entry.model, encryptedApiKey: null };
+        }
+        const existing = existingChain.find((e) => e.provider === entry.provider);
+        return {
+          provider: entry.provider as SaaSProvider,
+          model: entry.model,
+          encryptedApiKey: existing?.encryptedApiKey ?? null,
+        };
+      });
+
+      // Build settings JSONB
+      const currentSettings = existingRow
+        ? ((existingRow.settings ?? DEFAULT_REPO_SETTINGS) as RepoSettings)
+        : DEFAULT_REPO_SETTINGS;
+
+      const settingsUpdate: RepoSettings = {
+        enableSemgrep:
+          typeof body.enableSemgrep === 'boolean'
+            ? body.enableSemgrep
+            : currentSettings.enableSemgrep,
+        enableTrivy:
+          typeof body.enableTrivy === 'boolean' ? body.enableTrivy : currentSettings.enableTrivy,
+        enableCpd: typeof body.enableCpd === 'boolean' ? body.enableCpd : currentSettings.enableCpd,
+        enableMemory:
+          typeof body.enableMemory === 'boolean' ? body.enableMemory : currentSettings.enableMemory,
+        customRules:
+          typeof body.customRules === 'string'
+            ? (body.customRules as string)
+                .split('\n')
+                .map((r: string) => r.trim())
+                .filter(Boolean)
+            : currentSettings.customRules,
+        ignorePatterns: Array.isArray(body.ignorePatterns)
+          ? (body.ignorePatterns as string[])
+          : currentSettings.ignorePatterns,
+        reviewLevel:
+          typeof body.reviewLevel === 'string'
+            ? (body.reviewLevel as RepoSettings['reviewLevel'])
+            : currentSettings.reviewLevel,
+      };
+
+      await upsertInstallationSettings(db, installationId, {
+        providerChain: mergedChain,
+        aiReviewEnabled:
+          typeof body.aiReviewEnabled === 'boolean' ? body.aiReviewEnabled : undefined,
+        reviewMode: typeof body.reviewMode === 'string' ? body.reviewMode : undefined,
+        settings: settingsUpdate,
+      });
+
+      logger.info(
+        { installationId, user: user.githubLogin, chainLength: mergedChain.length },
+        'Installation settings updated',
+      );
+      return c.json({ message: 'Installation settings updated' });
+    } catch (err) {
+      logger.error(
+        { err, installationId, user: user.githubLogin },
+        'Failed to update installation settings',
+      );
+      return c.json({ error: 'Failed to update installation settings' }, 500);
+    }
+  });
+
+  return router;
+}

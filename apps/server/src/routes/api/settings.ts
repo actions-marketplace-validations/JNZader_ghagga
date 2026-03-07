@@ -1,0 +1,315 @@
+/**
+ * Repo settings API routes: GET /api/settings, PUT /api/settings
+ *
+ * Also includes POST /api/providers/validate (provider key validation).
+ */
+
+import type { SaaSProvider } from 'ghagga-core';
+import type { Database, DbProviderChainEntry, RepoSettings } from 'ghagga-db';
+import {
+  DEFAULT_REPO_SETTINGS,
+  encrypt,
+  getInstallationSettings,
+  getRepoByFullName,
+  updateRepoSettings,
+} from 'ghagga-db';
+import { Hono } from 'hono';
+import { z } from 'zod';
+import { validateProviderKey } from '../../lib/provider-models.js';
+import type { AuthUser } from '../../middleware/auth.js';
+import { buildProviderChainView, logger } from './utils.js';
+
+// ─── Zod Schemas ────────────────────────────────────────────────
+
+const RepoSettingsSchema = z
+  .object({
+    enableSemgrep: z.boolean().optional(),
+    enableTrivy: z.boolean().optional(),
+    enableCpd: z.boolean().optional(),
+    enableMemory: z.boolean().optional(),
+    aiReviewEnabled: z.boolean().optional(),
+    reviewLevel: z.enum(['soft', 'normal', 'strict']).optional(),
+    customRules: z.union([z.string(), z.array(z.string())]).optional(),
+    ignorePatterns: z.array(z.string()).optional(),
+  })
+  .strict();
+
+export function createSettingsRouter(db: Database) {
+  const router = new Hono();
+
+  // ── GET /api/settings ────────────────────────────────────────
+  router.get('/api/settings', async (c) => {
+    const user = c.get('user') as AuthUser;
+    const repoFullName = c.req.query('repo');
+
+    if (!repoFullName) {
+      return c.json({ error: 'Missing required query parameter: repo' }, 400);
+    }
+
+    try {
+      const repo = await getRepoByFullName(db, repoFullName);
+
+      if (!repo) {
+        return c.json({ error: 'Repository not found' }, 404);
+      }
+
+      if (!user.installationIds.includes(repo.installationId)) {
+        return c.json({ error: 'Forbidden' }, 403);
+      }
+
+      const settings = repo.settings as RepoSettings;
+      const chain = (repo.providerChain ?? []) as DbProviderChainEntry[];
+
+      // Build view: mask keys, never expose encrypted values
+      const providerChainView = buildProviderChainView(chain);
+
+      // Fetch global settings for reference
+      const globalRow = await getInstallationSettings(db, repo.installationId);
+      let globalSettings;
+      if (globalRow) {
+        const gChain = (globalRow.providerChain ?? []) as DbProviderChainEntry[];
+        const gSettings = (globalRow.settings ?? DEFAULT_REPO_SETTINGS) as RepoSettings;
+        globalSettings = {
+          providerChain: buildProviderChainView(gChain),
+          aiReviewEnabled: globalRow.aiReviewEnabled,
+          reviewMode: globalRow.reviewMode,
+          enableSemgrep: gSettings.enableSemgrep,
+          enableTrivy: gSettings.enableTrivy,
+          enableCpd: gSettings.enableCpd,
+          enableMemory: gSettings.enableMemory,
+          customRules: (gSettings.customRules ?? []).join('\n'),
+          ignorePatterns: gSettings.ignorePatterns ?? [],
+        };
+      }
+
+      return c.json({
+        data: {
+          repoId: repo.id,
+          repoFullName: repo.fullName,
+          useGlobalSettings: repo.useGlobalSettings,
+          aiReviewEnabled: repo.aiReviewEnabled,
+          providerChain: providerChainView,
+          reviewMode: repo.reviewMode,
+          enableSemgrep: settings.enableSemgrep,
+          enableTrivy: settings.enableTrivy,
+          enableCpd: settings.enableCpd,
+          enableMemory: settings.enableMemory,
+          customRules: (settings.customRules ?? []).join('\n'),
+          ignorePatterns: settings.ignorePatterns ?? [],
+          globalSettings,
+        },
+      });
+    } catch (err) {
+      logger.error({ err, repo: repoFullName, user: user.githubLogin }, 'Failed to fetch settings');
+      return c.json({ error: 'Failed to fetch settings' }, 500);
+    }
+  });
+
+  // ── PUT /api/settings ───────────────────────────────────────
+  router.put('/api/settings', async (c) => {
+    const user = c.get('user') as AuthUser;
+
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400);
+    }
+
+    const repoFullName = body.repoFullName as string | undefined;
+    if (!repoFullName) {
+      return c.json({ error: 'Missing repoFullName' }, 400);
+    }
+
+    // Validate settings fields with Zod (if any settings-related fields are present)
+    const settingsFields: Record<string, unknown> = {};
+    const SETTINGS_KEYS = [
+      'enableSemgrep',
+      'enableTrivy',
+      'enableCpd',
+      'enableMemory',
+      'aiReviewEnabled',
+      'reviewLevel',
+      'customRules',
+      'ignorePatterns',
+    ];
+    for (const key of SETTINGS_KEYS) {
+      if (key in body) {
+        settingsFields[key] = body[key];
+      }
+    }
+
+    if (Object.keys(settingsFields).length > 0) {
+      const parsed = RepoSettingsSchema.safeParse(settingsFields);
+      if (!parsed.success) {
+        return c.json(
+          {
+            error: 'Invalid settings',
+            details: parsed.error.issues.map((i) => ({
+              path: i.path.join('.'),
+              message: i.message,
+            })),
+          },
+          400,
+        );
+      }
+    }
+
+    try {
+      const repo = await getRepoByFullName(db, repoFullName);
+      if (!repo) {
+        return c.json({ error: 'Repository not found' }, 404);
+      }
+
+      if (!user.installationIds.includes(repo.installationId)) {
+        return c.json({ error: 'Forbidden' }, 403);
+      }
+
+      // Validate no Ollama in the chain
+      const incomingChain = (body.providerChain ?? []) as Array<{
+        provider: string;
+        model: string;
+        apiKey?: string;
+      }>;
+
+      const VALID_SAAS_PROVIDERS = ['anthropic', 'openai', 'google', 'github', 'qwen'];
+      for (const entry of incomingChain) {
+        if (!VALID_SAAS_PROVIDERS.includes(entry.provider)) {
+          return c.json(
+            { error: `Provider '${entry.provider}' is not available in the SaaS dashboard` },
+            400,
+          );
+        }
+      }
+
+      // Merge API keys: preserve existing encrypted keys when not provided
+      const existingChain = (repo.providerChain ?? []) as DbProviderChainEntry[];
+
+      const mergedChain: DbProviderChainEntry[] = incomingChain.map((entry) => {
+        if (entry.apiKey) {
+          // New key provided → encrypt it
+          return {
+            provider: entry.provider as SaaSProvider,
+            model: entry.model,
+            encryptedApiKey: encrypt(entry.apiKey),
+          };
+        }
+
+        if (entry.provider === 'github') {
+          // GitHub Models doesn't need an API key
+          return {
+            provider: 'github' as const,
+            model: entry.model,
+            encryptedApiKey: null,
+          };
+        }
+
+        // No key provided → try to preserve existing key for this provider
+        const existing = existingChain.find((e) => e.provider === entry.provider);
+        return {
+          provider: entry.provider as SaaSProvider,
+          model: entry.model,
+          encryptedApiKey: existing?.encryptedApiKey ?? null,
+        };
+      });
+
+      // Build settings update
+      const currentSettings = (repo.settings ?? {}) as RepoSettings;
+      const settingsUpdate: RepoSettings = {
+        enableSemgrep:
+          typeof body.enableSemgrep === 'boolean'
+            ? body.enableSemgrep
+            : currentSettings.enableSemgrep,
+        enableTrivy:
+          typeof body.enableTrivy === 'boolean' ? body.enableTrivy : currentSettings.enableTrivy,
+        enableCpd: typeof body.enableCpd === 'boolean' ? body.enableCpd : currentSettings.enableCpd,
+        enableMemory:
+          typeof body.enableMemory === 'boolean' ? body.enableMemory : currentSettings.enableMemory,
+        customRules:
+          typeof body.customRules === 'string'
+            ? (body.customRules as string)
+                .split('\n')
+                .map((r: string) => r.trim())
+                .filter(Boolean)
+            : currentSettings.customRules,
+        ignorePatterns: Array.isArray(body.ignorePatterns)
+          ? (body.ignorePatterns as string[])
+          : currentSettings.ignorePatterns,
+        reviewLevel:
+          typeof body.reviewLevel === 'string'
+            ? (body.reviewLevel as RepoSettings['reviewLevel'])
+            : currentSettings.reviewLevel,
+      };
+
+      await updateRepoSettings(db, repo.id, {
+        settings: settingsUpdate,
+        reviewMode: typeof body.reviewMode === 'string' ? body.reviewMode : undefined,
+        aiReviewEnabled:
+          typeof body.aiReviewEnabled === 'boolean' ? body.aiReviewEnabled : undefined,
+        providerChain: mergedChain,
+        useGlobalSettings:
+          typeof body.useGlobalSettings === 'boolean' ? body.useGlobalSettings : undefined,
+      });
+
+      logger.info(
+        { repo: repoFullName, user: user.githubLogin, chainLength: mergedChain.length },
+        'Settings updated',
+      );
+      return c.json({ message: 'Settings updated' });
+    } catch (err) {
+      logger.error(
+        { err, repo: repoFullName, user: user.githubLogin },
+        'Failed to update settings',
+      );
+      return c.json({ error: 'Failed to update settings' }, 500);
+    }
+  });
+
+  // ── POST /api/providers/validate ────────────────────────────
+  router.post('/api/providers/validate', async (c) => {
+    const user = c.get('user') as AuthUser;
+
+    let body: { provider?: string; apiKey?: string };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'Invalid JSON body' }, 400);
+    }
+
+    const provider = body.provider;
+    if (!provider) {
+      return c.json({ error: 'Missing provider field' }, 400);
+    }
+
+    if (provider === 'ollama') {
+      return c.json(
+        { error: 'Ollama is not available in the SaaS dashboard. Use CLI or Action instead.' },
+        400,
+      );
+    }
+
+    const validProviders = ['anthropic', 'openai', 'google', 'github', 'qwen'];
+    if (!validProviders.includes(provider)) {
+      return c.json({ error: `Unknown provider: ${provider}` }, 400);
+    }
+
+    // For GitHub Models, use the user's session token
+    let apiKey = body.apiKey;
+    if (provider === 'github') {
+      const authHeader = c.req.header('Authorization') ?? '';
+      apiKey = authHeader.replace(/^Bearer\s+/i, '');
+    } else if (!apiKey) {
+      return c.json({ error: 'Missing apiKey for non-GitHub provider' }, 400);
+    }
+
+    try {
+      const result = await validateProviderKey(provider as SaaSProvider, apiKey!);
+      return c.json(result);
+    } catch (err) {
+      logger.error({ err, provider, user: user.githubLogin }, 'Provider validation error');
+      return c.json({ valid: false, models: [], error: 'Validation request failed' });
+    }
+  });
+
+  return router;
+}
