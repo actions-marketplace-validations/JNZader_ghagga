@@ -16,6 +16,7 @@
 # fastest startup, or this Docker variant for full static analysis.
 
 # ── Stage 1: Build ──────────────────────────────────────────
+# TODO(R2-#10): Pin to digest for reproducibility (e.g. node:22-slim@sha256:...)
 FROM node:22-slim AS builder
 
 RUN corepack enable && corepack prepare pnpm@9 --activate
@@ -44,6 +45,7 @@ RUN pnpm --filter @ghagga/db build && \
 RUN pnpm prune --prod
 
 # ── Stage 2: Runtime ────────────────────────────────────────
+# TODO(R2-#10): Pin to digest for reproducibility (e.g. node:22-slim@sha256:...)
 FROM node:22-slim
 
 # Install system dependencies for static analysis tools
