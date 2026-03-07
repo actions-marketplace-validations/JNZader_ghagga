@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Layout } from '@/components/Layout';
 import { ToastProvider } from '@/components/Toast';
 import { AuthProvider, ProtectedRoute } from '@/lib/auth';
@@ -41,53 +42,55 @@ export function App() {
     <AuthProvider>
       <HashRouter>
         <ToastProvider>
-          <Suspense fallback={<PageSpinner />}>
-            <Routes>
-              <Route path="/login" element={<Login />} />
-              <Route path="/auth/callback" element={<AuthCallback />} />
-              <Route
-                path="/"
-                element={
-                  <ProtectedLayout>
-                    <Dashboard />
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/reviews"
-                element={
-                  <ProtectedLayout>
-                    <Reviews />
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/global-settings"
-                element={
-                  <ProtectedLayout>
-                    <GlobalSettings />
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/settings"
-                element={
-                  <ProtectedLayout>
-                    <Settings />
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/memory"
-                element={
-                  <ProtectedLayout>
-                    <Memory />
-                  </ProtectedLayout>
-                }
-              />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </Suspense>
+          <ErrorBoundary>
+            <Suspense fallback={<PageSpinner />}>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/auth/callback" element={<AuthCallback />} />
+                <Route
+                  path="/"
+                  element={
+                    <ProtectedLayout>
+                      <Dashboard />
+                    </ProtectedLayout>
+                  }
+                />
+                <Route
+                  path="/reviews"
+                  element={
+                    <ProtectedLayout>
+                      <Reviews />
+                    </ProtectedLayout>
+                  }
+                />
+                <Route
+                  path="/global-settings"
+                  element={
+                    <ProtectedLayout>
+                      <GlobalSettings />
+                    </ProtectedLayout>
+                  }
+                />
+                <Route
+                  path="/settings"
+                  element={
+                    <ProtectedLayout>
+                      <Settings />
+                    </ProtectedLayout>
+                  }
+                />
+                <Route
+                  path="/memory"
+                  element={
+                    <ProtectedLayout>
+                      <Memory />
+                    </ProtectedLayout>
+                  }
+                />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </Suspense>
+          </ErrorBoundary>
         </ToastProvider>
       </HashRouter>
     </AuthProvider>
