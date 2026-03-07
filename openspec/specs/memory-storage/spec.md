@@ -668,3 +668,681 @@ Then each URL MUST be normalized to the corresponding Expected Project ID
 12. Pipeline works correctly with `memoryStorage: undefined` (graceful degradation)
 13. ncc bundle of the Action succeeds with sql.js WASM included
 14. All memory failures (WASM load, corrupted DB, file permissions) degrade gracefully with warnings, never breaking the review
+
+---
+---
+
+## Memory Management Extension
+
+> **Merged from**: `memory-management` delta spec (2026-03-06)  
+> **Change**: `memory-management`  
+> **Extends**: Requirements R1–R10 above with management capabilities (CLI commands for inspecting, searching, and pruning memory)
+
+### Overview
+
+This section extends the memory-storage domain with a `ghagga memory` CLI command group providing six subcommands (`list`, `search`, `show`, `delete`, `stats`, `clear`) that give users full visibility and control over their local SQLite memory database. It also extends the `MemoryStorage` interface with five new methods, adds a missing FTS5 delete trigger to the SQLite schema, and stubs the new methods in `PostgresMemoryStorage`.
+
+All commands are CLI-only, output plain text tables (no TUI, no colors), and handle edge cases gracefully: no database file, empty results, invalid IDs, and non-interactive (piped) environments.
+
+---
+
+### Requirements
+
+#### R11: MemoryStorage Interface Extension
+
+The `MemoryStorage` interface in `packages/core/src/types.ts` MUST be extended with five new methods:
+
+```typescript
+/** List observations with optional filtering and pagination. */
+listObservations(options?: {
+  project?: string;
+  type?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<MemoryObservationDetail[]>;
+
+/** Get a single observation by ID (full or prefix). Returns null if not found. */
+getObservation(id: number): Promise<MemoryObservationDetail | null>;
+
+/** Delete a single observation by ID. Returns true if found and deleted, false otherwise. */
+deleteObservation(id: number): Promise<boolean>;
+
+/** Get aggregate statistics about the memory store. */
+getStats(): Promise<MemoryStats>;
+
+/** Delete all observations, optionally scoped to a project. Returns count of deleted rows. */
+clearObservations(options?: { project?: string }): Promise<number>;
+```
+
+**Rationale**: The existing interface only supports search, save, and session management. Management commands (list, get, delete, stats, clear) require dedicated methods that don't exist today.
+
+#### R12: New Types — MemoryObservationDetail, MemoryStats
+
+Two new types MUST be added to `packages/core/src/types.ts`:
+
+```typescript
+export interface MemoryObservationDetail {
+  id: number;
+  type: string;
+  title: string;
+  content: string;
+  filePaths: string[] | null;
+  project: string;
+  topicKey: string | null;
+  revisionCount: number;
+  createdAt: string;   // ISO 8601
+  updatedAt: string;   // ISO 8601
+}
+
+export interface MemoryStats {
+  totalObservations: number;
+  byType: Record<string, number>;
+  byProject: Record<string, number>;
+  oldestObservation: string | null;  // ISO 8601, null if no observations
+  newestObservation: string | null;  // ISO 8601, null if no observations
+}
+```
+
+`MemoryObservationDetail` extends the existing `MemoryObservationRow` with all database columns needed for the `show` command. `MemoryStats` carries aggregate data for the `stats` command.
+
+#### R13: FTS5 Delete Trigger
+
+The `SCHEMA_SQL` constant in `packages/core/src/memory/sqlite.ts` MUST include an `obs_fts_delete` trigger:
+
+```sql
+CREATE TRIGGER IF NOT EXISTS obs_fts_delete AFTER DELETE ON memory_observations BEGIN
+  INSERT INTO memory_observations_fts(memory_observations_fts, rowid, title, content)
+    VALUES ('delete', old.id, old.title, old.content);
+END;
+```
+
+This trigger MUST be appended to the existing `SCHEMA_SQL` alongside the existing `obs_fts_insert` and `obs_fts_update` triggers. Because `SCHEMA_SQL` runs via `db.run(SCHEMA_SQL)` on every `SqliteMemoryStorage.create()` call, and the trigger uses `CREATE TRIGGER IF NOT EXISTS`, existing databases MUST automatically gain the trigger the next time they are opened.
+
+#### R14: SqliteMemoryStorage — New Method Implementations
+
+`SqliteMemoryStorage` in `packages/core/src/memory/sqlite.ts` MUST implement all five new methods:
+
+##### R14.1: listObservations
+
+- Default `limit`: 20, default `offset`: 0.
+- When `options.project` is provided, filter by `project = ?`. When omitted, return all projects.
+- When `options.type` is provided, filter by `type = ?`. When omitted, return all types.
+- Results MUST be ordered newest first (`created_at DESC`).
+- The `file_paths` column MUST be deserialized from JSON string to `string[] | null`.
+- MUST return `MemoryObservationDetail[]`.
+
+##### R14.2: getObservation
+
+- Accepts the integer observation ID.
+- MUST return `MemoryObservationDetail | null`. Returns `null` if no row matches.
+- The `file_paths` column MUST be deserialized from JSON string.
+
+##### R14.3: deleteObservation
+
+- The `obs_fts_delete` trigger (R13) MUST fire automatically to clean up the FTS index.
+- MUST return `true` if a row was deleted, `false` if the ID was not found.
+- After deletion, `close()` MUST be called by the consumer to persist the change to disk.
+
+##### R14.4: getStats
+
+Three queries for total/date range, count by type, and count by project.
+
+- MUST return a `MemoryStats` object.
+- If no observations exist, `totalObservations` MUST be 0, `byType` and `byProject` MUST be empty objects, `oldestObservation` and `newestObservation` MUST be `null`.
+
+##### R14.5: clearObservations
+
+- When `options.project` is provided, delete only that project's observations.
+- When `options.project` is omitted, delete ALL observations.
+- The `obs_fts_delete` trigger (R13) MUST fire for each deleted row to clean up the FTS index.
+- MUST return the count of deleted rows.
+- After clearing, `close()` MUST be called by the consumer to persist.
+
+#### R15: PostgresMemoryStorage Stubs
+
+All five new methods MUST be added to `PostgresMemoryStorage` in `apps/server/src/memory/postgres.ts`. Each MUST throw:
+
+```typescript
+throw new Error('Not implemented — use Dashboard for memory management');
+```
+
+#### R16: CLI Command Group — `ghagga memory`
+
+A new `memory` command group MUST be registered in `apps/cli/src/index.ts`. The command group MUST be implemented as a subdirectory `apps/cli/src/commands/memory/` with one file per subcommand, a shared `utils.ts`, and an `index.ts` barrel.
+
+#### R17: `ghagga memory list`
+
+##### R17.1: Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--repo <owner/repo>` | string | (none) | Filter by project field |
+| `--type <type>` | string | (none) | Filter by observation type |
+| `--limit <n>` | number | 20 | Maximum rows to display |
+
+##### R17.2: Output Format
+
+A plain-text table with fixed-width columns using `String.padEnd()`:
+- **ID**: First 8 characters of the integer ID, left-padded with zeros.
+- **Type**: Observation type, max 10 chars.
+- **Title**: Truncated to 40 characters with `...` suffix if longer.
+- **Repo**: The `project` field value.
+- **Date**: `createdAt` formatted as `YYYY-MM-DD`.
+
+##### R17.3: Empty Results
+
+When no observations match the filters, output: `No observations found.`
+
+#### R18: `ghagga memory search <query>`
+
+##### R18.1: Arguments and Options
+
+- **Required argument**: `<query>` — the search terms (passed to `searchObservations`)
+- `--repo <owner/repo>` — scope search to a specific project (inferred from git remote if omitted via `resolveProjectId`)
+- `--limit <n>` — maximum results (default 10)
+
+##### R18.2: Output Format
+
+Numbered results showing type in brackets, title, ID (first 8 chars), and content snippet (first 80 characters with `...` suffix if longer).
+
+##### R18.3: Empty Results
+
+Output: `No matching observations found.`
+
+#### R19: `ghagga memory show <id>`
+
+##### R19.1: Arguments
+
+- **Required argument**: `<id>` — the observation ID. The CLI MUST parse the argument as an integer. If parsing fails, print: `Invalid observation ID: "<input>". Expected a number.`
+
+##### R19.2: Output Format
+
+Key-value display, one field per line. Content MUST be displayed in full (no truncation), indented with 2 spaces per line. File paths as comma-separated list or `(none)`.
+
+##### R19.3: Not Found
+
+Output: `Observation not found: <id>` (exit code 1)
+
+#### R20: `ghagga memory delete <id>`
+
+##### R20.1: Arguments and Options
+
+- **Required argument**: `<id>` — the observation ID
+- `--force` — skip the confirmation prompt
+
+##### R20.2: Confirmation Flow
+
+Fetch observation → display summary → prompt `Are you sure? (y/N)` → only `y`/`Y` confirms → delete + close → success message. On cancel: `Cancelled.`
+
+##### R20.3: Non-TTY Behavior
+
+If `process.stdin.isTTY` is falsy and `--force` is not set: error and exit 1.
+
+##### R20.4: Force Mode
+
+Skip confirmation prompt entirely.
+
+#### R21: `ghagga memory stats`
+
+##### R21.1: Output Format
+
+Shows: total observations, by type (sorted by count desc), by repository (top 10, sorted by count desc), database file path and size, oldest/newest observation dates.
+
+##### R21.2: No Database
+
+Print: `No memory database found. Run "ghagga review" first to build memory.`
+
+#### R22: `ghagga memory clear`
+
+##### R22.1: Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--repo <owner/repo>` | string | (none) | Scope deletion to a single project |
+| `--force` | boolean | false | Skip confirmation prompt |
+
+##### R22.2: Confirmation Flow
+
+Count observations → display scoped/unscoped prompt → only `y`/`Y` confirms → clear + close → success message with count.
+
+##### R22.3: Non-TTY Behavior
+
+Same as R20.3.
+
+##### R22.4: Force Mode
+
+Same as R20.4.
+
+#### R23: Database Lifecycle in Commands
+
+Every command handler MUST: check `existsSync(dbPath)` → open `SqliteMemoryStorage.create(dbPath)` → execute → close in `finally` block. If file does not exist: print `No memory database found. Run "ghagga review" first to build memory.` and exit 0. The database path MUST be `join(getConfigDir(), 'memory.db')`.
+
+#### R24: Confirmation Prompt Implementation
+
+Confirmation prompts MUST use Node.js built-in `readline/promises`. No external prompt library.
+
+#### R25: No New Dependencies (Memory Management)
+
+This extension MUST NOT add any new npm dependencies to `packages/core` or `apps/cli`.
+
+---
+
+### Cross-Cutting Concerns (Memory Management)
+
+#### CC4: Graceful Degradation — No Database File
+
+All six memory management commands MUST handle the case where `~/.config/ghagga/memory.db` does not exist. Check `existsSync(dbPath)` BEFORE opening storage. Print message and exit 0. MUST NOT create an empty database file.
+
+#### CC5: Non-TTY Detection
+
+Commands that require interactive confirmation (`delete`, `clear`) MUST detect non-TTY environments. Non-TTY without `--force`: error exit 1. Non-TTY with `--force`: proceed. TTY with `--force`: proceed. TTY without `--force`: show prompt.
+
+#### CC6: Output Formatting — Plain Text Only
+
+All command output MUST be plain text. No ANSI color codes, no TUI components, no external formatting libraries. Tables use `String.padEnd()`. Output is designed to be parseable by text processing tools.
+
+#### CC7: Error Exit Codes
+
+| Scenario | Exit Code |
+|----------|-----------|
+| Success (data found and displayed) | 0 |
+| Success (no data / empty results) | 0 |
+| No database file exists | 0 |
+| Observation not found (show/delete) | 1 |
+| Invalid input (bad ID format) | 1 |
+| Non-TTY without --force | 1 |
+| Database open/read error | 1 |
+| Cancelled by user | 0 |
+
+#### CC8: ID Display Format
+
+Throughout all commands, observation IDs are displayed as the first 8 characters of the zero-padded integer ID (e.g., `42` → `00000042`).
+
+---
+
+### Scenarios (Memory Management)
+
+#### S24: List — Happy Path, All Observations
+
+```gherkin
+Given a memory database exists with 25 observations across 2 projects
+  And the user runs `ghagga memory list`
+When the command executes
+Then listObservations({ limit: 20, offset: 0 }) MUST be called
+  And a table with 20 rows MUST be printed (respecting default limit)
+  And rows MUST be ordered newest first
+```
+
+#### S25: List — Filtered by Repo
+
+```gherkin
+Given observations exist for "acme/widgets" and "acme/gadgets"
+  And the user runs `ghagga memory list --repo acme/widgets`
+Then only observations where project = "acme/widgets" MUST appear
+```
+
+#### S26: List — Filtered by Type
+
+```gherkin
+Given observations of types "pattern", "bugfix", "learning"
+  And the user runs `ghagga memory list --type pattern`
+Then only observations where type = "pattern" MUST appear
+```
+
+#### S27: List — Custom Limit
+
+```gherkin
+Given 50 observations exist
+  And the user runs `ghagga memory list --limit 5`
+Then exactly 5 rows MUST be printed
+```
+
+#### S28: List — Combined Filters
+
+```gherkin
+Given observations exist
+  And the user runs `ghagga memory list --repo acme/widgets --type bugfix --limit 3`
+Then only matching observations MUST appear
+```
+
+#### S29: List — Empty Results
+
+```gherkin
+Given a memory database with no observations
+  And the user runs `ghagga memory list`
+Then the output MUST be "No observations found."
+  And the exit code MUST be 0
+```
+
+#### S30: List — No Database File
+
+```gherkin
+Given no memory database file exists
+  And the user runs `ghagga memory list`
+Then the output MUST be 'No memory database found. Run "ghagga review" first to build memory.'
+  And the exit code MUST be 0
+```
+
+#### S31: Search — Happy Path
+
+```gherkin
+Given observations for "acme/widgets" containing "auth" terms
+  And the user runs `ghagga memory search "auth" --repo acme/widgets`
+Then results MUST be displayed as numbered entries ranked by BM25 relevance
+```
+
+#### S32: Search — Repo Inferred from Git Remote
+
+```gherkin
+Given the current directory is a git repo with remote "https://github.com/acme/widgets.git"
+  And the user runs `ghagga memory search "auth"` (no --repo flag)
+Then resolveProjectId MUST be called to derive "acme/widgets"
+```
+
+#### S33: Search — Custom Limit
+
+```gherkin
+Given many observations exist
+  And the user runs `ghagga memory search "patterns" --repo acme/widgets --limit 3`
+Then at most 3 results MUST be displayed
+```
+
+#### S34: Search — No Results
+
+```gherkin
+Given the user runs `ghagga memory search "xyznonexistent" --repo acme/widgets`
+Then the output MUST be "No matching observations found."
+```
+
+#### S35: Search — No Database File
+
+```gherkin
+Given no memory database file exists
+  And the user runs `ghagga memory search "auth" --repo acme/widgets`
+Then the output MUST be 'No memory database found...'
+```
+
+#### S36: Show — Happy Path
+
+```gherkin
+Given observation ID 42 exists with all fields populated
+  And the user runs `ghagga memory show 42`
+Then ALL fields MUST be displayed in key-value format
+  And content MUST be displayed in full (no truncation)
+```
+
+#### S37: Show — Not Found
+
+```gherkin
+Given no observation has ID 999
+  And the user runs `ghagga memory show 999`
+Then the output MUST be "Observation not found: 999"
+  And the exit code MUST be 1
+```
+
+#### S38: Show — Invalid ID Format
+
+```gherkin
+Given the user runs `ghagga memory show abc`
+Then the output MUST be 'Invalid observation ID: "abc". Expected a number.'
+  And the exit code MUST be 1
+```
+
+#### S39: Show — No Database File
+
+```gherkin
+Given no memory database file exists
+  And the user runs `ghagga memory show 42`
+Then the no-DB message MUST be printed and exit 0
+```
+
+#### S40: Delete — Happy Path with Confirmation
+
+```gherkin
+Given observation ID 42 exists and the terminal is a TTY
+  And the user runs `ghagga memory delete 42` and types "y"
+Then deleteObservation(42) MUST be called
+  And storage.close() MUST be called
+  And the FTS5 index entry MUST be cleaned up
+```
+
+#### S41: Delete — User Cancels
+
+```gherkin
+Given the user runs `ghagga memory delete 42` and types "n"
+Then deleteObservation MUST NOT be called
+  And the output MUST show "Cancelled."
+```
+
+#### S42: Delete — Force Mode
+
+```gherkin
+Given the user runs `ghagga memory delete 42 --force`
+Then no confirmation prompt MUST be shown
+  And deleteObservation(42) MUST be called directly
+```
+
+#### S43: Delete — Not Found
+
+```gherkin
+Given no observation has ID 999
+  And the user runs `ghagga memory delete 999`
+Then the output MUST be "Observation not found: 999"
+  And the exit code MUST be 1
+```
+
+#### S44: Delete — Non-TTY Without Force
+
+```gherkin
+Given process.stdin.isTTY is falsy
+  And the user runs `echo "y" | ghagga memory delete 42`
+Then error message MUST be printed and exit code MUST be 1
+```
+
+#### S45: Delete — Non-TTY With Force
+
+```gherkin
+Given process.stdin.isTTY is falsy
+  And the user runs `ghagga memory delete 42 --force`
+Then deletion MUST proceed without TTY check blocking
+```
+
+#### S46: Delete — FTS5 Cleanup
+
+```gherkin
+Given observation ID 42 is indexed in FTS5
+  And the user deletes it
+Then the obs_fts_delete trigger MUST fire
+  And subsequent searches MUST NOT return observation 42
+```
+
+#### S47: Delete — Invalid ID / No DB
+
+```gherkin
+Given the user runs `ghagga memory delete abc`
+Then the output MUST be 'Invalid observation ID: "abc". Expected a number.'
+  And exit code MUST be 1
+
+Given no database file exists and the user runs `ghagga memory delete 42`
+Then the no-DB message MUST be printed and exit 0
+```
+
+#### S48: Stats — Happy Path
+
+```gherkin
+Given a populated memory database
+  And the user runs `ghagga memory stats`
+Then total observations, by-type breakdown, by-repo breakdown, DB file size, and date range MUST be shown
+```
+
+#### S49: Stats — Empty Database
+
+```gherkin
+Given an empty memory database
+  And the user runs `ghagga memory stats`
+Then "Total observations: 0" and "(none)" sections MUST be shown
+```
+
+#### S50: Stats — No Database File
+
+```gherkin
+Given no memory database file exists
+  And the user runs `ghagga memory stats`
+Then the no-DB message MUST be printed and exit 0
+```
+
+#### S51: Clear — Happy Path, All Observations
+
+```gherkin
+Given 147 observations exist and the terminal is a TTY
+  And the user runs `ghagga memory clear` and types "y"
+Then clearObservations() MUST be called with no project filter
+  And storage.close() MUST be called
+  And the output MUST show the count of deleted observations
+```
+
+#### S52: Clear — Scoped to Repository
+
+```gherkin
+Given observations exist for multiple projects
+  And the user runs `ghagga memory clear --repo acme/widgets` and types "y"
+Then clearObservations({ project: "acme/widgets" }) MUST be called
+  And only that project's observations MUST be deleted
+```
+
+#### S53: Clear — User Cancels
+
+```gherkin
+Given the user runs `ghagga memory clear` and types "n"
+Then clearObservations MUST NOT be called
+  And the output MUST show "Cancelled."
+```
+
+#### S54: Clear — Force Mode
+
+```gherkin
+Given the user runs `ghagga memory clear --force`
+Then no confirmation prompt MUST be shown
+  And clearObservations() MUST be called directly
+```
+
+#### S55: Clear — No Observations
+
+```gherkin
+Given an empty database
+  And the user runs `ghagga memory clear`
+Then "No observations to clear." MUST be printed
+  And no confirmation prompt MUST be shown
+```
+
+#### S56: Clear — Non-TTY Without Force
+
+```gherkin
+Given process.stdin.isTTY is falsy and --force is not set
+Then error message MUST be printed and exit code MUST be 1
+```
+
+#### S57: Clear — Non-TTY With Force and Repo
+
+```gherkin
+Given process.stdin.isTTY is falsy
+  And the user runs `ghagga memory clear --repo acme/widgets --force`
+Then clearObservations({ project: "acme/widgets" }) MUST be called
+```
+
+#### S58: Clear — FTS5 Cleanup on Bulk Delete
+
+```gherkin
+Given 50 observations all indexed in FTS5
+  And the user runs `ghagga memory clear --force`
+Then obs_fts_delete trigger MUST fire once per deleted row
+  And FTS index MUST be empty after the operation
+```
+
+#### S59: FTS5 Delete Trigger — Auto-Migration
+
+```gherkin
+Given a database created before this change (no obs_fts_delete trigger)
+When SqliteMemoryStorage.create(dbPath) is called with the new code
+Then CREATE TRIGGER IF NOT EXISTS obs_fts_delete MUST succeed
+  And existing triggers MUST remain unchanged
+```
+
+#### S60: FTS5 Delete Trigger — Idempotent on New Database
+
+```gherkin
+Given SqliteMemoryStorage.create() is called on a non-existent path
+When SCHEMA_SQL runs
+Then all three triggers MUST be created without errors
+```
+
+#### S61: FTS5 Delete Trigger — Idempotent on Re-Open
+
+```gherkin
+Given a database created with the new code
+When SqliteMemoryStorage.create(dbPath) is called again
+Then CREATE TRIGGER IF NOT EXISTS obs_fts_delete MUST be a no-op
+```
+
+#### S62: PostgresMemoryStorage — Stub Methods Throw
+
+```gherkin
+Given a PostgresMemoryStorage instance
+When listObservations, getObservation, deleteObservation, getStats, or clearObservations is called
+Then each MUST throw Error('Not implemented — use Dashboard for memory management')
+```
+
+#### S63: PostgresMemoryStorage — Existing Methods Unchanged
+
+```gherkin
+Given a PostgresMemoryStorage instance
+When existing methods (searchObservations, saveObservation, createSession, endSession, close) are called
+Then behavior MUST be identical to pre-change implementation
+```
+
+#### S64: CLI Help Text
+
+```gherkin
+Given the user runs `ghagga memory --help`
+Then all 6 subcommands MUST be listed: list, search, show, delete, stats, clear
+```
+
+#### S65: Command Registration
+
+```gherkin
+Given the CLI entry point at apps/cli/src/index.ts
+Then memoryCommand MUST be registered
+  And `ghagga memory` MUST appear in `ghagga --help` output
+  And existing commands MUST NOT be affected
+```
+
+#### S66: Storage Close in Finally Block
+
+```gherkin
+Given a memory command opens storage and an error occurs
+Then storage.close() MUST still be called (via finally block)
+```
+
+---
+
+### Acceptance Criteria (Memory Management)
+
+15. `MemoryStorage` interface has 5 new methods: `listObservations`, `getObservation`, `deleteObservation`, `getStats`, `clearObservations`
+16. `MemoryObservationDetail` and `MemoryStats` types are exported from `packages/core/src/types.ts`
+17. `obs_fts_delete` trigger is present in `SCHEMA_SQL`; existing databases gain it on next open
+18. `SqliteMemoryStorage` implements all 5 new methods with correct SQL, JSON deserialization, and return types
+19. `PostgresMemoryStorage` has all 5 new methods throwing `'Not implemented — use Dashboard for memory management'`
+20. `ghagga memory` command group is registered and appears in `ghagga --help`
+21. `ghagga memory list` displays table, supports `--repo`, `--type`, `--limit`
+22. `ghagga memory search <query>` uses FTS5/BM25, supports `--repo` (inferred from git), `--limit`
+23. `ghagga memory show <id>` displays all fields, errors on not-found and invalid IDs
+24. `ghagga memory delete <id>` shows confirmation, respects `--force`, cleans FTS5
+25. `ghagga memory stats` shows totals, by-type, by-repo, DB file size, date range
+26. `ghagga memory clear` prompts, supports `--repo` scoping, `--force`, returns count
+27. All 6 commands print no-DB message when `memory.db` does not exist, without creating one
+28. `delete` and `clear` require `--force` in non-TTY environments
+29. Confirmation prompts use `readline/promises`, accept only `y`/`Y`
+30. No ANSI colors, no TUI, no external formatting libraries
+31. No new npm dependencies added
+32. All new methods have unit tests (101 memory-specific tests)
+33. Existing commands (`review`, `login`, `logout`, `status`) unaffected
