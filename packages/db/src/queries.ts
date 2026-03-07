@@ -498,6 +498,228 @@ export async function getObservationsBySession(db: Database, sessionId: number) 
     .orderBy(desc(memoryObservations.createdAt));
 }
 
+// ─── Memory: Management (Delete / Clear / Purge) ────────────────
+
+/**
+ * Delete a single observation by ID, scoped to installation.
+ * Uses subquery to verify the observation's project belongs to a repository
+ * owned by the given installation. Returns true if deleted, false if not
+ * found or not authorized.
+ */
+export async function deleteMemoryObservation(
+  db: Database,
+  installationId: number,
+  observationId: number,
+): Promise<boolean> {
+  const result = await db
+    .delete(memoryObservations)
+    .where(
+      and(
+        eq(memoryObservations.id, observationId),
+        inArray(
+          memoryObservations.project,
+          db
+            .select({ fullName: repositories.fullName })
+            .from(repositories)
+            .where(eq(repositories.installationId, installationId)),
+        ),
+      ),
+    )
+    .returning({ id: memoryObservations.id });
+
+  return result.length > 0;
+}
+
+/**
+ * Clear all observations for a specific project, scoped to installation.
+ * Verifies the project belongs to a repository owned by the installation.
+ * Returns the count of deleted rows.
+ */
+export async function clearMemoryObservationsByProject(
+  db: Database,
+  installationId: number,
+  project: string,
+): Promise<number> {
+  const result = await db
+    .delete(memoryObservations)
+    .where(
+      and(
+        eq(memoryObservations.project, project),
+        inArray(
+          memoryObservations.project,
+          db
+            .select({ fullName: repositories.fullName })
+            .from(repositories)
+            .where(eq(repositories.installationId, installationId)),
+        ),
+      ),
+    )
+    .returning({ id: memoryObservations.id });
+
+  return result.length;
+}
+
+/**
+ * Clear all observations for all repos belonging to an installation.
+ * Returns the count of deleted rows.
+ */
+export async function clearAllMemoryObservations(
+  db: Database,
+  installationId: number,
+): Promise<number> {
+  const result = await db
+    .delete(memoryObservations)
+    .where(
+      inArray(
+        memoryObservations.project,
+        db
+          .select({ fullName: repositories.fullName })
+          .from(repositories)
+          .where(eq(repositories.installationId, installationId)),
+      ),
+    )
+    .returning({ id: memoryObservations.id });
+
+  return result.length;
+}
+
+// ─── Memory: Read Queries (Installation-Scoped) ─────────────────
+
+/**
+ * Get a single observation by ID, scoped to installation.
+ * Returns the observation detail or null if not found / not authorized.
+ */
+export async function getMemoryObservation(
+  db: Database,
+  installationId: number,
+  observationId: number,
+) {
+  const result = await db
+    .select()
+    .from(memoryObservations)
+    .where(
+      and(
+        eq(memoryObservations.id, observationId),
+        inArray(
+          memoryObservations.project,
+          db
+            .select({ fullName: repositories.fullName })
+            .from(repositories)
+            .where(eq(repositories.installationId, installationId)),
+        ),
+      ),
+    );
+
+  return result[0] ?? null;
+}
+
+/**
+ * List observations with optional filtering, scoped to installation.
+ * Supports filtering by project, type, and pagination (limit/offset).
+ */
+export async function listMemoryObservations(
+  db: Database,
+  installationId: number,
+  options?: {
+    project?: string;
+    type?: string;
+    limit?: number;
+    offset?: number;
+  },
+) {
+  const conditions: SQL[] = [
+    inArray(
+      memoryObservations.project,
+      db
+        .select({ fullName: repositories.fullName })
+        .from(repositories)
+        .where(eq(repositories.installationId, installationId)),
+    ),
+  ];
+
+  if (options?.project) {
+    conditions.push(eq(memoryObservations.project, options.project));
+  }
+
+  if (options?.type) {
+    conditions.push(eq(memoryObservations.type, options.type));
+  }
+
+  const query = db
+    .select()
+    .from(memoryObservations)
+    .where(and(...conditions))
+    .orderBy(desc(memoryObservations.createdAt))
+    .limit(options?.limit ?? 100);
+
+  if (options?.offset) {
+    return (query as any).offset(options.offset);
+  }
+
+  return query;
+}
+
+/**
+ * Get aggregate memory statistics for an installation.
+ * Returns total count, breakdown by type and project, oldest/newest dates.
+ */
+export async function getMemoryStats(
+  db: Database,
+  installationId: number,
+): Promise<{
+  totalObservations: number;
+  oldestDate: Date | null;
+  newestDate: Date | null;
+  byType: { type: string; count: number }[];
+  byProject: { project: string; count: number }[];
+}> {
+  const scopeCondition = inArray(
+    memoryObservations.project,
+    db
+      .select({ fullName: repositories.fullName })
+      .from(repositories)
+      .where(eq(repositories.installationId, installationId)),
+  );
+
+  // Total count and date range
+  const [summary] = await db
+    .select({
+      total: sql<number>`cast(count(*) as integer)`,
+      oldest: sql<Date | null>`min(${memoryObservations.createdAt})`,
+      newest: sql<Date | null>`max(${memoryObservations.createdAt})`,
+    })
+    .from(memoryObservations)
+    .where(scopeCondition);
+
+  // Breakdown by type
+  const byType = await db
+    .select({
+      type: memoryObservations.type,
+      count: sql<number>`cast(count(*) as integer)`,
+    })
+    .from(memoryObservations)
+    .where(scopeCondition)
+    .groupBy(memoryObservations.type);
+
+  // Breakdown by project
+  const byProject = await db
+    .select({
+      project: memoryObservations.project,
+      count: sql<number>`cast(count(*) as integer)`,
+    })
+    .from(memoryObservations)
+    .where(scopeCondition)
+    .groupBy(memoryObservations.project);
+
+  return {
+    totalObservations: summary?.total ?? 0,
+    oldestDate: summary?.oldest ?? null,
+    newestDate: summary?.newest ?? null,
+    byType,
+    byProject,
+  };
+}
+
 // ─── User Mappings ──────────────────────────────────────────────
 
 /**

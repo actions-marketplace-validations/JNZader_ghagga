@@ -1,9 +1,8 @@
 /**
- * PostgresMemoryStorage management stub tests.
+ * PostgresMemoryStorage tests.
  *
- * Verifies that the 5 management methods (listObservations, getObservation,
- * deleteObservation, getStats, clearObservations) throw "Not implemented"
- * errors, directing users to the Dashboard UI. (S39–S43, R5)
+ * Verifies that management methods delegate to the correct ghagga-db
+ * functions with correct arguments and map results properly.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -15,58 +14,36 @@ const mockSearchObservations = vi.hoisted(() => vi.fn());
 const mockSaveObservation = vi.hoisted(() => vi.fn());
 const mockCreateMemorySession = vi.hoisted(() => vi.fn());
 const mockEndMemorySession = vi.hoisted(() => vi.fn());
+const mockDeleteMemoryObservation = vi.hoisted(() => vi.fn());
+const mockClearMemoryObservationsByProject = vi.hoisted(() => vi.fn());
+const mockClearAllMemoryObservations = vi.hoisted(() => vi.fn());
+const mockGetMemoryObservation = vi.hoisted(() => vi.fn());
+const mockListMemoryObservations = vi.hoisted(() => vi.fn());
+const mockGetMemoryStats = vi.hoisted(() => vi.fn());
 
 vi.mock('ghagga-db', () => ({
   searchObservations: mockSearchObservations,
   saveObservation: mockSaveObservation,
   createMemorySession: mockCreateMemorySession,
   endMemorySession: mockEndMemorySession,
+  deleteMemoryObservation: mockDeleteMemoryObservation,
+  clearMemoryObservationsByProject: mockClearMemoryObservationsByProject,
+  clearAllMemoryObservations: mockClearAllMemoryObservations,
+  getMemoryObservation: mockGetMemoryObservation,
+  listMemoryObservations: mockListMemoryObservations,
+  getMemoryStats: mockGetMemoryStats,
 }));
-
-// ─── Tests ──────────────────────────────────────────────────────
-
-describe('PostgresMemoryStorage — management stubs', () => {
-  const storage = new PostgresMemoryStorage({} as never);
-  const expectedMessage = 'Not implemented — use Dashboard for memory management';
-
-  it('listObservations throws "Not implemented"', async () => {
-    await expect(storage.listObservations()).rejects.toThrow(expectedMessage);
-  });
-
-  it('listObservations throws with options', async () => {
-    await expect(storage.listObservations({ project: 'a/b', limit: 10 })).rejects.toThrow(expectedMessage);
-  });
-
-  it('getObservation throws "Not implemented"', async () => {
-    await expect(storage.getObservation(1)).rejects.toThrow(expectedMessage);
-  });
-
-  it('deleteObservation throws "Not implemented"', async () => {
-    await expect(storage.deleteObservation(1)).rejects.toThrow(expectedMessage);
-  });
-
-  it('getStats throws "Not implemented"', async () => {
-    await expect(storage.getStats()).rejects.toThrow(expectedMessage);
-  });
-
-  it('clearObservations throws "Not implemented" without options', async () => {
-    await expect(storage.clearObservations()).rejects.toThrow(expectedMessage);
-  });
-
-  it('clearObservations throws "Not implemented" with project scope', async () => {
-    await expect(storage.clearObservations({ project: 'owner/repo' })).rejects.toThrow(expectedMessage);
-  });
-});
 
 // ─── Core method tests ──────────────────────────────────────────
 
 describe('PostgresMemoryStorage — core methods', () => {
   const fakeDb = {} as never;
+  const installationId = 100;
   let storage: PostgresMemoryStorage;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    storage = new PostgresMemoryStorage(fakeDb);
+    storage = new PostgresMemoryStorage(fakeDb, installationId);
   });
 
   describe('searchObservations', () => {
@@ -180,6 +157,233 @@ describe('PostgresMemoryStorage — core methods', () => {
   describe('close', () => {
     it('is a no-op that resolves without error', async () => {
       await expect(storage.close()).resolves.toBeUndefined();
+    });
+  });
+});
+
+// ─── Management method delegation tests ─────────────────────────
+
+describe('PostgresMemoryStorage — management methods', () => {
+  const fakeDb = {} as never;
+  const installationId = 100;
+  let storage: PostgresMemoryStorage;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    storage = new PostgresMemoryStorage(fakeDb, installationId);
+  });
+
+  describe('listObservations (S22)', () => {
+    it('delegates to listMemoryObservations with installationId and no options', async () => {
+      mockListMemoryObservations.mockResolvedValueOnce([]);
+
+      const result = await storage.listObservations();
+
+      expect(mockListMemoryObservations).toHaveBeenCalledWith(fakeDb, installationId, undefined);
+      expect(result).toEqual([]);
+    });
+
+    it('delegates with options and maps DB rows to MemoryObservationDetail', async () => {
+      const now = new Date('2026-03-07T12:00:00Z');
+      mockListMemoryObservations.mockResolvedValueOnce([
+        {
+          id: 1,
+          type: 'pattern',
+          title: 'Auth pattern',
+          content: 'Use JWT',
+          filePaths: ['src/auth.ts'],
+          project: 'acme/app',
+          topicKey: 'auth',
+          revisionCount: 2,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+      const result = await storage.listObservations({ project: 'acme/app', limit: 10 });
+
+      expect(mockListMemoryObservations).toHaveBeenCalledWith(fakeDb, installationId, { project: 'acme/app', limit: 10 });
+      expect(result).toEqual([
+        {
+          id: 1,
+          type: 'pattern',
+          title: 'Auth pattern',
+          content: 'Use JWT',
+          filePaths: ['src/auth.ts'],
+          project: 'acme/app',
+          topicKey: 'auth',
+          revisionCount: 2,
+          createdAt: '2026-03-07T12:00:00.000Z',
+          updatedAt: '2026-03-07T12:00:00.000Z',
+        },
+      ]);
+    });
+
+    it('maps null topicKey and filePaths correctly', async () => {
+      mockListMemoryObservations.mockResolvedValueOnce([
+        {
+          id: 2,
+          type: 'decision',
+          title: 'D',
+          content: 'C',
+          filePaths: null,
+          project: 'acme/app',
+          topicKey: null,
+          revisionCount: 1,
+          createdAt: '2026-01-01',
+          updatedAt: '2026-01-01',
+        },
+      ]);
+
+      const result = await storage.listObservations();
+
+      expect(result[0]!.filePaths).toBeNull();
+      expect(result[0]!.topicKey).toBeNull();
+    });
+  });
+
+  describe('getObservation (S23-S24)', () => {
+    it('returns mapped observation when found (S23)', async () => {
+      const now = new Date('2026-03-07T12:00:00Z');
+      mockGetMemoryObservation.mockResolvedValueOnce({
+        id: 42,
+        type: 'pattern',
+        title: 'Auth pattern',
+        content: 'Use JWT',
+        filePaths: ['src/auth.ts'],
+        project: 'acme/app',
+        topicKey: 'auth',
+        revisionCount: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const result = await storage.getObservation(42);
+
+      expect(mockGetMemoryObservation).toHaveBeenCalledWith(fakeDb, installationId, 42);
+      expect(result).toEqual({
+        id: 42,
+        type: 'pattern',
+        title: 'Auth pattern',
+        content: 'Use JWT',
+        filePaths: ['src/auth.ts'],
+        project: 'acme/app',
+        topicKey: 'auth',
+        revisionCount: 1,
+        createdAt: '2026-03-07T12:00:00.000Z',
+        updatedAt: '2026-03-07T12:00:00.000Z',
+      });
+    });
+
+    it('returns null when not found (S24)', async () => {
+      mockGetMemoryObservation.mockResolvedValueOnce(null);
+
+      const result = await storage.getObservation(999);
+
+      expect(mockGetMemoryObservation).toHaveBeenCalledWith(fakeDb, installationId, 999);
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('deleteObservation (S25)', () => {
+    it('delegates to deleteMemoryObservation and returns true when deleted', async () => {
+      mockDeleteMemoryObservation.mockResolvedValueOnce(true);
+
+      const result = await storage.deleteObservation(42);
+
+      expect(mockDeleteMemoryObservation).toHaveBeenCalledWith(fakeDb, installationId, 42);
+      expect(result).toBe(true);
+    });
+
+    it('returns false when not found', async () => {
+      mockDeleteMemoryObservation.mockResolvedValueOnce(false);
+
+      const result = await storage.deleteObservation(999);
+
+      expect(mockDeleteMemoryObservation).toHaveBeenCalledWith(fakeDb, installationId, 999);
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('getStats (S26)', () => {
+    it('delegates to getMemoryStats and maps to MemoryStats interface', async () => {
+      const oldest = new Date('2026-01-01T00:00:00Z');
+      const newest = new Date('2026-03-07T12:00:00Z');
+      mockGetMemoryStats.mockResolvedValueOnce({
+        totalObservations: 25,
+        oldestDate: oldest,
+        newestDate: newest,
+        byType: [
+          { type: 'pattern', count: 15 },
+          { type: 'decision', count: 10 },
+        ],
+        byProject: [
+          { project: 'acme/app', count: 20 },
+          { project: 'acme/lib', count: 5 },
+        ],
+      });
+
+      const result = await storage.getStats();
+
+      expect(mockGetMemoryStats).toHaveBeenCalledWith(fakeDb, installationId);
+      expect(result).toEqual({
+        totalObservations: 25,
+        byType: { pattern: 15, decision: 10 },
+        byProject: { 'acme/app': 20, 'acme/lib': 5 },
+        oldestObservation: '2026-01-01T00:00:00.000Z',
+        newestObservation: '2026-03-07T12:00:00.000Z',
+      });
+    });
+
+    it('handles null dates (empty store)', async () => {
+      mockGetMemoryStats.mockResolvedValueOnce({
+        totalObservations: 0,
+        oldestDate: null,
+        newestDate: null,
+        byType: [],
+        byProject: [],
+      });
+
+      const result = await storage.getStats();
+
+      expect(result).toEqual({
+        totalObservations: 0,
+        byType: {},
+        byProject: {},
+        oldestObservation: null,
+        newestObservation: null,
+      });
+    });
+  });
+
+  describe('clearObservations (S27-S28)', () => {
+    it('delegates to clearMemoryObservationsByProject when project is provided (S27)', async () => {
+      mockClearMemoryObservationsByProject.mockResolvedValueOnce(15);
+
+      const result = await storage.clearObservations({ project: 'acme/app' });
+
+      expect(mockClearMemoryObservationsByProject).toHaveBeenCalledWith(fakeDb, installationId, 'acme/app');
+      expect(mockClearAllMemoryObservations).not.toHaveBeenCalled();
+      expect(result).toBe(15);
+    });
+
+    it('delegates to clearAllMemoryObservations when no project (S28)', async () => {
+      mockClearAllMemoryObservations.mockResolvedValueOnce(50);
+
+      const result = await storage.clearObservations();
+
+      expect(mockClearAllMemoryObservations).toHaveBeenCalledWith(fakeDb, installationId);
+      expect(mockClearMemoryObservationsByProject).not.toHaveBeenCalled();
+      expect(result).toBe(50);
+    });
+
+    it('delegates to clearAllMemoryObservations when options is empty object', async () => {
+      mockClearAllMemoryObservations.mockResolvedValueOnce(0);
+
+      const result = await storage.clearObservations({});
+
+      expect(mockClearAllMemoryObservations).toHaveBeenCalledWith(fakeDb, installationId);
+      expect(result).toBe(0);
     });
   });
 });

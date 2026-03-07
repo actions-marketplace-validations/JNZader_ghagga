@@ -247,7 +247,7 @@ export const reviewFunction = inngest.createFunction(
         logger.warn({ repoFullName }, 'Database unavailable for memory features');
       }
 
-      const memoryStorage = db ? new PostgresMemoryStorage(db) : undefined;
+      const memoryStorage = db ? new PostgresMemoryStorage(db, installationId) : undefined;
 
       const input: ReviewInput = {
         diff: context.diff,

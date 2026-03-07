@@ -10,6 +10,12 @@ import {
   saveObservation,
   createMemorySession,
   endMemorySession,
+  deleteMemoryObservation,
+  clearMemoryObservationsByProject,
+  clearAllMemoryObservations,
+  getMemoryObservation,
+  listMemoryObservations,
+  getMemoryStats,
 } from 'ghagga-db';
 import type { Database } from 'ghagga-db';
 
@@ -25,7 +31,10 @@ import type { Database } from 'ghagga-db';
  * externally by the server (pooled via node-postgres).
  */
 export class PostgresMemoryStorage implements MemoryStorage {
-  constructor(private db: Database) {}
+  constructor(
+    private db: Database,
+    private installationId: number,
+  ) {}
 
   async searchObservations(
     project: string,
@@ -77,26 +86,60 @@ export class PostgresMemoryStorage implements MemoryStorage {
     // No-op — PostgreSQL connection lifecycle is managed externally
   }
 
-  // ── Management method stubs (R5) ──────────────────────────────
-  // These will be implemented via the Dashboard UI in a future change.
+  // ── Management methods ─────────────────────────────────────────
 
   async listObservations(options?: ListObservationsOptions): Promise<MemoryObservationDetail[]> {
-    throw new Error('Not implemented — use Dashboard for memory management');
+    const rows = await listMemoryObservations(this.db, this.installationId, options);
+    return rows.map((row) => ({
+      id: row.id,
+      type: row.type,
+      title: row.title,
+      content: row.content,
+      filePaths: row.filePaths ?? null,
+      project: row.project,
+      topicKey: row.topicKey ?? null,
+      revisionCount: row.revisionCount,
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
+      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt),
+    }));
   }
 
   async getObservation(id: number): Promise<MemoryObservationDetail | null> {
-    throw new Error('Not implemented — use Dashboard for memory management');
+    const row = await getMemoryObservation(this.db, this.installationId, id);
+    if (!row) return null;
+    return {
+      id: row.id,
+      type: row.type,
+      title: row.title,
+      content: row.content,
+      filePaths: row.filePaths ?? null,
+      project: row.project,
+      topicKey: row.topicKey ?? null,
+      revisionCount: row.revisionCount,
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
+      updatedAt: row.updatedAt instanceof Date ? row.updatedAt.toISOString() : String(row.updatedAt),
+    };
   }
 
   async deleteObservation(id: number): Promise<boolean> {
-    throw new Error('Not implemented — use Dashboard for memory management');
+    return deleteMemoryObservation(this.db, this.installationId, id);
   }
 
   async getStats(): Promise<MemoryStats> {
-    throw new Error('Not implemented — use Dashboard for memory management');
+    const raw = await getMemoryStats(this.db, this.installationId);
+    return {
+      totalObservations: raw.totalObservations,
+      byType: Object.fromEntries(raw.byType.map((r) => [r.type, r.count])),
+      byProject: Object.fromEntries(raw.byProject.map((r) => [r.project, r.count])),
+      oldestObservation: raw.oldestDate instanceof Date ? raw.oldestDate.toISOString() : raw.oldestDate ? String(raw.oldestDate) : null,
+      newestObservation: raw.newestDate instanceof Date ? raw.newestDate.toISOString() : raw.newestDate ? String(raw.newestDate) : null,
+    };
   }
 
   async clearObservations(options?: { project?: string }): Promise<number> {
-    throw new Error('Not implemented — use Dashboard for memory management');
+    if (options?.project) {
+      return clearMemoryObservationsByProject(this.db, this.installationId, options.project);
+    }
+    return clearAllMemoryObservations(this.db, this.installationId);
   }
 }

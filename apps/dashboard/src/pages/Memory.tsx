@@ -1,9 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
 import { Card } from '@/components/Card';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { useToast } from '@/components/Toast';
 import { cn } from '@/lib/cn';
-import { useRepositories, useMemorySessions, useObservations } from '@/lib/api';
+import {
+  useRepositories,
+  useMemorySessions,
+  useObservations,
+  useDeleteObservation,
+  useClearRepoMemory,
+  usePurgeAllMemory,
+  ApiError,
+} from '@/lib/api';
 import { useSelectedRepo } from '@/lib/repo-context';
 import type { MemorySession, Observation } from '@/lib/types';
+
+// ─── Observation Type Config ────────────────────────────────────
 
 const observationTypeConfig: Record<
   Observation['type'],
@@ -38,6 +50,8 @@ const observationTypeConfig: Record<
     classes: 'bg-green-500/15 text-green-400 border-green-500/25',
   },
 };
+
+// ─── Sub-components ─────────────────────────────────────────────
 
 function TypeBadge({ type }: { type: Observation['type'] }) {
   const config = observationTypeConfig[type];
@@ -90,10 +104,54 @@ function SessionItem({
   );
 }
 
-function ObservationCard({ observation }: { observation: Observation }) {
+function TrashIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={cn('h-4 w-4', className)}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+      />
+    </svg>
+  );
+}
+
+function WarningIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={cn('h-5 w-5', className)}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={1.5}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+      />
+    </svg>
+  );
+}
+
+function ObservationCard({
+  observation,
+  onDelete,
+  isDeleting,
+}: {
+  observation: Observation;
+  onDelete: (obs: Observation) => void;
+  isDeleting: boolean;
+}) {
   return (
     <Card>
-      <div className="flex items-start gap-3">
+      <div className="relative flex items-start gap-3">
         <TypeBadge type={observation.type} />
         <div className="flex-1">
           <h4 className="text-sm font-medium text-text-primary">
@@ -118,10 +176,23 @@ function ObservationCard({ observation }: { observation: Observation }) {
             {new Date(observation.createdAt).toLocaleString()}
           </p>
         </div>
+
+        {/* Delete button (top-right) */}
+        <button
+          onClick={() => onDelete(observation)}
+          disabled={isDeleting}
+          title="Delete observation"
+          aria-label={`Delete observation: ${observation.title}`}
+          className="absolute right-0 top-0 rounded-md p-1.5 text-text-muted transition-colors hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
+        >
+          <TrashIcon />
+        </button>
       </div>
     </Card>
   );
 }
+
+// ─── Hooks ──────────────────────────────────────────────────────
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState(value);
@@ -137,17 +208,51 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 404)
+      return 'Observation not found — it may have already been deleted.';
+    return error.message || 'An error occurred';
+  }
+  if (error instanceof Error) {
+    if (error.message.includes('fetch') || error.message.includes('network'))
+      return 'Network error. Please check your connection and try again.';
+    return error.message;
+  }
+  return 'An unexpected error occurred';
+}
+
+// ─── Main Component ─────────────────────────────────────────────
+
 export function Memory() {
   const { selectedRepo, setSelectedRepo } = useSelectedRepo();
   const [selectedSessionId, setSelectedSessionId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 300);
+  const { addToast } = useToast();
 
+  // ── Data queries ──────────────────────────────────────────────
   const { data: repos } = useRepositories();
   const { data: sessions, isLoading: sessionsLoading } =
     useMemorySessions(selectedRepo);
   const { data: observations, isLoading: observationsLoading } =
     useObservations(selectedSessionId ?? 0);
+
+  // ── Mutations ─────────────────────────────────────────────────
+  const deleteObservation = useDeleteObservation();
+  const clearRepoMemory = useClearRepoMemory();
+  const purgeAllMemory = usePurgeAllMemory();
+
+  const isMutating =
+    deleteObservation.isPending ||
+    clearRepoMemory.isPending ||
+    purgeAllMemory.isPending;
+
+  // ── Dialog state ──────────────────────────────────────────────
+  const [deleteTarget, setDeleteTarget] = useState<Observation | null>(null);
+  const [showClearDialog, setShowClearDialog] = useState(false);
+  const [showPurgeDialog, setShowPurgeDialog] = useState(false);
+  const [dialogError, setDialogError] = useState<string | null>(null);
 
   // Reset session when repo changes
   const prevRepo = useRef(selectedRepo);
@@ -157,6 +262,10 @@ export function Memory() {
       prevRepo.current = selectedRepo;
     }
   }, [selectedRepo]);
+
+  // ── Computed values ───────────────────────────────────────────
+  const totalObservationCount =
+    sessions?.reduce((sum, s) => sum + s.observationCount, 0) ?? 0;
 
   // Filter observations by search
   const filteredObservations = observations?.filter((obs) => {
@@ -170,7 +279,7 @@ export function Memory() {
     );
   });
 
-  // Filter sessions by search too
+  // Filter sessions by search
   const filteredSessions = sessions?.filter((session) => {
     if (!debouncedSearch) return true;
     const q = debouncedSearch.toLowerCase();
@@ -179,6 +288,67 @@ export function Memory() {
       String(session.prNumber).includes(q)
     );
   });
+
+  // ── Handlers ──────────────────────────────────────────────────
+
+  function handleDeleteObservation() {
+    if (!deleteTarget) return;
+    setDialogError(null);
+
+    deleteObservation.mutate(
+      { observationId: deleteTarget.id },
+      {
+        onSuccess: () => {
+          setDeleteTarget(null);
+          addToast({ message: 'Observation deleted', type: 'success' });
+        },
+        onError: (error) => {
+          setDialogError(getErrorMessage(error));
+        },
+      },
+    );
+  }
+
+  function handleClearRepo() {
+    if (!selectedRepo) return;
+    setDialogError(null);
+
+    clearRepoMemory.mutate(
+      { project: selectedRepo },
+      {
+        onSuccess: (data) => {
+          setShowClearDialog(false);
+          addToast({
+            message: `Cleared ${data.cleared} observations from ${selectedRepo}`,
+            type: 'success',
+          });
+        },
+        onError: (error) => {
+          setDialogError(getErrorMessage(error));
+        },
+      },
+    );
+  }
+
+  function handlePurgeAll() {
+    setDialogError(null);
+
+    purgeAllMemory.mutate(undefined, {
+      onSuccess: (data) => {
+        setShowPurgeDialog(false);
+        addToast({
+          message: `Purged ${data.cleared} observations from all repositories`,
+          type: 'success',
+          duration: 5000,
+        });
+      },
+      onError: (error) => {
+        setDialogError(getErrorMessage(error));
+      },
+    });
+  }
+
+  // ── Render ────────────────────────────────────────────────────
 
   return (
     <div>
@@ -191,18 +361,35 @@ export function Memory() {
           </p>
         </div>
 
-        <select
-          value={selectedRepo}
-          onChange={(e) => setSelectedRepo(e.target.value)}
-          className="select-field w-64"
-        >
-          <option value="">Select a repository</option>
-          {repos?.map((repo) => (
-            <option key={repo.id} value={repo.fullName}>
-              {repo.fullName}
-            </option>
-          ))}
-        </select>
+        <div className="flex items-center gap-3">
+          {/* Clear Memory button (Tier 2) — visible when repo selected */}
+          {selectedRepo && (
+            <button
+              onClick={() => {
+                setDialogError(null);
+                setShowClearDialog(true);
+              }}
+              disabled={isMutating}
+              className="flex items-center gap-2 rounded-lg border border-red-500/30 px-3 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+            >
+              <TrashIcon />
+              Clear Memory
+            </button>
+          )}
+
+          <select
+            value={selectedRepo}
+            onChange={(e) => setSelectedRepo(e.target.value)}
+            className="select-field w-64"
+          >
+            <option value="">Select a repository</option>
+            {repos?.map((repo) => (
+              <option key={repo.id} value={repo.fullName}>
+                {repo.fullName}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {!selectedRepo ? (
@@ -238,7 +425,7 @@ export function Memory() {
                 </div>
               ) : (filteredSessions?.length ?? 0) === 0 ? (
                 <p className="py-8 text-center text-sm text-text-secondary">
-                  No sessions found.
+                  No memory stored for this repository.
                 </p>
               ) : (
                 filteredSessions?.map((session) => (
@@ -267,20 +454,119 @@ export function Memory() {
               ) : (filteredObservations?.length ?? 0) === 0 ? (
                 <div className="flex items-center justify-center py-20 text-center">
                   <p className="text-text-secondary">
-                    No observations found in this session.
+                    No observations in this session.
                   </p>
                 </div>
               ) : (
                 <div className="space-y-4">
                   {filteredObservations?.map((obs) => (
-                    <ObservationCard key={obs.id} observation={obs} />
+                    <ObservationCard
+                      key={obs.id}
+                      observation={obs}
+                      onDelete={(o) => {
+                        setDialogError(null);
+                        setDeleteTarget(o);
+                      }}
+                      isDeleting={isMutating}
+                    />
                   ))}
                 </div>
               )}
             </div>
           </div>
+
+          {/* Danger Zone — Purge All Memory (Tier 3) */}
+          <div className="mt-12 rounded-lg border border-red-500/30 p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <WarningIcon className="text-red-400" />
+                <div>
+                  <h3 className="text-sm font-semibold text-red-400">
+                    Danger Zone
+                  </h3>
+                  <p className="text-sm text-text-secondary">
+                    Permanently delete all memory across all repositories.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setDialogError(null);
+                  setShowPurgeDialog(true);
+                }}
+                disabled={isMutating}
+                className="flex items-center gap-2 rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-400 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+              >
+                <WarningIcon className="h-4 w-4" />
+                Purge All Memory
+              </button>
+            </div>
+          </div>
         </>
       )}
+
+      {/* ── Tier 1: Delete single observation ──────────────────── */}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onConfirm={handleDeleteObservation}
+        onCancel={() => {
+          if (!deleteObservation.isPending) {
+            setDeleteTarget(null);
+            setDialogError(null);
+          }
+        }}
+        title="Delete observation"
+        description={
+          deleteTarget
+            ? `Are you sure you want to delete "${deleteTarget.title}"? This action cannot be undone.`
+            : ''
+        }
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        isLoading={deleteObservation.isPending}
+        error={dialogError}
+      />
+
+      {/* ── Tier 2: Clear repo memory ─────────────────────────── */}
+      <ConfirmDialog
+        open={showClearDialog}
+        onConfirm={handleClearRepo}
+        onCancel={() => {
+          if (!clearRepoMemory.isPending) {
+            setShowClearDialog(false);
+            setDialogError(null);
+          }
+        }}
+        title={`Clear all memory for ${selectedRepo}`}
+        description={`This will delete all ${totalObservationCount} observations for this repository. This action cannot be undone.`}
+        confirmLabel="Clear Memory"
+        confirmVariant="danger"
+        confirmText={selectedRepo}
+        confirmPlaceholder={`Type "${selectedRepo}" to confirm`}
+        isLoading={clearRepoMemory.isPending}
+        error={dialogError}
+      />
+
+      {/* ── Tier 3: Purge all memory ──────────────────────────── */}
+      <ConfirmDialog
+        open={showPurgeDialog}
+        onConfirm={handlePurgeAll}
+        onCancel={() => {
+          if (!purgeAllMemory.isPending) {
+            setShowPurgeDialog(false);
+            setDialogError(null);
+          }
+        }}
+        title="Purge all memory"
+        description={`This will permanently delete ALL ${totalObservationCount} observations across ALL your repositories. This action cannot be undone.`}
+        confirmLabel="Purge All"
+        confirmVariant="danger"
+        confirmText="DELETE ALL"
+        confirmPlaceholder='Type "DELETE ALL" to confirm'
+        countdownSeconds={5}
+        isLoading={purgeAllMemory.isPending}
+        error={dialogError}
+      />
     </div>
   );
 }

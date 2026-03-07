@@ -3,6 +3,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, ProtectedRoute } from '@/lib/auth';
 import { RepoProvider } from '@/lib/repo-context';
 import { Layout } from '@/components/Layout';
+import { ToastProvider } from '@/components/Toast';
 
 // ─── Lazy-loaded pages (code splitting) ─────────────────────────
 const Login = lazy(() => import('@/pages/Login').then((m) => ({ default: m.Login })));
@@ -35,6 +36,7 @@ export function App() {
   return (
     <AuthProvider>
       <HashRouter>
+        <ToastProvider>
         <Suspense fallback={<PageSpinner />}>
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -82,6 +84,7 @@ export function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         </Suspense>
+        </ToastProvider>
       </HashRouter>
     </AuthProvider>
   );

@@ -20,6 +20,9 @@ import {
   encrypt,
   decrypt,
   DEFAULT_REPO_SETTINGS,
+  deleteMemoryObservation,
+  clearMemoryObservationsByProject,
+  clearAllMemoryObservations,
 } from 'ghagga-db';
 import type { Database } from 'ghagga-db';
 import type { RepoSettings, DbProviderChainEntry } from 'ghagga-db';
@@ -718,6 +721,73 @@ export function createApiRouter(db: Database) {
     } catch (err) {
       logger.error({ err, user: user.githubLogin }, 'Failed to configure runner secret');
       return c.json({ error: 'github_error', message: 'Failed to configure runner secret.' }, 502);
+    }
+  });
+
+  // ── DELETE /api/memory/observations ────────────────────────────
+  // Purge ALL observations (registered before :id route — Decision 3)
+  router.delete('/api/memory/observations', async (c) => {
+    const user = c.get('user') as AuthUser;
+
+    try {
+      let totalCleared = 0;
+      for (const installationId of user.installationIds) {
+        totalCleared += await clearAllMemoryObservations(db, installationId);
+      }
+      return c.json({ data: { cleared: totalCleared } });
+    } catch (err) {
+      logger.error({ err, user: user.githubLogin }, 'Failed to purge all memory observations');
+      return c.json({ error: 'Failed to purge all memory observations' }, 500);
+    }
+  });
+
+  // ── DELETE /api/memory/observations/:id ────────────────────────
+  router.delete('/api/memory/observations/:id', async (c) => {
+    const user = c.get('user') as AuthUser;
+    const id = parseInt(c.req.param('id'), 10);
+
+    if (isNaN(id)) {
+      return c.json({ error: 'Invalid observation ID' }, 400);
+    }
+
+    try {
+      for (const installationId of user.installationIds) {
+        const deleted = await deleteMemoryObservation(db, installationId, id);
+        if (deleted) {
+          return c.json({ data: { deleted: true } });
+        }
+      }
+      return c.json({ error: 'Observation not found' }, 404);
+    } catch (err) {
+      logger.error({ err, user: user.githubLogin }, 'Failed to delete memory observation');
+      return c.json({ error: 'Failed to delete memory observation' }, 500);
+    }
+  });
+
+  // ── DELETE /api/memory/projects/:project/observations ──────────
+  router.delete('/api/memory/projects/:project/observations', async (c) => {
+    const user = c.get('user') as AuthUser;
+    const project = decodeURIComponent(c.req.param('project'));
+
+    try {
+      const repo = await getRepoByFullName(db, project);
+      if (!repo) {
+        return c.json({ error: 'Repository not found' }, 404);
+      }
+
+      if (!user.installationIds.includes(repo.installationId)) {
+        return c.json({ error: 'Forbidden' }, 403);
+      }
+
+      const cleared = await clearMemoryObservationsByProject(
+        db,
+        repo.installationId,
+        project,
+      );
+      return c.json({ data: { cleared } });
+    } catch (err) {
+      logger.error({ err, user: user.githubLogin }, 'Failed to clear project memory observations');
+      return c.json({ error: 'Failed to clear project memory observations' }, 500);
     }
   });
 

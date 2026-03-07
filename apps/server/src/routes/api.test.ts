@@ -24,6 +24,9 @@ const mockGetSessionsByProject = vi.fn();
 const mockGetObservationsBySession = vi.fn();
 const mockEncrypt = vi.fn();
 const mockDecrypt = vi.fn();
+const mockDeleteMemoryObservation = vi.fn();
+const mockClearMemoryObservationsByProject = vi.fn();
+const mockClearAllMemoryObservations = vi.fn();
 
 vi.mock('ghagga-db', () => ({
   getReviewsByRepoId: (...args: unknown[]) => mockGetReviewsByRepoId(...args),
@@ -38,6 +41,9 @@ vi.mock('ghagga-db', () => ({
   getObservationsBySession: (...args: unknown[]) => mockGetObservationsBySession(...args),
   encrypt: (...args: unknown[]) => mockEncrypt(...args),
   decrypt: (...args: unknown[]) => mockDecrypt(...args),
+  deleteMemoryObservation: (...args: unknown[]) => mockDeleteMemoryObservation(...args),
+  clearMemoryObservationsByProject: (...args: unknown[]) => mockClearMemoryObservationsByProject(...args),
+  clearAllMemoryObservations: (...args: unknown[]) => mockClearAllMemoryObservations(...args),
   DEFAULT_REPO_SETTINGS: {
     enableSemgrep: true,
     enableTrivy: true,
@@ -1718,21 +1724,243 @@ describe('POST /api/runner/create', () => {
     const json = await res.json();
     expect(json.error).toBe('github_error');
   });
+});
 
-  it('returns 502 for github_error code', async () => {
-    mockCreateRunnerRepo.mockRejectedValueOnce(
-      new RunnerCreationError('github_error', 'Something went wrong on GitHub'),
-    );
+// ═══════════════════════════════════════════════════════════════════
+// DELETE /api/memory/observations/:id
+// ═══════════════════════════════════════════════════════════════════
+
+describe('DELETE /api/memory/observations/:id', () => {
+  it('returns 200 with deleted:true when observation is deleted (S9)', async () => {
+    mockDeleteMemoryObservation.mockResolvedValueOnce(true);
 
     const app = createApp();
-    const res = await app.request('/api/runner/create', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
+    const res = await app.request('/api/memory/observations/42', {
+      method: 'DELETE',
     });
 
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.error).toBe('github_error');
+    expect(json.data).toEqual({ deleted: true });
+    expect(mockDeleteMemoryObservation).toHaveBeenCalledWith(mockDb, 100, 42);
+  });
+
+  it('returns 404 when observation is not found (S11)', async () => {
+    mockDeleteMemoryObservation.mockResolvedValueOnce(false);
+
+    const app = createApp();
+    const res = await app.request('/api/memory/observations/999', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toBe('Observation not found');
+  });
+
+  it('returns 400 for invalid observation ID (S12)', async () => {
+    const app = createApp();
+    const res = await app.request('/api/memory/observations/abc', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('Invalid observation ID');
+  });
+
+  it('tries each installationId until observation is found', async () => {
+    mockDeleteMemoryObservation
+      .mockResolvedValueOnce(false) // installation 100 — not found
+      .mockResolvedValueOnce(true); // installation 200 — found
+
+    const multiInstallUser = {
+      githubUserId: 1,
+      githubLogin: 'testuser',
+      installationIds: [100, 200],
+    };
+
+    const app = createApp(multiInstallUser);
+    const res = await app.request('/api/memory/observations/42', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deleted: true });
+    expect(mockDeleteMemoryObservation).toHaveBeenCalledTimes(2);
+    expect(mockDeleteMemoryObservation).toHaveBeenCalledWith(mockDb, 100, 42);
+    expect(mockDeleteMemoryObservation).toHaveBeenCalledWith(mockDb, 200, 42);
+  });
+
+  it('returns 500 when an error occurs', async () => {
+    mockDeleteMemoryObservation.mockRejectedValueOnce(new Error('DB error'));
+
+    const app = createApp();
+    const res = await app.request('/api/memory/observations/42', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('Failed to delete memory observation');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// DELETE /api/memory/projects/:project/observations
+// ═══════════════════════════════════════════════════════════════════
+
+describe('DELETE /api/memory/projects/:project/observations', () => {
+  it('returns 200 with cleared count when observations are cleared (S13)', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockClearMemoryObservationsByProject.mockResolvedValueOnce(15);
+
+    const app = createApp();
+    const res = await app.request('/api/memory/projects/owner%2Frepo/observations', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ cleared: 15 });
+    expect(mockClearMemoryObservationsByProject).toHaveBeenCalledWith(mockDb, 100, 'owner/repo');
+  });
+
+  it('returns 404 when repository is not found (S15)', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request('/api/memory/projects/unknown%2Frepo/observations', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toBe('Repository not found');
+  });
+
+  it('returns 403 when user does not own the installation (S16)', async () => {
+    const otherRepo = { ...FAKE_REPO, installationId: 999 };
+    mockGetRepoByFullName.mockResolvedValueOnce(otherRepo);
+
+    const app = createApp();
+    const res = await app.request('/api/memory/projects/owner%2Frepo/observations', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe('Forbidden');
+  });
+
+  it('returns 200 with cleared:0 when no observations exist (S17)', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockClearMemoryObservationsByProject.mockResolvedValueOnce(0);
+
+    const app = createApp();
+    const res = await app.request('/api/memory/projects/owner%2Frepo/observations', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ cleared: 0 });
+  });
+
+  it('URL-decodes the project parameter', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockClearMemoryObservationsByProject.mockResolvedValueOnce(5);
+
+    const app = createApp();
+    await app.request('/api/memory/projects/owner%2Frepo/observations', {
+      method: 'DELETE',
+    });
+
+    expect(mockGetRepoByFullName).toHaveBeenCalledWith(mockDb, 'owner/repo');
+  });
+
+  it('returns 500 when an error occurs', async () => {
+    mockGetRepoByFullName.mockRejectedValueOnce(new Error('DB error'));
+
+    const app = createApp();
+    const res = await app.request('/api/memory/projects/owner%2Frepo/observations', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('Failed to clear project memory observations');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// DELETE /api/memory/observations (purge-all)
+// ═══════════════════════════════════════════════════════════════════
+
+describe('DELETE /api/memory/observations (purge-all)', () => {
+  it('returns 200 with total cleared count (S18)', async () => {
+    mockClearAllMemoryObservations.mockResolvedValueOnce(30);
+
+    const app = createApp();
+    const res = await app.request('/api/memory/observations', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ cleared: 30 });
+    expect(mockClearAllMemoryObservations).toHaveBeenCalledWith(mockDb, 100);
+  });
+
+  it('returns 200 with cleared:0 when no observations exist (S20)', async () => {
+    mockClearAllMemoryObservations.mockResolvedValueOnce(0);
+
+    const app = createApp();
+    const res = await app.request('/api/memory/observations', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ cleared: 0 });
+  });
+
+  it('sums counts across multiple installations (S21)', async () => {
+    mockClearAllMemoryObservations
+      .mockResolvedValueOnce(30) // installation 100
+      .mockResolvedValueOnce(20); // installation 200
+
+    const multiInstallUser = {
+      githubUserId: 1,
+      githubLogin: 'testuser',
+      installationIds: [100, 200],
+    };
+
+    const app = createApp(multiInstallUser);
+    const res = await app.request('/api/memory/observations', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ cleared: 50 });
+    expect(mockClearAllMemoryObservations).toHaveBeenCalledTimes(2);
+    expect(mockClearAllMemoryObservations).toHaveBeenCalledWith(mockDb, 100);
+    expect(mockClearAllMemoryObservations).toHaveBeenCalledWith(mockDb, 200);
+  });
+
+  it('returns 500 when an error occurs', async () => {
+    mockClearAllMemoryObservations.mockRejectedValueOnce(new Error('DB error'));
+
+    const app = createApp();
+    const res = await app.request('/api/memory/observations', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('Failed to purge all memory observations');
   });
 });
 

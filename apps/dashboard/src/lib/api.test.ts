@@ -22,6 +22,9 @@ import {
   useUpdateInstallationSettings,
   useMemorySessions,
   useObservations,
+  useDeleteObservation,
+  useClearRepoMemory,
+  usePurgeAllMemory,
 } from './api';
 import { createWrapper, createTestQueryClient } from '../test/test-utils';
 import type { QueryClient } from '@tanstack/react-query';
@@ -708,5 +711,211 @@ describe('useObservations', () => {
 
     expect(result.current.fetchStatus).toBe('idle');
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useDeleteObservation
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useDeleteObservation', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+  });
+
+  it('sends DELETE to /api/memory/observations/:id', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { deleted: true } }),
+    );
+
+    const { result } = renderHook(() => useDeleteObservation(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ observationId: 42 });
+    });
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/memory/observations/42');
+    expect(options.method).toBe('DELETE');
+  });
+
+  it('invalidates observations and sessions cache on success', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { deleted: true } }),
+    );
+
+    const { result } = renderHook(() => useDeleteObservation(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ observationId: 42 });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['memory', 'observations'],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['memory', 'sessions'],
+    });
+  });
+
+  it('reports error on API failure (404)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Observation not found' }), { status: 404 }),
+    );
+
+    const { result } = renderHook(() => useDeleteObservation(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => {
+      result.current.mutate({ observationId: 999 });
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useClearRepoMemory
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useClearRepoMemory', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+  });
+
+  it('sends DELETE to /api/memory/projects/:project/observations with URL-encoded project', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { cleared: 15 } }),
+    );
+
+    const { result } = renderHook(() => useClearRepoMemory(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ project: 'acme/widgets' });
+    });
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/memory/projects/acme%2Fwidgets/observations');
+    expect(options.method).toBe('DELETE');
+  });
+
+  it('invalidates observations and sessions cache on success', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { cleared: 10 } }),
+    );
+
+    const { result } = renderHook(() => useClearRepoMemory(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ project: 'acme/app' });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['memory', 'observations'],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['memory', 'sessions'],
+    });
+  });
+
+  it('reports error on API failure (403)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 }),
+    );
+
+    const { result } = renderHook(() => useClearRepoMemory(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => {
+      result.current.mutate({ project: 'secret/repo' });
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// usePurgeAllMemory
+// ═══════════════════════════════════════════════════════════════════
+
+describe('usePurgeAllMemory', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+  });
+
+  it('sends DELETE to /api/memory/observations', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { cleared: 50 } }),
+    );
+
+    const { result } = renderHook(() => usePurgeAllMemory(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync();
+    });
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/memory/observations');
+    // Should NOT contain a project segment or :id
+    expect(url).not.toContain('/projects/');
+    expect(options.method).toBe('DELETE');
+  });
+
+  it('invalidates ALL memory queries on success', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { cleared: 50 } }),
+    );
+
+    const { result } = renderHook(() => usePurgeAllMemory(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync();
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['memory'],
+    });
+  });
+
+  it('reports error on API failure (401)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response('Unauthorized', { status: 401 }),
+    );
+
+    const { result } = renderHook(() => usePurgeAllMemory(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => {
+      result.current.mutate();
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
   });
 });

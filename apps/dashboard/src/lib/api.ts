@@ -210,6 +210,50 @@ export function useObservations(sessionId: number) {
   });
 }
 
+// ─── Memory Management Mutations ──────────────────────────
+
+export function useDeleteObservation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ observationId }: { observationId: number }) =>
+      fetchData<{ deleted: boolean }>(`/api/memory/observations/${observationId}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['memory', 'observations'] });
+      void queryClient.invalidateQueries({ queryKey: ['memory', 'sessions'] });
+    },
+  });
+}
+
+export function useClearRepoMemory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ project }: { project: string }) =>
+      fetchData<{ cleared: number }>(
+        `/api/memory/projects/${encodeURIComponent(project)}/observations`,
+        { method: 'DELETE' },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['memory', 'observations'] });
+      void queryClient.invalidateQueries({ queryKey: ['memory', 'sessions'] });
+    },
+  });
+}
+
+export function usePurgeAllMemory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      fetchData<{ cleared: number }>('/api/memory/observations', {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['memory'] });
+    },
+  });
+}
+
 // ─── Runner ───────────────────────────────────────────────
 
 export function useRunnerStatus(ownerLogin?: string) {

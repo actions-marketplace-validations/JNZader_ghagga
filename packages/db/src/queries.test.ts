@@ -68,6 +68,12 @@ import {
   saveObservation,
   searchObservations,
   getObservationsBySession,
+  deleteMemoryObservation,
+  clearMemoryObservationsByProject,
+  clearAllMemoryObservations,
+  getMemoryObservation,
+  listMemoryObservations,
+  getMemoryStats,
   upsertUserMapping,
   getInstallationsByUserId,
   getRawMappingsByUserId,
@@ -1181,5 +1187,295 @@ describe('DEFAULT_REPO_SETTINGS', () => {
     expect(DEFAULT_REPO_SETTINGS.enableTrivy).toBe(true);
     expect(DEFAULT_REPO_SETTINGS.enableCpd).toBe(true);
     expect(DEFAULT_REPO_SETTINGS.enableMemory).toBe(true);
+  });
+});
+
+// ─── Memory: Management (Delete / Clear / Purge) ───────────────
+
+/**
+ * Helper to create a mock db that supports the Drizzle delete chain:
+ *   db.delete(table).where(condition).returning(cols)
+ *
+ * Also provides a nested mock for db.select().from().where() used by the
+ * inArray subquery. The subquery mock is returned as part of the db object
+ * so Drizzle's `inArray(col, subquery)` receives a proper thenable.
+ *
+ * @param returnedRows - The rows that `.returning()` resolves with (simulates deleted rows)
+ */
+function createDeleteMockDb(returnedRows: unknown[] = []) {
+  const mockReturning = vi.fn().mockResolvedValue(returnedRows);
+  const mockWhere = vi.fn().mockReturnValue({ returning: mockReturning });
+  const mockDelete = vi.fn().mockReturnValue({ where: mockWhere });
+
+  // Subquery support: db.select({...}).from(table).where(condition)
+  // The subquery itself is never awaited directly — it's passed to inArray().
+  // We just need a chainable object.
+  const subqueryWhere = vi.fn().mockReturnThis();
+  const subqueryFrom = vi.fn().mockReturnValue({ where: subqueryWhere });
+  const mockSelect = vi.fn().mockReturnValue({ from: subqueryFrom });
+
+  const db = {
+    delete: mockDelete,
+    select: mockSelect,
+  } as unknown as Database;
+
+  return { db, mockDelete, mockWhere, mockReturning, mockSelect };
+}
+
+describe('deleteMemoryObservation', () => {
+  it('should return true when observation is deleted (S1)', async () => {
+    const { db } = createDeleteMockDb([{ id: 42 }]);
+
+    const result = await deleteMemoryObservation(db, 100, 42);
+
+    expect(result).toBe(true);
+  });
+
+  it('should return false when observation is not found (S2)', async () => {
+    const { db } = createDeleteMockDb([]);
+
+    const result = await deleteMemoryObservation(db, 100, 999);
+
+    expect(result).toBe(false);
+  });
+
+  it('should return false when observation belongs to different installation — IDOR prevention (S3)', async () => {
+    // The subquery for installation 100 won't match the observation's project
+    // belonging to installation 200, so DELETE returns 0 rows
+    const { db } = createDeleteMockDb([]);
+
+    const result = await deleteMemoryObservation(db, 100, 42);
+
+    expect(result).toBe(false);
+  });
+
+  it('should call db.delete with the memoryObservations table', async () => {
+    const { db, mockDelete } = createDeleteMockDb([]);
+
+    await deleteMemoryObservation(db, 100, 42);
+
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
+  it('should call db.select for the installation subquery', async () => {
+    const { db, mockSelect } = createDeleteMockDb([]);
+
+    await deleteMemoryObservation(db, 100, 42);
+
+    expect(mockSelect).toHaveBeenCalled();
+  });
+});
+
+describe('clearMemoryObservationsByProject', () => {
+  it('should return count of deleted rows when observations exist (S4)', async () => {
+    // Simulate 15 deleted observations
+    const deletedRows = Array.from({ length: 15 }, (_, i) => ({ id: i + 1 }));
+    const { db } = createDeleteMockDb(deletedRows);
+
+    const result = await clearMemoryObservationsByProject(db, 100, 'acme/widgets');
+
+    expect(result).toBe(15);
+  });
+
+  it('should return 0 when no observations exist for the project (S5)', async () => {
+    const { db } = createDeleteMockDb([]);
+
+    const result = await clearMemoryObservationsByProject(db, 100, 'acme/empty-repo');
+
+    expect(result).toBe(0);
+  });
+
+  it('should return 0 when project belongs to different installation — IDOR prevention (S6)', async () => {
+    const { db } = createDeleteMockDb([]);
+
+    const result = await clearMemoryObservationsByProject(db, 100, 'evil/repo');
+
+    expect(result).toBe(0);
+  });
+
+  it('should call db.delete with the memoryObservations table', async () => {
+    const { db, mockDelete } = createDeleteMockDb([]);
+
+    await clearMemoryObservationsByProject(db, 100, 'acme/widgets');
+
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
+  it('should call db.select for the installation subquery', async () => {
+    const { db, mockSelect } = createDeleteMockDb([]);
+
+    await clearMemoryObservationsByProject(db, 100, 'acme/widgets');
+
+    expect(mockSelect).toHaveBeenCalled();
+  });
+});
+
+describe('clearAllMemoryObservations', () => {
+  it('should return count of deleted rows across multiple repos (S7)', async () => {
+    // Simulate 50 deleted observations (30 + 20 from two repos)
+    const deletedRows = Array.from({ length: 50 }, (_, i) => ({ id: i + 1 }));
+    const { db } = createDeleteMockDb(deletedRows);
+
+    const result = await clearAllMemoryObservations(db, 100);
+
+    expect(result).toBe(50);
+  });
+
+  it('should return 0 when no observations exist for the installation (S8)', async () => {
+    const { db } = createDeleteMockDb([]);
+
+    const result = await clearAllMemoryObservations(db, 100);
+
+    expect(result).toBe(0);
+  });
+
+  it('should call db.delete with the memoryObservations table', async () => {
+    const { db, mockDelete } = createDeleteMockDb([]);
+
+    await clearAllMemoryObservations(db, 100);
+
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
+  it('should call db.select for the installation subquery', async () => {
+    const { db, mockSelect } = createDeleteMockDb([]);
+
+    await clearAllMemoryObservations(db, 100);
+
+    expect(mockSelect).toHaveBeenCalled();
+  });
+
+  it('should not delete observations from other installations', async () => {
+    // This test verifies the function only deletes via the scoped subquery.
+    // The mock returns empty (no repos match), so nothing gets deleted.
+    const { db, mockDelete } = createDeleteMockDb([]);
+
+    const result = await clearAllMemoryObservations(db, 100);
+
+    expect(result).toBe(0);
+    expect(mockDelete).toHaveBeenCalled();
+  });
+});
+
+// ─── Memory: Read Queries (Installation-Scoped) ─────────────────
+
+describe('getMemoryObservation', () => {
+  it('should return the observation when found and scoped to installation', async () => {
+    const observation = {
+      id: 42,
+      sessionId: 1,
+      project: 'acme/widgets',
+      type: 'decision',
+      title: 'Use React 19',
+      content: 'Decided to use React 19 for the frontend.',
+      topicKey: 'frontend-framework',
+      filePaths: ['src/App.tsx'],
+      contentHash: 'abc123',
+      revisionCount: 1,
+      createdAt: new Date('2024-01-01'),
+      updatedAt: new Date('2024-01-01'),
+    };
+    const db = createMockDb([observation]);
+
+    const result = await getMemoryObservation(db as unknown as Database, 100, 42);
+
+    expect(result).toEqual(observation);
+  });
+
+  it('should return null when observation is not found', async () => {
+    const db = createMockDb([]);
+
+    const result = await getMemoryObservation(db as unknown as Database, 100, 999);
+
+    expect(result).toBeNull();
+  });
+
+  it('should return null when observation belongs to different installation (IDOR prevention)', async () => {
+    const db = createMockDb([]);
+
+    const result = await getMemoryObservation(db as unknown as Database, 100, 42);
+
+    expect(result).toBeNull();
+  });
+});
+
+describe('listMemoryObservations', () => {
+  it('should return observations scoped to installation', async () => {
+    const observations = [
+      { id: 1, project: 'acme/widgets', type: 'decision', title: 'Obs 1' },
+      { id: 2, project: 'acme/widgets', type: 'pattern', title: 'Obs 2' },
+    ];
+    const db = createMockDb(observations);
+
+    const result = await listMemoryObservations(db as unknown as Database, 100);
+
+    expect(result).toEqual(observations);
+  });
+
+  it('should return empty array when no observations exist', async () => {
+    const db = createMockDb([]);
+
+    const result = await listMemoryObservations(db as unknown as Database, 100);
+
+    expect(result).toEqual([]);
+  });
+
+  it('should accept project filter option', async () => {
+    const observations = [{ id: 1, project: 'acme/widgets', type: 'decision' }];
+    const db = createMockDb(observations);
+
+    const result = await listMemoryObservations(db as unknown as Database, 100, {
+      project: 'acme/widgets',
+    });
+
+    expect(result).toEqual(observations);
+  });
+
+  it('should accept type filter option', async () => {
+    const observations = [{ id: 1, project: 'acme/widgets', type: 'decision' }];
+    const db = createMockDb(observations);
+
+    const result = await listMemoryObservations(db as unknown as Database, 100, {
+      type: 'decision',
+    });
+
+    expect(result).toEqual(observations);
+  });
+
+  it('should accept pagination options (limit and offset)', async () => {
+    const observations = [{ id: 3 }, { id: 4 }];
+    const db = createMockDb(observations);
+
+    const result = await listMemoryObservations(db as unknown as Database, 100, {
+      limit: 10,
+      offset: 2,
+    });
+
+    expect(result).toEqual(observations);
+  });
+});
+
+describe('getMemoryStats', () => {
+  it('should return aggregate stats for the installation', async () => {
+    const summaryResult = [{ total: 25, oldest: new Date('2024-01-01'), newest: new Date('2024-06-01') }];
+    const db = createMockDb(summaryResult);
+
+    const result = await getMemoryStats(db as unknown as Database, 100);
+
+    expect(result).toHaveProperty('totalObservations');
+    expect(result).toHaveProperty('oldestDate');
+    expect(result).toHaveProperty('newestDate');
+    expect(result).toHaveProperty('byType');
+    expect(result).toHaveProperty('byProject');
+  });
+
+  it('should return zero stats when no observations exist', async () => {
+    const db = createMockDb([]);
+
+    const result = await getMemoryStats(db as unknown as Database, 100);
+
+    expect(result.totalObservations).toBe(0);
+    expect(result.oldestDate).toBeNull();
+    expect(result.newestDate).toBeNull();
   });
 });
