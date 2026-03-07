@@ -71,7 +71,7 @@ export { createModel, createProvider } from './providers/index.js';
 export { formatMemoryContext } from './memory/context.js';
 export { EngramMemoryStorage } from './memory/engram.js';
 export { stripPrivateData } from './memory/privacy.js';
-export { SqliteMemoryStorage } from './memory/sqlite.js';
+export { SqliteMemoryStorage, type SqliteMemoryStorageOptions } from './memory/sqlite.js';
 
 // ─── Formatting ─────────────────────────────────────────────────
 

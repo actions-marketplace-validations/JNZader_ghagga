@@ -163,6 +163,45 @@ describe('SqliteMemoryStorage', () => {
       await storage.close();
     });
 
+    it('respects a custom dedup window of 0 minutes (no dedup)', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath, { dedupWindowMinutes: 0 });
+      const data = makeObservationData();
+
+      const first = await storage.saveObservation(data);
+      const second = await storage.saveObservation(data);
+
+      // With 0-minute window, dedup should not match — new row created
+      expect(second.id).not.toBe(first.id);
+
+      await storage.close();
+    });
+
+    it('uses default 15-minute dedup window when no option is provided', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+      const data = makeObservationData();
+
+      const first = await storage.saveObservation(data);
+      const second = await storage.saveObservation(data);
+
+      // Default 15-minute window — same content within window should dedup
+      expect(second.id).toBe(first.id);
+
+      await storage.close();
+    });
+
+    it('deduplicates within a custom large dedup window', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath, { dedupWindowMinutes: 60 });
+      const data = makeObservationData();
+
+      const first = await storage.saveObservation(data);
+      const second = await storage.saveObservation(data);
+
+      // 60-minute window — same content within window should dedup
+      expect(second.id).toBe(first.id);
+
+      await storage.close();
+    });
+
     it('creates new row when content differs (different hash)', async () => {
       const storage = await SqliteMemoryStorage.create(dbPath);
 

@@ -80,19 +80,29 @@ const SCHEMA_SQL = `
   END;
 `;
 
-const DEDUP_WINDOW_MINUTES = 15;
+const DEFAULT_DEDUP_WINDOW_MINUTES = 15;
+
+export interface SqliteMemoryStorageOptions {
+  /** Dedup window in minutes. Observations with the same content hash within this window are deduplicated. Defaults to 15. */
+  dedupWindowMinutes?: number;
+}
 
 export class SqliteMemoryStorage implements MemoryStorage {
+  private dedupWindowMinutes: number;
+
   private constructor(
     private db: DatabaseWithParams,
     private filePath: string,
-  ) {}
+    options: SqliteMemoryStorageOptions = {},
+  ) {
+    this.dedupWindowMinutes = options.dedupWindowMinutes ?? DEFAULT_DEDUP_WINDOW_MINUTES;
+  }
 
   /**
    * Async factory — handles WASM initialization and file loading.
    * If filePath exists, loads the existing DB. Otherwise, creates a fresh one.
    */
-  static async create(filePath: string): Promise<SqliteMemoryStorage> {
+  static async create(filePath: string, options?: SqliteMemoryStorageOptions): Promise<SqliteMemoryStorage> {
     const SQL = await initSqlJs();
 
     let db: DatabaseWithParams;
@@ -112,7 +122,7 @@ export class SqliteMemoryStorage implements MemoryStorage {
       // Column already exists — idempotent migration
     }
 
-    return new SqliteMemoryStorage(db, filePath);
+    return new SqliteMemoryStorage(db, filePath, options);
   }
 
   async searchObservations(
@@ -183,12 +193,12 @@ export class SqliteMemoryStorage implements MemoryStorage {
       .update(`${data.type}:${data.title}:${data.content}`)
       .digest('hex');
 
-    // Dedup: check for same content hash within 15-minute window
+    // Dedup: check for same content hash within the configured dedup window
     const dedupRows = this.db.exec(
       `
       SELECT id, type, title, content, file_paths FROM memory_observations
       WHERE content_hash = ? AND project = ?
-        AND created_at > datetime('now', '-${DEDUP_WINDOW_MINUTES} minutes')
+        AND created_at > datetime('now', '-${this.dedupWindowMinutes} minutes')
       LIMIT 1
     `,
       [contentHash, data.project],

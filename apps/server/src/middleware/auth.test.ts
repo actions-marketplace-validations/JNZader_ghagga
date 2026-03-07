@@ -123,6 +123,71 @@ describe('auth middleware — GitHub API verification', () => {
     expect(json.error).toBe('Invalid or expired token');
   });
 
+  it('returns 401 when token has expired (expires_at in the past)', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: 1,
+        login: 'testuser',
+        expires_at: '2020-01-01T00:00:00Z',
+      }),
+    });
+
+    const app = createApp();
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer expired-token' },
+    });
+
+    expect(res.status).toBe(401);
+    const json = await res.json();
+    expect(json.error).toBe('Token has expired');
+  });
+
+  it('allows token when expires_at is in the future', async () => {
+    const futureDate = new Date(Date.now() + 3600 * 1000).toISOString();
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        id: 1,
+        login: 'testuser',
+        expires_at: futureDate,
+      }),
+    });
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 1, githubUserId: 1, githubLogin: 'testuser', installationId: 100 },
+    ]);
+    mockGetInstallationsByUserId.mockResolvedValueOnce([{ id: 100, accountLogin: 'testuser' }]);
+
+    const app = createApp();
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer future-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.user.githubLogin).toBe('testuser');
+  });
+
+  it('allows token when expires_at is not present', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: 1, login: 'testuser' }),
+    });
+    mockGetRawMappingsByUserId.mockResolvedValueOnce([
+      { id: 1, githubUserId: 1, githubLogin: 'testuser', installationId: 100 },
+    ]);
+    mockGetInstallationsByUserId.mockResolvedValueOnce([{ id: 100, accountLogin: 'testuser' }]);
+
+    const app = createApp();
+    const res = await app.request('/test', {
+      headers: { Authorization: 'Bearer no-expiry-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.user.githubLogin).toBe('testuser');
+  });
+
   it('returns 503 with Retry-After when GitHub API is unreachable', async () => {
     mockFetch.mockRejectedValueOnce(new Error('Network error'));
 

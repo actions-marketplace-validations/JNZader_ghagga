@@ -76,7 +76,16 @@ export function authMiddleware(db: Database) {
       const userData = (await response.json()) as {
         id: number;
         login: string;
+        expires_at?: string;
       };
+
+      // Belt-and-suspenders: reject tokens with an expired expires_at field.
+      // GitHub API would likely reject expired tokens anyway, but this catches
+      // edge cases where a stale response is cached or token just expired.
+      if (userData.expires_at && new Date(userData.expires_at) < new Date()) {
+        logger.warn({ expiresAt: userData.expires_at }, 'Token has expired (expires_at in the past)');
+        return c.json({ error: 'Token has expired' }, 401);
+      }
 
       githubUserId = userData.id;
       githubLogin = userData.login;
