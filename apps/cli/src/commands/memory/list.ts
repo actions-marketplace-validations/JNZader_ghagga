@@ -14,6 +14,7 @@ import {
   formatId,
   truncate,
 } from './utils.js';
+import * as tui from '../../ui/tui.js';
 
 export function registerListCommand(parent: Command): void {
   parent
@@ -34,7 +35,7 @@ export function registerListCommand(parent: Command): void {
         });
 
         if (observations.length === 0) {
-          console.log('No observations found.');
+          tui.log.info('No observations found.');
           return;
         }
 
@@ -49,7 +50,7 @@ export function registerListCommand(parent: Command): void {
           obs.createdAt.slice(0, 10),
         ]);
 
-        console.log(formatTable(headers, rows, widths));
+        tui.log.message(formatTable(headers, rows, widths));
       } finally {
         await storage.close();
       }

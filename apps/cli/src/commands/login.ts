@@ -11,6 +11,7 @@ import {
   pollForAccessToken,
   fetchGitHubUser,
 } from '../lib/oauth.js';
+import * as tui from '../ui/tui.js';
 
 /**
  * Try to open a URL in the default browser.
@@ -40,36 +41,39 @@ export async function loginCommand(): Promise<void> {
 
   // Check if already logged in
   if (config.githubToken && config.githubLogin) {
-    console.log(`\u2139\ufe0f  Already logged in as ${config.githubLogin}.`);
-    console.log('   Run "ghagga logout" first to switch accounts.\n');
+    tui.log.info(`ℹ️  Already logged in as ${config.githubLogin}.`);
+    tui.log.info('   Run "ghagga logout" first to switch accounts.\n');
     return;
   }
 
-  console.log('\ud83d\udd10 Authenticating with GitHub...\n');
+  tui.intro('🔐 Authenticating with GitHub');
 
   try {
     // Step 1: Request device code
     const deviceCode = await requestDeviceCode();
 
     // Step 2: Show user code and open browser
-    console.log('   \u2794 Open this URL in your browser:\n');
-    console.log(`     \x1b[1m\x1b[36mhttps://github.com/login/device\x1b[0m\n`);
-    console.log(`   \u2794 Enter this code:\n`);
-    console.log(`     \x1b[1m\x1b[33m${deviceCode.user_code}\x1b[0m\n`);
+    tui.log.step('   ➔ Open this URL in your browser:\n');
+    tui.log.message(`     https://github.com/login/device\n`);
+    tui.log.step(`   ➔ Enter this code:\n`);
+    tui.log.message(`     ${deviceCode.user_code}\n`);
 
     const opened = await tryOpenBrowser(deviceCode.verification_uri);
     if (opened) {
-      console.log('   (Browser opened automatically)\n');
+      tui.log.info('   (Browser opened automatically)\n');
     }
 
-    console.log('   Waiting for authorization...');
+    // Step 3: Poll for access token (with spinner)
+    const s = tui.spinner();
+    s.start('Waiting for authorization...');
 
-    // Step 3: Poll for access token
     const tokenResponse = await pollForAccessToken(
       deviceCode.device_code,
       deviceCode.interval,
       deviceCode.expires_in,
     );
+
+    s.stop('Authorization received');
 
     // Step 4: Fetch user profile
     const user = await fetchGitHubUser(tokenResponse.access_token);
@@ -83,12 +87,12 @@ export async function loginCommand(): Promise<void> {
       defaultModel: 'gpt-4o-mini',
     });
 
-    console.log(`\n\u2705 Logged in as \x1b[1m${user.login}\x1b[0m`);
-    console.log('   Provider: github (gpt-4o-mini) — free tier');
-    console.log('\n   Run "ghagga review ." to review your code!\n');
+    tui.log.success(`\n✅ Logged in as ${user.login}`);
+    tui.log.info('   Provider: github (gpt-4o-mini) — free tier');
+    tui.outro('Run "ghagga review ." to review your code!');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`\n\u274c Login failed: ${message}\n`);
+    tui.log.error(`\n❌ Login failed: ${message}\n`);
     process.exit(1);
   }
 }

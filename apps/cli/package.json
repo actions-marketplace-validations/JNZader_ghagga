@@ -48,6 +48,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@clack/prompts": "^0.9.1",
     "ghagga-core": "workspace:^",
     "commander": "^13.0.0",
     "dotenv": "^16.4.0"

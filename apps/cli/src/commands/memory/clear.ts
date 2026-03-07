@@ -9,6 +9,7 @@
 
 import { Command } from 'commander';
 import { openMemoryOrExit, confirmOrExit } from './utils.js';
+import * as tui from '../../ui/tui.js';
 
 export function registerClearCommand(parent: Command): void {
   parent
@@ -30,7 +31,7 @@ export function registerClearCommand(parent: Command): void {
           : stats.totalObservations;
 
         if (total === 0) {
-          console.log('No observations to clear.');
+          tui.log.info('No observations to clear.');
           return;
         }
 
@@ -43,7 +44,7 @@ export function registerClearCommand(parent: Command): void {
         const deleted = await storage.clearObservations({
           project: opts.repo,
         });
-        console.log(`Cleared ${deleted} observations.`);
+        tui.log.success(`Cleared ${deleted} observations.`);
       } finally {
         await storage.close();
       }

@@ -10,6 +10,13 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { SqliteMemoryStorage } from 'ghagga-core';
 import { getConfigDir } from '../../lib/config.js';
+import * as tui from '../../ui/tui.js';
+import {
+  formatTable as _formatTable,
+  formatSize as _formatSize,
+  formatId as _formatId,
+  truncate as _truncate,
+} from '../../ui/format.js';
 
 // ─── Database Lifecycle ─────────────────────────────────────────
 
@@ -29,7 +36,7 @@ export async function openMemoryOrExit(): Promise<{
   const dbPath = join(configDir, 'memory.db');
 
   if (!existsSync(dbPath)) {
-    console.log(NO_DB_MESSAGE);
+    tui.log.info(NO_DB_MESSAGE);
     process.exit(0);
   }
 
@@ -53,7 +60,7 @@ export async function confirmOrExit(
   if (force) return;
 
   if (!process.stdin.isTTY) {
-    console.error(
+    tui.log.error(
       'Error: Destructive operation requires --force in non-interactive mode.',
     );
     process.exit(1);
@@ -66,7 +73,7 @@ export async function confirmOrExit(
   try {
     const answer = await rl.question(message);
     if (answer.trim().toLowerCase() !== 'y') {
-      console.log('Cancelled.');
+      tui.log.info('Cancelled.');
       process.exit(0);
     }
   } finally {
@@ -75,6 +82,7 @@ export async function confirmOrExit(
 }
 
 // ─── Formatting Helpers ─────────────────────────────────────────
+// Re-exported from ui/format.js — kept here for backwards compatibility.
 
 /**
  * Format a plain-text table with headers, separator, and padded columns.
@@ -85,20 +93,7 @@ export function formatTable(
   rows: string[][],
   widths: number[],
 ): string {
-  const lines: string[] = [];
-
-  // Header row
-  lines.push(headers.map((h, i) => h.padEnd(widths[i]!)).join('  '));
-
-  // Separator row
-  lines.push(widths.map((w) => '\u2500'.repeat(w)).join('  '));
-
-  // Data rows
-  for (const row of rows) {
-    lines.push(row.map((cell, i) => cell.padEnd(widths[i]!)).join('  '));
-  }
-
-  return lines.join('\n');
+  return _formatTable(headers, rows, widths);
 }
 
 /**
@@ -106,9 +101,7 @@ export function formatTable(
  * < 1024: "N bytes", < 1MB: "N.N KB", else "N.N MB"
  */
 export function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} bytes`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return _formatSize(bytes);
 }
 
 /**
@@ -116,13 +109,12 @@ export function formatSize(bytes: number): string {
  * ID 42 -> "00000042"
  */
 export function formatId(id: number): string {
-  return String(id).padStart(8, '0');
+  return _formatId(id);
 }
 
 /**
  * Truncate a string to maxLen characters, appending "..." if truncated.
  */
 export function truncate(str: string, maxLen: number): string {
-  if (str.length <= maxLen) return str;
-  return str.slice(0, maxLen - 3) + '...';
+  return _truncate(str, maxLen);
 }

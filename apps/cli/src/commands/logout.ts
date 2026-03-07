@@ -3,10 +3,11 @@
  */
 
 import { clearConfig, isLoggedIn, loadConfig } from '../lib/config.js';
+import * as tui from '../ui/tui.js';
 
 export function logoutCommand(): void {
   if (!isLoggedIn()) {
-    console.log('\u2139\ufe0f  Not currently logged in.\n');
+    tui.log.info('ℹ️  Not currently logged in.\n');
     return;
   }
 
@@ -15,6 +16,6 @@ export function logoutCommand(): void {
 
   clearConfig();
 
-  console.log(`\u2705 Logged out from ${login}.`);
-  console.log('   Stored credentials have been removed.\n');
+  tui.log.success(`✅ Logged out from ${login}.`);
+  tui.log.info('   Stored credentials have been removed.\n');
 }

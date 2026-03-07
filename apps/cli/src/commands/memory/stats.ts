@@ -10,6 +10,7 @@
 import { statSync } from 'node:fs';
 import { Command } from 'commander';
 import { openMemoryOrExit, formatSize } from './utils.js';
+import * as tui from '../../ui/tui.js';
 
 export function registerStatsCommand(parent: Command): void {
   parent
@@ -21,13 +22,13 @@ export function registerStatsCommand(parent: Command): void {
         const stats = await storage.getStats();
         const fileSize = statSync(dbPath).size;
 
-        console.log('Memory Database Statistics');
-        console.log('\u2500'.repeat(26));
-        console.log('');
-        console.log(`Database:     ${dbPath}`);
-        console.log(`File Size:    ${formatSize(fileSize)}`);
-        console.log(`Observations: ${stats.totalObservations} total`);
-        console.log('');
+        tui.log.info('Memory Database Statistics');
+        tui.log.message('\u2500'.repeat(26));
+        tui.log.message('');
+        tui.log.message(`Database:     ${dbPath}`);
+        tui.log.message(`File Size:    ${formatSize(fileSize)}`);
+        tui.log.message(`Observations: ${stats.totalObservations} total`);
+        tui.log.message('');
 
         const oldest = stats.oldestObservation
           ? stats.oldestObservation.slice(0, 10)
@@ -35,27 +36,27 @@ export function registerStatsCommand(parent: Command): void {
         const newest = stats.newestObservation
           ? stats.newestObservation.slice(0, 10)
           : '(none)';
-        console.log(`Date Range:   ${oldest} \u2014 ${newest}`);
-        console.log('');
+        tui.log.message(`Date Range:   ${oldest} \u2014 ${newest}`);
+        tui.log.message('');
 
-        console.log('By Type:');
+        tui.log.message('By Type:');
         const typeEntries = Object.entries(stats.byType);
         if (typeEntries.length === 0) {
-          console.log('  (none)');
+          tui.log.message('  (none)');
         } else {
           for (const [type, count] of typeEntries) {
-            console.log(`  ${type.padEnd(14)}${count}`);
+            tui.log.message(`  ${type.padEnd(14)}${count}`);
           }
         }
-        console.log('');
+        tui.log.message('');
 
-        console.log('By Project:');
+        tui.log.message('By Project:');
         const projectEntries = Object.entries(stats.byProject);
         if (projectEntries.length === 0) {
-          console.log('  (none)');
+          tui.log.message('  (none)');
         } else {
           for (const [project, count] of projectEntries) {
-            console.log(`  ${project.padEnd(14)}${count}`);
+            tui.log.message(`  ${project.padEnd(14)}${count}`);
           }
         }
       } finally {

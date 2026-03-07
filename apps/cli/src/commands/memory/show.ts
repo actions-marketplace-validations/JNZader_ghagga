@@ -8,6 +8,7 @@
 
 import { Command } from 'commander';
 import { openMemoryOrExit } from './utils.js';
+import * as tui from '../../ui/tui.js';
 
 export function registerShowCommand(parent: Command): void {
   parent
@@ -16,7 +17,7 @@ export function registerShowCommand(parent: Command): void {
     .action(async (idArg: string) => {
       const id = parseInt(idArg, 10);
       if (isNaN(id)) {
-        console.log(`Invalid observation ID: "${idArg}". Expected a number.`);
+        tui.log.info(`Invalid observation ID: "${idArg}". Expected a number.`);
         process.exit(1);
       }
 
@@ -24,24 +25,24 @@ export function registerShowCommand(parent: Command): void {
       try {
         const obs = await storage.getObservation(id);
         if (!obs) {
-          console.log(`Observation not found: ${id}`);
+          tui.log.info(`Observation not found: ${id}`);
           process.exit(1);
         }
 
         const label = (name: string) => `${name}:`.padEnd(16);
 
-        console.log(`${label('ID')}${obs.id}`);
-        console.log(`${label('Type')}${obs.type}`);
-        console.log(`${label('Title')}${obs.title}`);
-        console.log(`${label('Project')}${obs.project}`);
-        console.log(
+        tui.log.message(`${label('ID')}${obs.id}`);
+        tui.log.message(`${label('Type')}${obs.type}`);
+        tui.log.message(`${label('Title')}${obs.title}`);
+        tui.log.message(`${label('Project')}${obs.project}`);
+        tui.log.message(
           `${label('Topic Key')}${obs.topicKey ?? '(none)'}`,
         );
-        console.log(`${label('Revision Count')}${obs.revisionCount}`);
-        console.log(
+        tui.log.message(`${label('Revision Count')}${obs.revisionCount}`);
+        tui.log.message(
           `${label('Created')}${obs.createdAt.replace('T', ' ').replace('Z', '')}`,
         );
-        console.log(
+        tui.log.message(
           `${label('Updated')}${obs.updatedAt.replace('T', ' ').replace('Z', '')}`,
         );
 
@@ -49,12 +50,12 @@ export function registerShowCommand(parent: Command): void {
           obs.filePaths && obs.filePaths.length > 0
             ? obs.filePaths.join(', ')
             : '(none)';
-        console.log(`${label('File Paths')}${filePaths}`);
+        tui.log.message(`${label('File Paths')}${filePaths}`);
 
-        console.log('Content:');
+        tui.log.message('Content:');
         const contentLines = obs.content.split('\n');
         for (const line of contentLines) {
-          console.log(`  ${line}`);
+          tui.log.message(`  ${line}`);
         }
       } finally {
         await storage.close();

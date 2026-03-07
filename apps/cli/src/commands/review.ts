@@ -18,15 +18,16 @@ import type {
   ReviewMode,
   LLMProvider,
   ReviewSettings,
-  ReviewResult,
   ReviewStatus,
-  FindingSeverity,
   ProgressCallback,
   ProgressEvent,
   MemoryStorage,
 } from 'ghagga-core';
 import { resolveProjectId } from '../lib/git.js';
 import { getConfigDir } from '../lib/config.js';
+import * as tui from '../ui/tui.js';
+import { formatMarkdownResult } from '../ui/format.js';
+import { resolveStepIcon } from '../ui/theme.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -71,7 +72,7 @@ export async function reviewCommand(
     const diff = getGitDiff(repoPath);
 
     if (!diff || diff.trim().length === 0) {
-      console.log('\u2139\ufe0f  No changes detected. Stage some changes or make commits to review.');
+      tui.log.info('ℹ️  No changes detected. Stage some changes or make commits to review.');
       process.exit(0);
     }
 
@@ -82,9 +83,11 @@ export async function reviewCommand(
     const settings = mergeSettings(options, fileConfig);
 
     // Step 4: Show progress
-    console.log('\ud83e\udd16 GHAGGA Code Review');
-    console.log(`   Mode: ${options.mode} | Provider: ${options.provider} | Model: ${options.model}`);
-    console.log('   Analyzing...\n');
+    if (options.format !== 'json') {
+      tui.intro('🤖 GHAGGA Code Review');
+      tui.log.message(`   Mode: ${options.mode} | Provider: ${options.provider} | Model: ${options.model}`);
+      tui.log.step('   Analyzing...\n');
+    }
 
     // Step 4.5: Initialize memory storage (SQLite, file-backed)
     const repoFullName = resolveProjectId(repoPath);
@@ -95,7 +98,7 @@ export async function reviewCommand(
         memoryStorage = await SqliteMemoryStorage.create(dbPath);
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        console.warn(`\u26a0\ufe0f  Failed to initialize memory: ${msg}`);
+        tui.log.warn(`⚠️  Failed to initialize memory: ${msg}`);
         memoryStorage = undefined;
       }
     }
@@ -129,18 +132,21 @@ export async function reviewCommand(
     if (options.format === 'json') {
       console.log(JSON.stringify(result, null, 2));
     } else {
-      console.log(formatMarkdownResult(result));
+      tui.log.message(formatMarkdownResult(result));
     }
 
     // Step 7: Exit code based on status
     const exitCode = getExitCode(result.status);
+    if (options.format !== 'json') {
+      tui.outro('Review complete');
+    }
     process.exit(exitCode);
   } catch (error) {
     // Ensure memory is persisted even on error
     await memoryStorage?.close().catch(() => {});
 
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`\n\u274c Review failed: ${message}`);
+    tui.log.error(`\n❌ Review failed: ${message}`);
     process.exit(1);
   }
 }
@@ -204,7 +210,7 @@ function loadConfigFile(repoPath: string, configPath?: string): GhaggaConfig {
     return JSON.parse(raw) as GhaggaConfig;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.warn(`\u26a0\ufe0f  Could not parse config file: ${message}`);
+    tui.log.warn(`⚠️  Could not parse config file: ${message}`);
     return {};
   }
 }
@@ -232,23 +238,6 @@ function mergeSettings(
 
 // ─── Verbose Progress ───────────────────────────────────────────
 
-/** Step-to-emoji mapping for verbose output. */
-const STEP_ICON: Record<string, string> = {
-  'validate':          '🔍',
-  'parse-diff':        '📄',
-  'detect-stacks':     '🧩',
-  'token-budget':      '📊',
-  'static-analysis':   '🛡️',
-  'static-results':    '📋',
-  'agent-start':       '🤖',
-  'simple-call':       '💬',
-  'simple-done':       '✅',
-  'workflow-start':    '🔄',
-  'workflow-synthesis': '🧬',
-  'consensus-start':   '🗳️',
-  'consensus-voting':  '🏛️',
-};
-
 /**
  * Create a progress callback that prints real-time verbose output.
  * Each step prints a single line with an icon, step name, and message.
@@ -256,13 +245,10 @@ const STEP_ICON: Record<string, string> = {
  */
 function createProgressHandler(): ProgressCallback {
   return (event: ProgressEvent) => {
-    const icon = STEP_ICON[event.step]
-      ?? (event.step.startsWith('specialist-') ? '👤' : undefined)
-      ?? (event.step.startsWith('vote-') ? '🗳️' : undefined)
-      ?? '▸';
+    const icon = resolveStepIcon(event.step);
 
     const prefix = `  ${icon} [${event.step}]`;
-    console.log(`${prefix} ${event.message}`);
+    tui.log.step(`${prefix} ${event.message}`);
 
     if (event.detail) {
       // Indent detail lines for readability
@@ -270,118 +256,9 @@ function createProgressHandler(): ProgressCallback {
         .split('\n')
         .map((line) => `      ${line}`)
         .join('\n');
-      console.log(indented);
+      tui.log.message(indented);
     }
   };
-}
-
-// ─── Output Formatting ──────────────────────────────────────────
-
-const STATUS_EMOJI: Record<ReviewStatus, string> = {
-  PASSED: '\u2705 PASSED',
-  FAILED: '\u274c FAILED',
-  NEEDS_HUMAN_REVIEW: '\u26a0\ufe0f  NEEDS HUMAN REVIEW',
-  SKIPPED: '\u23ed\ufe0f  SKIPPED',
-};
-
-const SEVERITY_EMOJI: Record<FindingSeverity, string> = {
-  critical: '\ud83d\udd34',
-  high: '\ud83d\udfe0',
-  medium: '\ud83d\udfe1',
-  low: '\ud83d\udfe2',
-  info: '\ud83d\udfe3',
-};
-
-/**
- * Format a ReviewResult as a human-readable markdown string for the terminal.
- */
-function formatMarkdownResult(result: ReviewResult): string {
-  const status = STATUS_EMOJI[result.status] ?? result.status;
-  const timeSeconds = (result.metadata.executionTimeMs / 1000).toFixed(1);
-
-  const lines: string[] = [];
-
-  // Header
-  lines.push('---');
-  lines.push(`\ud83e\udd16 GHAGGA Code Review  |  ${status}`);
-  lines.push(`Mode: ${result.metadata.mode} | Model: ${result.metadata.model} | Time: ${timeSeconds}s | Tokens: ${result.metadata.tokensUsed}`);
-  lines.push('---');
-  lines.push('');
-
-  // Summary
-  lines.push('## Summary');
-  lines.push(result.summary);
-  lines.push('');
-
-  // Findings grouped by source
-  if (result.findings.length > 0) {
-    lines.push(`## Findings (${result.findings.length})`);
-    lines.push('');
-
-    // Group findings by source
-    const grouped = new Map<string, typeof result.findings>();
-    for (const finding of result.findings) {
-      const src = finding.source ?? 'ai';
-      if (!grouped.has(src)) grouped.set(src, []);
-      grouped.get(src)!.push(finding);
-    }
-
-    // Render order: static tools first, then AI
-    const SOURCE_LABELS: Record<string, string> = {
-      semgrep: '\ud83d\udd0d Semgrep',
-      trivy: '\ud83d\udee1\ufe0f Trivy',
-      cpd: '\ud83d\udccb CPD',
-      ai: '\ud83e\udd16 AI Review',
-    };
-    const renderOrder = ['semgrep', 'trivy', 'cpd', 'ai'];
-
-    for (const src of renderOrder) {
-      const findings = grouped.get(src);
-      if (!findings || findings.length === 0) continue;
-
-      const label = SOURCE_LABELS[src] ?? src;
-      lines.push(`### ${label} (${findings.length})`);
-      lines.push('');
-
-      for (const finding of findings) {
-        const emoji = SEVERITY_EMOJI[finding.severity] ?? '';
-        const location = finding.line
-          ? `${finding.file}:${finding.line}`
-          : finding.file;
-
-        lines.push(`${emoji} [${finding.severity.toUpperCase()}] ${finding.category}`);
-        lines.push(`   ${location}`);
-        lines.push(`   ${finding.message}`);
-
-        if (finding.suggestion) {
-          lines.push(`   \ud83d\udca1 ${finding.suggestion}`);
-        }
-
-        lines.push('');
-      }
-    }
-  } else {
-    lines.push('No findings. Nice work! \ud83c\udf89');
-    lines.push('');
-  }
-
-  // Static analysis summary
-  const { toolsRun, toolsSkipped } = result.metadata;
-  if (toolsRun.length > 0 || toolsSkipped.length > 0) {
-    lines.push('## Static Analysis');
-    if (toolsRun.length > 0) {
-      lines.push(`\u2705 Tools run: ${toolsRun.join(', ')}`);
-    }
-    if (toolsSkipped.length > 0) {
-      lines.push(`\u23ed\ufe0f  Tools skipped: ${toolsSkipped.join(', ')}`);
-    }
-    lines.push('');
-  }
-
-  lines.push('---');
-  lines.push('Powered by GHAGGA \u2014 AI Code Review');
-
-  return lines.join('\n');
 }
 
 // ─── Exit Code ──────────────────────────────────────────────────

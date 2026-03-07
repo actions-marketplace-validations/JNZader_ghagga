@@ -11,6 +11,7 @@
 import { Command } from 'commander';
 import { openMemoryOrExit, formatId, truncate } from './utils.js';
 import { resolveProjectId } from '../../lib/git.js';
+import * as tui from '../../ui/tui.js';
 
 export function registerSearchCommand(parent: Command): void {
   parent
@@ -33,19 +34,19 @@ export function registerSearchCommand(parent: Command): void {
           });
 
           if (results.length === 0) {
-            console.log('No matching observations found.');
+            tui.log.info('No matching observations found.');
             return;
           }
 
-          console.log(`Found ${results.length} results for "${query}" in ${project}:`);
-          console.log('');
+          tui.log.info(`Found ${results.length} results for "${query}" in ${project}:`);
+          tui.log.message('');
 
           results.forEach((obs, index) => {
-            console.log(`  ${index + 1}. [${obs.type}] ${obs.title}`);
-            console.log(
+            tui.log.message(`  ${index + 1}. [${obs.type}] ${obs.title}`);
+            tui.log.message(
               `     ${formatId(obs.id)} | ${truncate(obs.content, 80)}`,
             );
-            console.log('');
+            tui.log.message('');
           });
         } finally {
           await storage.close();

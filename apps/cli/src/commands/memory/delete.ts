@@ -9,6 +9,7 @@
 
 import { Command } from 'commander';
 import { openMemoryOrExit, confirmOrExit } from './utils.js';
+import * as tui from '../../ui/tui.js';
 
 export function registerDeleteCommand(parent: Command): void {
   parent
@@ -18,7 +19,7 @@ export function registerDeleteCommand(parent: Command): void {
     .action(async (idArg: string, opts: { force?: boolean }) => {
       const id = parseInt(idArg, 10);
       if (isNaN(id)) {
-        console.log(`Invalid observation ID: "${idArg}". Expected a number.`);
+        tui.log.info(`Invalid observation ID: "${idArg}". Expected a number.`);
         process.exit(1);
       }
 
@@ -26,7 +27,7 @@ export function registerDeleteCommand(parent: Command): void {
       try {
         const obs = await storage.getObservation(id);
         if (!obs) {
-          console.log(`Observation not found: ${id}`);
+          tui.log.info(`Observation not found: ${id}`);
           process.exit(1);
         }
 
@@ -36,7 +37,7 @@ export function registerDeleteCommand(parent: Command): void {
         );
 
         await storage.deleteObservation(id);
-        console.log(`Deleted observation ${id}.`);
+        tui.log.success(`Deleted observation ${id}.`);
       } finally {
         await storage.close();
       }

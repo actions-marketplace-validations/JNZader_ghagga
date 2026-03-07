@@ -33,6 +33,7 @@ import { loginCommand } from './commands/login.js';
 import { logoutCommand } from './commands/logout.js';
 import { statusCommand } from './commands/status.js';
 import { memoryCommand } from './commands/memory/index.js';
+import * as tui from './ui/tui.js';
 
 // Read version from package.json at runtime (no hardcoded strings)
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -43,7 +44,14 @@ const program = new Command();
 program
   .name('ghagga')
   .description('AI-powered code review CLI')
-  .version(pkg.version);
+  .version(pkg.version)
+  .option('--plain', 'Disable styled terminal output');
+
+// Initialize TUI mode before any command runs (Design AD3)
+program.hook('preAction', (thisCommand) => {
+  const opts = thisCommand.optsWithGlobals() as { plain?: boolean };
+  tui.init({ plain: opts.plain });
+});
 
 // ─── Login ──────────────────────────────────────────────────────
 
@@ -133,8 +141,8 @@ program
     // ── Validate mode ─────────────────────────────────────────
     const validModes: ReviewMode[] = ['simple', 'workflow', 'consensus'];
     if (!validModes.includes(options.mode as ReviewMode)) {
-      console.error(
-        `\u274c Invalid mode "${options.mode}". Choose from: ${validModes.join(', ')}`,
+      tui.log.error(
+        `❌ Invalid mode "${options.mode}". Choose from: ${validModes.join(', ')}`,
       );
       process.exit(1);
     }
@@ -142,8 +150,8 @@ program
     // ── Validate provider ─────────────────────────────────────
     const validProviders: LLMProvider[] = ['anthropic', 'openai', 'google', 'github', 'ollama', 'qwen'];
     if (!validProviders.includes(options.provider as LLMProvider)) {
-      console.error(
-        `\u274c Invalid provider "${options.provider}". Choose from: ${validProviders.join(', ')}`,
+      tui.log.error(
+        `❌ Invalid provider "${options.provider}". Choose from: ${validProviders.join(', ')}`,
       );
       process.exit(1);
     }
@@ -151,18 +159,18 @@ program
     // ── Validate format ───────────────────────────────────────
     const validFormats = ['markdown', 'json'];
     if (!validFormats.includes(options.format)) {
-      console.error(
-        `\u274c Invalid format "${options.format}". Choose from: ${validFormats.join(', ')}`,
+      tui.log.error(
+        `❌ Invalid format "${options.format}". Choose from: ${validFormats.join(', ')}`,
       );
       process.exit(1);
     }
 
     // ── Validate API key (not required for ollama) ─────────────
     if (!options.apiKey && options.provider !== 'ollama') {
-      console.error('\u274c No API key available.\n');
-      console.error('   Quick fix: run "ghagga login" to authenticate with GitHub (free!)');
-      console.error('   Or pass --api-key <key> or set GHAGGA_API_KEY.');
-      console.error('   Or use --provider ollama for local models (no key needed).\n');
+      tui.log.error('❌ No API key available.\n');
+      tui.log.error('   Quick fix: run "ghagga login" to authenticate with GitHub (free!)');
+      tui.log.error('   Or pass --api-key <key> or set GHAGGA_API_KEY.');
+      tui.log.error('   Or use --provider ollama for local models (no key needed).\n');
       process.exit(1);
     }
 
