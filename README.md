@@ -50,7 +50,7 @@ You bring your own API key (BYOK). GHAGGA never sees or stores your keys in plai
 | **3 Review Modes** | Simple (single LLM), Workflow (5 specialist agents), Consensus (multi-model voting) |
 | **Static Analysis Trident** | Semgrep (security), Trivy (vulnerabilities), CPD (code duplication) — zero tokens |
 | **Project Memory** | Learns patterns, decisions, and bug fixes across reviews (PostgreSQL + tsvector FTS) |
-| **Multi-Provider** | 6 providers: GitHub Models (free), Anthropic, OpenAI, Google, Ollama (local), Qwen (Alibaba) — bring your own key |
+| **Multi-Provider** | 6 providers: GitHub Models (free), Anthropic, OpenAI, Google, Ollama (local), Qwen (Alibaba) — bring your own key. **Note**: In SaaS mode, GitHub Models requires a personal access token in the provider chain — installation tokens lack `models:read` scope. Entries without an explicit API key are silently skipped. |
 | **3 Distribution Modes** | SaaS, GitHub Action, CLI |
 | **Comment Trigger** | Type `ghagga review` on any PR to re-trigger a review on demand |
 | **Dashboard** | React SPA on GitHub Pages — review history, stats, settings, memory browser |

@@ -387,6 +387,8 @@ No API key needed after `ghagga login`:
 ghagga review
 ```
 
+> **SaaS mode note**: In the SaaS server (GitHub App), GitHub Models requires a personal access token with `models:read` scope configured in the provider chain. Installation tokens (`ghs_*`) do not have this permission, so `github` provider entries without an explicit API key are silently filtered out at review time. This does not affect CLI or GitHub Action usage.
+
 ### OpenAI
 
 ```bash

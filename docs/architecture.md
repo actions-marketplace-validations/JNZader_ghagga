@@ -126,6 +126,12 @@ Zero-overhead SQL with excellent TypeScript inference. No binary dependencies (u
 
 Zero infrastructure — no Redis server, no worker processes. 50k events/month free. Step-based checkpointing means LLM retries don't re-run static analysis. Fallback to sync execution if unavailable.
 
+### Provider Chain Filtering in SaaS Mode
+
+In SaaS mode, the server uses GitHub App **installation tokens** (`ghs_*`) to authenticate with GitHub. These tokens do **not** have the `models:read` scope required by GitHub Models. As a result, the server silently filters out `github` provider entries from the provider chain when no explicit API key is configured for that entry.
+
+If a user adds "GitHub Models" to their provider chain in the Dashboard without providing a personal access token, the entry is skipped at review time and the next provider in the chain is used instead. A warning is logged on the server side. This does **not** affect CLI or GitHub Action modes, where the user's own PAT or `GITHUB_TOKEN` is used directly.
+
 ### Binary Execution for Static Analysis
 
 Semgrep, Trivy, and CPD are called as child processes — no separate microservices, no network latency, no SSRF concerns. All three tools output JSON/XML that's parsed locally.
