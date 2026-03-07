@@ -1285,8 +1285,8 @@ describe('GET /api/memory/sessions', () => {
   it('returns sessions for an accessible project', async () => {
     mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
     const fakeSessions = [
-      { id: 1, project: 'owner/repo', startedAt: '2025-01-01' },
-      { id: 2, project: 'owner/repo', startedAt: '2025-01-02' },
+      { id: 1, project: 'owner/repo', createdAt: '2025-01-01', observationCount: 3 },
+      { id: 2, project: 'owner/repo', createdAt: '2025-01-02', observationCount: 0 },
     ];
     mockGetSessionsByProject.mockResolvedValueOnce(fakeSessions);
 

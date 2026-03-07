@@ -698,8 +698,10 @@ describe('getSessionsByProject', () => {
   it('should use default limit of 20', async () => {
     const mockLimit = vi.fn().mockResolvedValue([]);
     const mockOrderBy = vi.fn().mockReturnValue({ limit: mockLimit });
-    const mockWhere = vi.fn().mockReturnValue({ orderBy: mockOrderBy });
-    const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockGroupBy = vi.fn().mockReturnValue({ orderBy: mockOrderBy });
+    const mockWhere = vi.fn().mockReturnValue({ groupBy: mockGroupBy });
+    const mockLeftJoin = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockFrom = vi.fn().mockReturnValue({ leftJoin: mockLeftJoin });
     const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
     const db = { select: mockSelect } as unknown as Database;
 
@@ -710,8 +712,10 @@ describe('getSessionsByProject', () => {
   it('should respect custom limit', async () => {
     const mockLimit = vi.fn().mockResolvedValue([]);
     const mockOrderBy = vi.fn().mockReturnValue({ limit: mockLimit });
-    const mockWhere = vi.fn().mockReturnValue({ orderBy: mockOrderBy });
-    const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockGroupBy = vi.fn().mockReturnValue({ orderBy: mockOrderBy });
+    const mockWhere = vi.fn().mockReturnValue({ groupBy: mockGroupBy });
+    const mockLeftJoin = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockFrom = vi.fn().mockReturnValue({ leftJoin: mockLeftJoin });
     const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
     const db = { select: mockSelect } as unknown as Database;
 

@@ -351,12 +351,22 @@ export async function getSessionsByProject(
   options: { limit?: number } = {},
 ) {
   const { limit = 20 } = options;
-  return db
-    .select()
+  const rows = await db
+    .select({
+      id: memorySessions.id,
+      project: memorySessions.project,
+      prNumber: memorySessions.prNumber,
+      summary: memorySessions.summary,
+      createdAt: memorySessions.startedAt,
+      observationCount: sql<number>`cast(count(${memoryObservations.id}) as int)`,
+    })
     .from(memorySessions)
+    .leftJoin(memoryObservations, eq(memoryObservations.sessionId, memorySessions.id))
     .where(eq(memorySessions.project, project))
+    .groupBy(memorySessions.id)
     .orderBy(desc(memorySessions.startedAt))
     .limit(limit);
+  return rows;
 }
 
 // ─── Memory: Observations ───────────────────────────────────────
