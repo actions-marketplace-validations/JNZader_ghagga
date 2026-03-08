@@ -12,6 +12,7 @@
 
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { githubCircuitBreaker } from '../lib/circuit-breaker.js';
 import { logger as rootLogger } from '../lib/logger.js';
 
 // libsodium-wrappers ESM build is broken in 0.7.16 (missing libsodium.mjs).
@@ -211,28 +212,30 @@ export async function discoverRunnerRepo(
 ): Promise<DiscoveredRunner | null> {
   const url = `https://api.github.com/repos/${ownerLogin}/ghagga-runner`;
 
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
+  return githubCircuitBreaker.execute(async () => {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      logger.error(
+        { status: response.status, statusText: response.statusText, owner: ownerLogin },
+        'GitHub API error discovering runner repo',
+      );
+      throw new Error('Failed to communicate with GitHub API');
+    }
+
+    const data = (await response.json()) as { id: number; full_name: string; private: boolean };
+    return { repoId: data.id, fullName: data.full_name, isPrivate: data.private };
   });
-
-  if (response.status === 404) {
-    return null;
-  }
-
-  if (!response.ok) {
-    logger.error(
-      { status: response.status, statusText: response.statusText, owner: ownerLogin },
-      'GitHub API error discovering runner repo',
-    );
-    throw new Error('Failed to communicate with GitHub API');
-  }
-
-  const data = (await response.json()) as { id: number; full_name: string; private: boolean };
-  return { repoId: data.id, fullName: data.full_name, isPrivate: data.private };
 }
 
 // ─── Set Runner Secret ──────────────────────────────────────────
@@ -249,13 +252,15 @@ export async function setRunnerSecret(
 ): Promise<void> {
   // Step 1: Get the repo's public key for secret encryption
   const keyUrl = `https://api.github.com/repos/${repoFullName}/actions/secrets/public-key`;
-  const keyResponse = await fetch(keyUrl, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-  });
+  const keyResponse = await githubCircuitBreaker.execute(() =>
+    fetch(keyUrl, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    }),
+  );
 
   if (!keyResponse.ok) {
     logger.error(
@@ -279,19 +284,21 @@ export async function setRunnerSecret(
 
   // Step 3: Set the encrypted secret via the GitHub API
   const secretUrl = `https://api.github.com/repos/${repoFullName}/actions/secrets/${secretName}`;
-  const response = await fetch(secretUrl, {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-    body: JSON.stringify({
-      encrypted_value: encryptedB64,
-      key_id: keyId,
+  const response = await githubCircuitBreaker.execute(() =>
+    fetch(secretUrl, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify({
+        encrypted_value: encryptedB64,
+        key_id: keyId,
+      }),
     }),
-  });
+  );
 
   if (!response.ok) {
     logger.error(
@@ -352,19 +359,21 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
 
   const dispatchUrl = `https://api.github.com/repos/${runnerRepo}/actions/workflows/ghagga-analysis.yml/dispatches`;
 
-  const response = await fetch(dispatchUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-    body: JSON.stringify({
-      ref: 'main',
-      inputs,
+  const response = await githubCircuitBreaker.execute(() =>
+    fetch(dispatchUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify({
+        ref: 'main',
+        inputs,
+      }),
     }),
-  });
+  );
 
   if (!response.ok) {
     const body = await response.text();
@@ -417,22 +426,24 @@ export async function createRunnerRepo(
 
   // Step 2: Create from template
   const generateUrl = `https://api.github.com/repos/${TEMPLATE_OWNER}/${TEMPLATE_REPO}/generate`;
-  const generateResponse = await fetch(generateUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-    body: JSON.stringify({
-      owner: ownerLogin,
-      name: 'ghagga-runner',
-      description: 'GHAGGA static analysis runner — auto-created by the GHAGGA Dashboard',
-      include_all_branches: false,
-      private: false,
+  const generateResponse = await githubCircuitBreaker.execute(() =>
+    fetch(generateUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify({
+        owner: ownerLogin,
+        name: 'ghagga-runner',
+        description: 'GHAGGA static analysis runner — auto-created by the GHAGGA Dashboard',
+        include_all_branches: false,
+        private: false,
+      }),
     }),
-  });
+  );
 
   // Handle error responses
   if (!generateResponse.ok) {
