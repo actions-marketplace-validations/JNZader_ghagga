@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.1] - 2026-03-08
+
+### Fixed
+- **Runner template dynamic tool resolution** — The runner YAML template now dynamically resolves which of the 15 static analysis tools to run. Previously, `enabledTools`/`disabledTools` sent by the server were silently ignored by the runner, which only ran the 3 legacy tools (Semgrep, Trivy, CPD).
+- **12 new tool blocks in runner** — Gitleaks, ShellCheck, markdownlint, Lizard, Ruff, Bandit, golangci-lint, Biome, PMD, Psalm, clippy, and Hadolint can now run on the user's GitHub Actions runner.
+- **Auto-detection in runner** — The resolve step detects which auto-detect tools to activate based on file extensions in the target repository.
+- **Dynamic callback payload** — The callback now includes results for all resolved tools (not just the 3 legacy keys).
+
 ## [2.4.0] - 2026-03-08
 
 ### Added
