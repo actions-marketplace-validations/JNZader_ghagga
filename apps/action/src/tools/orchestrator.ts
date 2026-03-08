@@ -1,37 +1,17 @@
 /**
  * Tool Orchestrator — runs all enabled static analysis tools sequentially.
  *
- * Orchestrates Semgrep → Trivy → CPD in sequence (not parallel) to keep
- * peak memory under 4GB on the GitHub Actions runner. Each tool's failure
- * is isolated — one tool failing does not prevent others from running.
- *
- * Feature flag `GHAGGA_TOOL_REGISTRY`:
- * - When true: uses the registry-driven orchestrator (15 tools via plugins)
- * - When false/unset: uses the existing hardcoded 3-tool path
+ * Uses the registry-driven orchestrator to run up to 15 static analysis
+ * tools via plugins. Each tool's failure is isolated — one tool failing
+ * does not prevent others from running.
  *
  * Returns a StaticAnalysisResult matching the core type contract.
  */
 
 import * as core from '@actions/core';
-import {
-  initializeDefaultTools,
-  isToolRegistryEnabled,
-  resolveActivatedTools,
-  runTools,
-  toolRegistry,
-} from 'ghagga-core';
-import { executeCpd } from './cpd.js';
+import { initializeDefaultTools, resolveActivatedTools, runTools, toolRegistry } from 'ghagga-core';
 import { createActionsExecutionContext } from './execution.js';
-import { executeSemgrep } from './semgrep.js';
-import { executeTrivy } from './trivy.js';
-import type { StaticAnalysisResult, ToolResult } from './types.js';
-
-/** Sentinel value for disabled/skipped tools */
-const SKIPPED: ToolResult = {
-  status: 'skipped',
-  findings: [],
-  executionTimeMs: 0,
-};
+import type { StaticAnalysisResult } from './types.js';
 
 /**
  * Run all enabled static analysis tools locally on the runner.
@@ -46,34 +26,7 @@ export async function runLocalAnalysis(options: {
   disabledTools?: string[];
   repoDir: string;
 }): Promise<StaticAnalysisResult> {
-  // ── Registry-driven path (feature flag) ──────────────────────
-  if (isToolRegistryEnabled()) {
-    return runLocalAnalysisWithRegistry(options);
-  }
-
-  // ── Legacy hardcoded path ────────────────────────────────────
-  const totalStart = Date.now();
-
-  core.info('Starting local static analysis...');
-
-  // Sequential execution — memory safety
-  const semgrep = options.enableSemgrep ? await executeSemgrep(options.repoDir) : SKIPPED;
-  core.info(
-    `Semgrep: ${semgrep.status} (${semgrep.findings.length} findings, ${semgrep.executionTimeMs}ms)`,
-  );
-
-  const trivy = options.enableTrivy ? await executeTrivy(options.repoDir) : SKIPPED;
-  core.info(
-    `Trivy: ${trivy.status} (${trivy.findings.length} findings, ${trivy.executionTimeMs}ms)`,
-  );
-
-  const cpd = options.enableCpd ? await executeCpd(options.repoDir) : SKIPPED;
-  core.info(`CPD: ${cpd.status} (${cpd.findings.length} findings, ${cpd.executionTimeMs}ms)`);
-
-  const totalMs = Date.now() - totalStart;
-  core.info(`Static analysis complete in ${(totalMs / 1000).toFixed(1)}s`);
-
-  return { semgrep, trivy, cpd };
+  return runLocalAnalysisWithRegistry(options);
 }
 
 /**
@@ -89,7 +42,7 @@ async function runLocalAnalysisWithRegistry(options: {
   disabledTools?: string[];
   repoDir: string;
 }): Promise<StaticAnalysisResult> {
-  core.info('[ghagga:tools] Using registry-driven orchestrator (GHAGGA_TOOL_REGISTRY=true)');
+  core.info('[ghagga:tools] Running static analysis with registry-driven orchestrator');
 
   // Ensure plugins are registered
   initializeDefaultTools();

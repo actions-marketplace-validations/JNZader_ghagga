@@ -1,10 +1,10 @@
 /**
  * Integration test for registry-driven action orchestrator.
  *
- * Verifies that runLocalAnalysis() with GHAGGA_TOOL_REGISTRY=true
- * uses the registry-driven path with ActionsExecutionContext,
- * produces correct StaticAnalysisResult shape with expected tool entries,
- * and maintains backward compatibility with legacy keys.
+ * Verifies that runLocalAnalysis() uses the registry-driven path
+ * with ActionsExecutionContext, produces correct StaticAnalysisResult
+ * shape with expected tool entries, and maintains backward compatibility
+ * with legacy keys.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -74,12 +74,12 @@ function createMockExecutionContext(): ExecutionContext {
 
 // ─── Tests ──────────────────────────────────────────────────────
 
-describe('runLocalAnalysis with GHAGGA_TOOL_REGISTRY=true', () => {
+describe('runLocalAnalysis with registry-driven orchestrator', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env = { ...originalEnv, GHAGGA_TOOL_REGISTRY: 'true' };
+    process.env = { ...originalEnv };
 
     // Reset registry for fresh state — initializeDefaultTools() will re-register
     toolRegistry.clear();
@@ -235,44 +235,5 @@ describe('runLocalAnalysis with GHAGGA_TOOL_REGISTRY=true', () => {
     });
 
     expect(mockInfo).toHaveBeenCalledWith(expect.stringContaining('Activated tools:'));
-  });
-
-  it('falls back to legacy path when feature flag is disabled', async () => {
-    process.env.GHAGGA_TOOL_REGISTRY = 'false';
-
-    const { executeSemgrep } = await import('../semgrep.js');
-    const { executeTrivy } = await import('../trivy.js');
-    const { executeCpd } = await import('../cpd.js');
-
-    const mockSemgrep = vi.mocked(executeSemgrep);
-    const mockTrivy = vi.mocked(executeTrivy);
-    const mockCpd = vi.mocked(executeCpd);
-
-    const successResult: ToolResult = {
-      status: 'success',
-      findings: [],
-      executionTimeMs: 100,
-    };
-
-    mockSemgrep.mockResolvedValue(successResult);
-    mockTrivy.mockResolvedValue(successResult);
-    mockCpd.mockResolvedValue(successResult);
-
-    const result = await runLocalAnalysis({
-      enableSemgrep: true,
-      enableTrivy: true,
-      enableCpd: true,
-      repoDir: '/workspace',
-    });
-
-    // Should use legacy path
-    expect(mockSemgrep).toHaveBeenCalled();
-    expect(mockTrivy).toHaveBeenCalled();
-    expect(mockCpd).toHaveBeenCalled();
-
-    // Result should have the 3 legacy keys
-    expect(result).toHaveProperty('semgrep');
-    expect(result).toHaveProperty('trivy');
-    expect(result).toHaveProperty('cpd');
   });
 });

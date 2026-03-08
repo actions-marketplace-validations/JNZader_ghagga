@@ -11,53 +11,28 @@
 
 import * as cache from '@actions/cache';
 import * as core from '@actions/core';
-import { isToolRegistryEnabled, toolRegistry } from 'ghagga-core';
+import { toolRegistry } from 'ghagga-core';
 import type { ToolName } from './types.js';
 import { TOOL_VERSIONS } from './types.js';
 
-/** Legacy hardcoded cache paths (used when registry feature flag is off) */
-const LEGACY_CACHE_PATHS: Record<string, string[]> = {
-  semgrep: ['~/.local/bin/semgrep', '~/.local/lib/python3*/site-packages/semgrep*'],
-  trivy: ['/usr/local/bin/trivy'],
-  cpd: ['/opt/pmd'],
-};
-
 /**
- * Get cache paths for a tool.
- * When GHAGGA_TOOL_REGISTRY=true, uses cachePaths from the registered ToolDefinition.
- * Otherwise, falls back to legacy hardcoded paths.
+ * Get cache paths for a tool from the registry.
  */
 function getCachePaths(tool: ToolName): string[] {
-  if (isToolRegistryEnabled()) {
-    const definition = toolRegistry.getByName(tool);
-    if (definition?.cachePaths && definition.cachePaths.length > 0) {
-      return definition.cachePaths;
-    }
-  }
-
-  return LEGACY_CACHE_PATHS[tool] ?? [];
+  const definition = toolRegistry.getByName(tool);
+  return definition?.cachePaths ?? [];
 }
 
 /**
  * Get the cache key for a tool.
  * Format: ghagga-{tool}-{version}-{RUNNER_OS}
- *
- * When GHAGGA_TOOL_REGISTRY=true, uses version from the registered ToolDefinition.
- * Otherwise, falls back to TOOL_VERSIONS.
  */
 function getCacheKey(tool: ToolName): string {
-  let version: string;
-
-  if (isToolRegistryEnabled()) {
-    const definition = toolRegistry.getByName(tool);
-    version =
-      definition?.version ??
-      TOOL_VERSIONS[tool === 'cpd' ? 'pmd' : (tool as keyof typeof TOOL_VERSIONS)] ??
-      'unknown';
-  } else {
-    version =
-      TOOL_VERSIONS[tool === 'cpd' ? 'pmd' : (tool as keyof typeof TOOL_VERSIONS)] ?? 'unknown';
-  }
+  const definition = toolRegistry.getByName(tool);
+  const version =
+    definition?.version ??
+    TOOL_VERSIONS[tool === 'cpd' ? 'pmd' : (tool as keyof typeof TOOL_VERSIONS)] ??
+    'unknown';
 
   return `ghagga-${tool}-${version}-${process.env.RUNNER_OS ?? 'Linux'}`;
 }
