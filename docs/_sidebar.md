@@ -12,6 +12,7 @@
 
 - Features
   - [Static Analysis](static-analysis.md)
+  - [Tool Candidates](static-analysis-candidates.md)
   - [Memory System](memory-system.md)
   - [Security](security.md)
 

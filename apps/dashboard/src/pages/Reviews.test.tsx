@@ -2,7 +2,7 @@
  * Tests for Reviews page.
  * Covers: table rendering, loading/empty/error states, filters,
  * pagination, review detail modal, status badges, finding counts,
- * and delete reviews functionality.
+ * delete reviews functionality, and batch selection/delete.
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -17,11 +17,19 @@ const mockUseRepositories = vi.fn();
 const mockDeleteMutate = vi.fn();
 const mockDeleteReset = vi.fn();
 const mockUseDeleteRepoReviews = vi.fn();
+const mockBatchDeleteMutate = vi.fn();
+const mockBatchDeleteReset = vi.fn();
+const mockUseBatchDeleteReviews = vi.fn();
+const mockSingleDeleteMutate = vi.fn();
+const mockSingleDeleteReset = vi.fn();
+const mockUseDeleteReview = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   useReviews: (...args: unknown[]) => mockUseReviews(...args),
   useRepositories: () => mockUseRepositories(),
   useDeleteRepoReviews: () => mockUseDeleteRepoReviews(),
+  useBatchDeleteReviews: () => mockUseBatchDeleteReviews(),
+  useDeleteReview: () => mockUseDeleteReview(),
 }));
 
 const mockUseSelectedRepo = vi.fn();
@@ -143,6 +151,18 @@ beforeEach(() => {
   mockUseDeleteRepoReviews.mockReturnValue({
     mutate: mockDeleteMutate,
     reset: mockDeleteReset,
+    isPending: false,
+    error: null,
+  });
+  mockUseBatchDeleteReviews.mockReturnValue({
+    mutate: mockBatchDeleteMutate,
+    reset: mockBatchDeleteReset,
+    isPending: false,
+    error: null,
+  });
+  mockUseDeleteReview.mockReturnValue({
+    mutate: mockSingleDeleteMutate,
+    reset: mockSingleDeleteReset,
     isPending: false,
     error: null,
   });
@@ -759,8 +779,9 @@ describe('Reviews — delete reviews', () => {
     // Open dialog
     fireEvent.click(screen.getByText('Delete Reviews'));
 
-    // Check the memory checkbox — click the checkbox input inside the label
-    const checkbox = screen.getByRole('checkbox');
+    // Check the memory checkbox — click the checkbox input inside the dialog's label
+    const dialog = screen.getByRole('dialog');
+    const checkbox = within(dialog).getByRole('checkbox');
     fireEvent.click(checkbox);
 
     // Type the repo name to enable confirm
@@ -769,7 +790,6 @@ describe('Reviews — delete reviews', () => {
     });
 
     // Click confirm
-    const dialog = screen.getByRole('dialog');
     const confirmBtn = within(dialog).getByText('Delete Reviews');
     fireEvent.click(confirmBtn);
 
@@ -890,5 +910,312 @@ describe('Reviews — delete reviews', () => {
       target: { value: 'acme/widgets' },
     });
     expect(confirmBtn).not.toBeDisabled();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Selection & Batch Delete
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Reviews — selection & batch delete', () => {
+  beforeEach(() => {
+    mockReviewsData(MULTI_REVIEWS);
+  });
+
+  it('renders checkboxes for each review row', () => {
+    renderReviews();
+
+    // One select-all checkbox + one per review row = 5
+    const checkboxes = screen.getAllByRole('checkbox');
+    expect(checkboxes).toHaveLength(5); // 1 header + 4 rows
+  });
+
+  it('select-all selects all visible reviews', () => {
+    renderReviews();
+
+    const selectAll = screen.getByLabelText('Select all reviews');
+    fireEvent.click(selectAll);
+
+    // All row checkboxes should be checked
+    const checkboxes = screen.getAllByRole('checkbox');
+    for (const cb of checkboxes) {
+      expect(cb).toBeChecked();
+    }
+  });
+
+  it('deselect-all via select-all checkbox clears selection', () => {
+    renderReviews();
+
+    // Select all, then deselect all
+    const selectAll = screen.getByLabelText('Select all reviews');
+    fireEvent.click(selectAll);
+    fireEvent.click(selectAll);
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    for (const cb of checkboxes) {
+      expect(cb).not.toBeChecked();
+    }
+  });
+
+  it('select-all shows indeterminate state when partially selected', () => {
+    renderReviews();
+
+    // Select just the first review
+    const rowCheckboxes = MULTI_REVIEWS.map((r) =>
+      screen.getByLabelText(`Select review ${r.repo} #${r.prNumber}`),
+    );
+    fireEvent.click(rowCheckboxes[0]);
+
+    const selectAll = screen.getByLabelText('Select all reviews');
+    expect(selectAll).not.toBeChecked();
+    // The indeterminate state is set via ref callback, verify the property
+    expect((selectAll as HTMLInputElement).indeterminate).toBe(true);
+  });
+
+  it('"Delete Selected" button shows count when items selected', () => {
+    renderReviews();
+
+    // Initially hidden
+    expect(screen.queryByText(/Delete Selected/)).not.toBeInTheDocument();
+
+    // Select 2 reviews
+    const row1 = screen.getByLabelText(
+      `Select review ${MULTI_REVIEWS[0].repo} #${MULTI_REVIEWS[0].prNumber}`,
+    );
+    const row2 = screen.getByLabelText(
+      `Select review ${MULTI_REVIEWS[1].repo} #${MULTI_REVIEWS[1].prNumber}`,
+    );
+    fireEvent.click(row1);
+    fireEvent.click(row2);
+
+    expect(screen.getByText('Delete Selected (2)')).toBeInTheDocument();
+  });
+
+  it('"Delete Selected" is hidden when nothing is selected', () => {
+    renderReviews();
+
+    expect(screen.queryByText(/Delete Selected/)).not.toBeInTheDocument();
+  });
+
+  it('confirming batch delete calls the batch delete API', () => {
+    renderReviews();
+
+    // Select 2 reviews
+    const row1 = screen.getByLabelText(
+      `Select review ${MULTI_REVIEWS[0].repo} #${MULTI_REVIEWS[0].prNumber}`,
+    );
+    const row2 = screen.getByLabelText(
+      `Select review ${MULTI_REVIEWS[1].repo} #${MULTI_REVIEWS[1].prNumber}`,
+    );
+    fireEvent.click(row1);
+    fireEvent.click(row2);
+
+    // Click "Delete Selected (2)"
+    fireEvent.click(screen.getByText('Delete Selected (2)'));
+
+    // Dialog should open
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('Delete 2 reviews?')).toBeInTheDocument();
+
+    // Confirm (Tier 1 — no text input needed, button should be enabled)
+    const dialog = screen.getByRole('dialog');
+    const confirmBtn = within(dialog).getByText('Delete');
+    fireEvent.click(confirmBtn);
+
+    expect(mockBatchDeleteMutate).toHaveBeenCalledTimes(1);
+    const callArgs = mockBatchDeleteMutate.mock.calls[0];
+    // First arg is { ids: [...] }
+    expect(callArgs[0].ids).toHaveLength(2);
+    expect(callArgs[0].ids).toContain(MULTI_REVIEWS[0].id);
+    expect(callArgs[0].ids).toContain(MULTI_REVIEWS[1].id);
+  });
+
+  it('selection clears after successful batch delete', () => {
+    mockBatchDeleteMutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: (data: { deletedCount: number }) => void }) => {
+        opts.onSuccess({ deletedCount: 2 });
+      },
+    );
+
+    renderReviews();
+
+    // Select 2 reviews
+    const row1 = screen.getByLabelText(
+      `Select review ${MULTI_REVIEWS[0].repo} #${MULTI_REVIEWS[0].prNumber}`,
+    );
+    const row2 = screen.getByLabelText(
+      `Select review ${MULTI_REVIEWS[1].repo} #${MULTI_REVIEWS[1].prNumber}`,
+    );
+    fireEvent.click(row1);
+    fireEvent.click(row2);
+
+    // Delete Selected
+    fireEvent.click(screen.getByText('Delete Selected (2)'));
+    const dialog = screen.getByRole('dialog');
+    const confirmBtn = within(dialog).getByText('Delete');
+    fireEvent.click(confirmBtn);
+
+    // Selection should be cleared — "Delete Selected" button gone
+    expect(screen.queryByText(/Delete Selected/)).not.toBeInTheDocument();
+
+    // Success toast
+    expect(screen.getByText('Deleted 2 reviews')).toBeInTheDocument();
+  });
+
+  it('selection clears on repo filter change', () => {
+    const setSelectedRepo = vi.fn();
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: '',
+      setSelectedRepo,
+    });
+    mockUseRepositories.mockReturnValue({
+      data: [{ id: 1, fullName: 'acme/app' }],
+      isLoading: false,
+    });
+
+    const queryClient = createTestQueryClient();
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <Reviews />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    // Select a review
+    const row1 = screen.getByLabelText(
+      `Select review ${MULTI_REVIEWS[0].repo} #${MULTI_REVIEWS[0].prNumber}`,
+    );
+    fireEvent.click(row1);
+    expect(screen.getByText('Delete Selected (1)')).toBeInTheDocument();
+
+    // Simulate repo context changing (as if the context provider updated)
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/app',
+      setSelectedRepo,
+    });
+
+    // Re-render with same query client to trigger useEffect with new selectedRepo
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <Reviews />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    // Selection should be cleared by the useEffect on selectedRepo change
+    expect(screen.queryByText(/Delete Selected/)).not.toBeInTheDocument();
+  });
+
+  it('selection clears on status filter change', () => {
+    renderReviews();
+
+    // Select a review
+    const row1 = screen.getByLabelText(
+      `Select review ${MULTI_REVIEWS[0].repo} #${MULTI_REVIEWS[0].prNumber}`,
+    );
+    fireEvent.click(row1);
+    expect(screen.getByText('Delete Selected (1)')).toBeInTheDocument();
+
+    // Change status filter
+    const statusSelect = screen.getByDisplayValue('All statuses');
+    fireEvent.change(statusSelect, { target: { value: 'FAILED' } });
+
+    // Selection should be cleared
+    expect(screen.queryByText(/Delete Selected/)).not.toBeInTheDocument();
+  });
+
+  it('selection clears on search text change', () => {
+    renderReviews();
+
+    // Select a review
+    const row1 = screen.getByLabelText(
+      `Select review ${MULTI_REVIEWS[0].repo} #${MULTI_REVIEWS[0].prNumber}`,
+    );
+    fireEvent.click(row1);
+    expect(screen.getByText('Delete Selected (1)')).toBeInTheDocument();
+
+    // Type in search
+    const searchInput = screen.getByPlaceholderText('Search reviews...');
+    fireEvent.change(searchInput, { target: { value: 'something' } });
+
+    // Selection should be cleared
+    expect(screen.queryByText(/Delete Selected/)).not.toBeInTheDocument();
+  });
+
+  it('selection clears on page change', () => {
+    // Need pagination — more than 20 reviews total
+    mockUseReviews.mockReturnValue({
+      data: {
+        reviews: MULTI_REVIEWS,
+        total: 50,
+        page: 1,
+        pageSize: 20,
+      },
+      isLoading: false,
+    });
+
+    renderReviews();
+
+    // Select a review
+    const row1 = screen.getByLabelText(
+      `Select review ${MULTI_REVIEWS[0].repo} #${MULTI_REVIEWS[0].prNumber}`,
+    );
+    fireEvent.click(row1);
+    expect(screen.getByText('Delete Selected (1)')).toBeInTheDocument();
+
+    // Click Next page
+    fireEvent.click(screen.getByText('Next'));
+
+    // Selection should be cleared
+    expect(screen.queryByText(/Delete Selected/)).not.toBeInTheDocument();
+  });
+
+  it('renders single delete button per row', () => {
+    renderReviews();
+
+    const deleteButtons = screen.getAllByTitle('Delete review');
+    expect(deleteButtons).toHaveLength(MULTI_REVIEWS.length);
+  });
+
+  it('single delete button opens confirmation dialog', () => {
+    renderReviews();
+
+    const deleteButtons = screen.getAllByTitle('Delete review');
+    fireEvent.click(deleteButtons[0]);
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('Delete review?')).toBeInTheDocument();
+  });
+
+  it('single delete calls useDeleteReview on confirm', () => {
+    renderReviews();
+
+    const deleteButtons = screen.getAllByTitle('Delete review');
+    fireEvent.click(deleteButtons[0]);
+
+    // Confirm the dialog (Tier 1 — no text input)
+    const dialog = screen.getByRole('dialog');
+    const confirmBtn = within(dialog).getByText('Delete');
+    fireEvent.click(confirmBtn);
+
+    expect(mockSingleDeleteMutate).toHaveBeenCalledTimes(1);
+    expect(mockSingleDeleteMutate).toHaveBeenCalledWith(
+      { reviewId: MULTI_REVIEWS[0].id },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
+  it('clicking checkbox does not open detail modal', () => {
+    renderReviews();
+
+    const row1 = screen.getByLabelText(
+      `Select review ${MULTI_REVIEWS[0].repo} #${MULTI_REVIEWS[0].prNumber}`,
+    );
+    fireEvent.click(row1);
+
+    // Modal should NOT have opened (no summary text visible from modal)
+    expect(screen.queryByText('All checks passed')).not.toBeInTheDocument();
   });
 });

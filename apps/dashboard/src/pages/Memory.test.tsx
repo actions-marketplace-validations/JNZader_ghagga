@@ -5,7 +5,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '@/components/Toast';
 
@@ -24,12 +24,16 @@ const mockUseClearRepoMemory = vi.fn();
 const mockUsePurgeAllMemory = vi.fn();
 const mockUseDeleteSession = vi.fn();
 const mockUseCleanupEmptySessions = vi.fn();
+const mockBatchDeleteObsMutate = vi.fn();
+const mockBatchDeleteObsReset = vi.fn();
+const mockUseBatchDeleteObservations = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   useRepositories: () => mockUseRepositories(),
   useMemorySessions: () => mockUseMemorySessions(),
   useObservations: () => mockUseObservations(),
   useDeleteObservation: () => mockUseDeleteObservation(),
+  useBatchDeleteObservations: () => mockUseBatchDeleteObservations(),
   useClearRepoMemory: () => mockUseClearRepoMemory(),
   usePurgeAllMemory: () => mockUsePurgeAllMemory(),
   useDeleteSession: () => mockUseDeleteSession(),
@@ -141,6 +145,12 @@ beforeEach(() => {
   mockUseDeleteObservation.mockReturnValue({
     mutate: mockDeleteMutate,
     isPending: false,
+  });
+  mockUseBatchDeleteObservations.mockReturnValue({
+    mutate: mockBatchDeleteObsMutate,
+    reset: mockBatchDeleteObsReset,
+    isPending: false,
+    error: null,
   });
   mockUseClearRepoMemory.mockReturnValue({
     mutate: mockClearMutate,
@@ -1012,5 +1022,202 @@ describe('Memory page — severity filter & sort', () => {
     expect(titles.length).toBe(2);
     expect(titles[0].textContent).toBe('OAuth token refresh patterns');
     expect(titles[1].textContent).toBe('Logging best practices');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Selection & Batch Delete Observations
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Memory page — selection & batch delete', () => {
+  beforeEach(() => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/widgets',
+      setSelectedRepo: vi.fn(),
+    });
+    mockUseMemorySessions.mockReturnValue({
+      data: sampleSessions,
+      isLoading: false,
+    });
+    mockUseObservations.mockReturnValue({
+      data: sampleObservations,
+      isLoading: false,
+    });
+  });
+
+  it('renders checkboxes for each observation card', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // 2 observations → 2 per-observation checkboxes + 1 select-all = 3
+    // (plus the "Also clear memory" checkbox is NOT visible here)
+    const checkboxes = screen.getAllByRole('checkbox');
+    // select-all + 2 per-observation
+    expect(checkboxes.length).toBe(3);
+  });
+
+  it('select-all selects all visible observations', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    const selectAll = screen.getByLabelText('Select all observations');
+    fireEvent.click(selectAll);
+
+    // All checkboxes should be checked
+    const checkboxes = screen.getAllByRole('checkbox');
+    for (const cb of checkboxes) {
+      expect(cb).toBeChecked();
+    }
+  });
+
+  it('deselect-all via select-all checkbox clears selection', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    const selectAll = screen.getByLabelText('Select all observations');
+    fireEvent.click(selectAll);
+    fireEvent.click(selectAll);
+
+    const checkboxes = screen.getAllByRole('checkbox');
+    for (const cb of checkboxes) {
+      expect(cb).not.toBeChecked();
+    }
+  });
+
+  it('"Delete Selected" button shows count when items selected', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // Initially no "Delete Selected" button
+    expect(screen.queryByText(/Delete Selected \(/)).not.toBeInTheDocument();
+
+    // Select one observation
+    const obs1Checkbox = screen.getByLabelText(
+      'Select observation: Race condition in async handlers',
+    );
+    fireEvent.click(obs1Checkbox);
+
+    expect(screen.getByText('Delete Selected (1)')).toBeInTheDocument();
+  });
+
+  it('"Delete Selected" is hidden when nothing is selected', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    expect(screen.queryByText(/Delete Selected \(/)).not.toBeInTheDocument();
+  });
+
+  it('confirming batch delete calls the batch delete API', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // Select all observations
+    const selectAll = screen.getByLabelText('Select all observations');
+    fireEvent.click(selectAll);
+
+    // Click "Delete Selected (2)"
+    fireEvent.click(screen.getByText('Delete Selected (2)'));
+
+    // Dialog should open
+    const dialogs = screen.getAllByRole('dialog');
+    expect(dialogs.length).toBeGreaterThanOrEqual(1);
+
+    // Find the dialog with the batch delete title
+    expect(screen.getByText('Delete 2 observations?')).toBeInTheDocument();
+
+    // Confirm (Tier 1 — no text input needed)
+    // The last dialog's confirm button
+    const dialog = dialogs[dialogs.length - 1];
+    const buttons = within(dialog).getAllByRole('button');
+    const confirmBtn = buttons[buttons.length - 1]; // Last button is confirm
+    fireEvent.click(confirmBtn);
+
+    expect(mockBatchDeleteObsMutate).toHaveBeenCalledTimes(1);
+    const callArgs = mockBatchDeleteObsMutate.mock.calls[0];
+    expect(callArgs[0].ids).toHaveLength(2);
+    expect(callArgs[0].ids).toContain(42);
+    expect(callArgs[0].ids).toContain(43);
+  });
+
+  it('selection clears after successful batch delete', () => {
+    mockBatchDeleteObsMutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: (data: { deletedCount: number }) => void }) => {
+        opts.onSuccess({ deletedCount: 2 });
+      },
+    );
+
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // Select all
+    const selectAll = screen.getByLabelText('Select all observations');
+    fireEvent.click(selectAll);
+
+    // Batch delete
+    fireEvent.click(screen.getByText('Delete Selected (2)'));
+    const dialogs = screen.getAllByRole('dialog');
+    const dialog = dialogs[dialogs.length - 1];
+    const buttons = within(dialog).getAllByRole('button');
+    fireEvent.click(buttons[buttons.length - 1]);
+
+    // Selection should be cleared — "Delete Selected" button gone
+    expect(screen.queryByText(/Delete Selected \(/)).not.toBeInTheDocument();
+
+    // Success toast
+    expect(screen.getByText('Deleted 2 observations')).toBeInTheDocument();
+  });
+
+  it('selection clears on severity filter change', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // Select an observation
+    const obs1Checkbox = screen.getByLabelText(
+      'Select observation: Race condition in async handlers',
+    );
+    fireEvent.click(obs1Checkbox);
+    expect(screen.getByText('Delete Selected (1)')).toBeInTheDocument();
+
+    // Change severity filter
+    fireEvent.change(screen.getByLabelText('Filter by severity'), {
+      target: { value: 'critical' },
+    });
+
+    // Selection should be cleared
+    expect(screen.queryByText(/Delete Selected \(/)).not.toBeInTheDocument();
+  });
+
+  it('selection clears on sort change', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    // Select an observation
+    const obs1Checkbox = screen.getByLabelText(
+      'Select observation: Race condition in async handlers',
+    );
+    fireEvent.click(obs1Checkbox);
+    expect(screen.getByText('Delete Selected (1)')).toBeInTheDocument();
+
+    // Change sort
+    fireEvent.change(screen.getByLabelText('Sort observations'), {
+      target: { value: 'oldest' },
+    });
+
+    // Selection should be cleared
+    expect(screen.queryByText(/Delete Selected \(/)).not.toBeInTheDocument();
+  });
+
+  it('clicking checkbox does not open detail modal', () => {
+    renderMemory();
+    fireEvent.click(screen.getByText('PR #42'));
+
+    const obs1Checkbox = screen.getByLabelText(
+      'Select observation: Race condition in async handlers',
+    );
+    fireEvent.click(obs1Checkbox);
+
+    // The detail modal should NOT open — no topic key or extra detail visible
+    // The observation detail modal shows content that wouldn't normally be visible
+    expect(screen.queryByText('auth-token-refresh')).not.toBeInTheDocument();
   });
 });

@@ -7,6 +7,7 @@ import { SeverityBadge } from '@/components/SeverityBadge';
 import { useToast } from '@/components/Toast';
 import {
   ApiError,
+  useBatchDeleteObservations,
   useCleanupEmptySessions,
   useClearRepoMemory,
   useDeleteObservation,
@@ -241,11 +242,15 @@ function ObservationCard({
   onDelete,
   onClick,
   isDeleting,
+  isSelected,
+  onToggleSelect,
 }: {
   observation: Observation;
   onDelete: (obs: Observation) => void;
   onClick: (obs: Observation) => void;
   isDeleting: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (obs: Observation) => void;
 }) {
   const visiblePaths = observation.filePaths.slice(0, MAX_FILE_PATHS_SHOWN);
   const extraPathCount = observation.filePaths.length - MAX_FILE_PATHS_SHOWN;
@@ -254,6 +259,18 @@ function ObservationCard({
     <Card className="cursor-pointer transition-colors hover:border-primary-500/30">
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div className="relative flex items-start gap-3" onClick={() => onClick(observation)}>
+        {onToggleSelect && (
+          <div className="flex items-start pt-0.5">
+            <input
+              type="checkbox"
+              checked={isSelected ?? false}
+              onChange={() => onToggleSelect(observation)}
+              onClick={(e) => e.stopPropagation()}
+              className="h-4 w-4 rounded border-surface-border"
+              aria-label={`Select observation: ${observation.title}`}
+            />
+          </div>
+        )}
         <div className="flex flex-col gap-1.5">
           <TypeBadge type={observation.type} />
           {isValidSeverity(observation.severity) && (
@@ -402,11 +419,15 @@ function VirtualizedObservationList({
   onDelete,
   onClick,
   isDeleting,
+  selectedIds,
+  onToggleSelect,
 }: {
   observations: Observation[];
   onDelete: (obs: Observation) => void;
   onClick: (obs: Observation) => void;
   isDeleting: boolean;
+  selectedIds?: Set<number>;
+  onToggleSelect?: (obs: Observation) => void;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
 
@@ -436,6 +457,8 @@ function VirtualizedObservationList({
               onDelete={onDelete}
               onClick={onClick}
               isDeleting={isDeleting}
+              isSelected={selectedIds?.has(obs.id)}
+              onToggleSelect={onToggleSelect}
             />
           </div>
         ))}
@@ -468,6 +491,8 @@ function VirtualizedObservationList({
                 onDelete={onDelete}
                 onClick={onClick}
                 isDeleting={isDeleting}
+                isSelected={selectedIds?.has(obs.id)}
+                onToggleSelect={onToggleSelect}
               />
             </div>
           );
@@ -527,8 +552,13 @@ export function Memory() {
     selectedSessionId ?? 0,
   );
 
+  // ── Selection state for batch delete ──────────────────────────
+  const [selectedObsIds, setSelectedObsIds] = useState<Set<number>>(new Set());
+  const [showBatchDeleteObsDialog, setShowBatchDeleteObsDialog] = useState(false);
+
   // ── Mutations ─────────────────────────────────────────────────
   const deleteObservation = useDeleteObservation();
+  const batchDeleteObservations = useBatchDeleteObservations();
   const clearRepoMemory = useClearRepoMemory();
   const purgeAllMemory = usePurgeAllMemory();
   const deleteSession = useDeleteSession();
@@ -536,6 +566,7 @@ export function Memory() {
 
   const isMutating =
     deleteObservation.isPending ||
+    batchDeleteObservations.isPending ||
     clearRepoMemory.isPending ||
     purgeAllMemory.isPending ||
     deleteSession.isPending ||
@@ -560,6 +591,12 @@ export function Memory() {
       prevRepo.current = selectedRepo;
     }
   }, [selectedRepo]);
+
+  // ── Clear observation selection on filter/session changes ─────
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally reset selection when filter values change
+  useEffect(() => {
+    setSelectedObsIds(new Set());
+  }, [selectedSessionId, severityFilter, sortOption, search]);
 
   // ── Computed values ───────────────────────────────────────────
   const totalObservationCount = sessions?.reduce((sum, s) => sum + s.observationCount, 0) ?? 0;
@@ -614,7 +651,53 @@ export function Memory() {
     return session.summary.toLowerCase().includes(q) || String(session.prNumber).includes(q);
   });
 
+  // ── Selection helpers ─────────────────────────────────────────
+  const allObsSelected =
+    filteredObservations.length > 0 &&
+    filteredObservations.every((obs) => selectedObsIds.has(obs.id));
+  const someObsSelected =
+    filteredObservations.some((obs) => selectedObsIds.has(obs.id)) && !allObsSelected;
+
+  function toggleSelectAllObs() {
+    if (allObsSelected) {
+      setSelectedObsIds(new Set());
+    } else {
+      setSelectedObsIds(new Set(filteredObservations.map((obs) => obs.id)));
+    }
+  }
+
+  function toggleSelectOneObs(obs: Observation) {
+    setSelectedObsIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(obs.id)) {
+        next.delete(obs.id);
+      } else {
+        next.add(obs.id);
+      }
+      return next;
+    });
+  }
+
   // ── Handlers ──────────────────────────────────────────────────
+
+  function handleBatchDeleteObservations() {
+    batchDeleteObservations.mutate(
+      { ids: Array.from(selectedObsIds) },
+      {
+        onSuccess: (data) => {
+          setShowBatchDeleteObsDialog(false);
+          setSelectedObsIds(new Set());
+          addToast({
+            message: `Deleted ${data.deletedCount} observation${data.deletedCount === 1 ? '' : 's'}`,
+            type: 'success',
+          });
+        },
+        onError: (error) => {
+          setDialogError(getErrorMessage(error));
+        },
+      },
+    );
+  }
 
   function handleDeleteObservation() {
     if (!deleteTarget) return;
@@ -867,6 +950,31 @@ export function Memory() {
                 </div>
               ) : (
                 <>
+                  {/* Select-all + batch delete bar */}
+                  <div className="mb-4 flex items-center gap-3">
+                    <label className="flex cursor-pointer items-center gap-2 text-sm text-text-secondary">
+                      <input
+                        type="checkbox"
+                        checked={allObsSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = someObsSelected;
+                        }}
+                        onChange={toggleSelectAllObs}
+                        className="h-4 w-4 rounded border-surface-border"
+                        aria-label="Select all observations"
+                      />
+                      Select all
+                    </label>
+                    {selectedObsIds.size > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowBatchDeleteObsDialog(true)}
+                        className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
+                      >
+                        Delete Selected ({selectedObsIds.size})
+                      </button>
+                    )}
+                  </div>
                   <StatsBar observations={filteredObservations} />
                   <VirtualizedObservationList
                     observations={filteredObservations}
@@ -876,6 +984,8 @@ export function Memory() {
                     }}
                     onClick={(o) => setSelectedObservation(o)}
                     isDeleting={isMutating}
+                    selectedIds={selectedObsIds}
+                    onToggleSelect={toggleSelectOneObs}
                   />
                 </>
               )}
@@ -1029,6 +1139,24 @@ export function Memory() {
         confirmVariant="danger"
         isLoading={cleanupEmptySessions.isPending}
         error={dialogError}
+      />
+
+      {/* ── Batch Delete Selected Observations (Tier 1) ────────── */}
+      <ConfirmDialog
+        open={showBatchDeleteObsDialog}
+        title={`Delete ${selectedObsIds.size} observation${selectedObsIds.size === 1 ? '' : 's'}?`}
+        description="This will permanently delete the selected observations. This action cannot be undone."
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        isLoading={batchDeleteObservations.isPending}
+        error={dialogError}
+        onConfirm={handleBatchDeleteObservations}
+        onCancel={() => {
+          if (!batchDeleteObservations.isPending) {
+            setShowBatchDeleteObsDialog(false);
+            setDialogError(null);
+          }
+        }}
       />
     </div>
   );
