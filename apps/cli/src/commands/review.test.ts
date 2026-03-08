@@ -122,6 +122,12 @@ vi.mock('ghagga-core', () => {
 
   return {
     reviewPipeline: vi.fn(),
+    buildSarif: vi.fn().mockReturnValue({
+      $schema:
+        'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json',
+      version: '2.1.0',
+      runs: [],
+    }),
     SqliteMemoryStorage: {
       create: vi.fn().mockResolvedValue({
         searchObservations: vi.fn().mockResolvedValue([]),
@@ -335,7 +341,6 @@ function defaultOptions(overrides: Partial<ReviewOptions> = {}): ReviewOptions {
     provider: 'anthropic',
     model: 'claude-sonnet-4-20250514',
     apiKey: 'test-key',
-    format: 'markdown',
     semgrep: true,
     trivy: true,
     cpd: true,
@@ -456,7 +461,7 @@ describe('reviewCommand — functional tests', () => {
     mockReviewPipeline.mockResolvedValue(result);
 
     const { reviewCommand } = await import('./review.js');
-    await reviewCommand('.', defaultOptions({ format: 'json' }));
+    await reviewCommand('.', defaultOptions({ outputFormat: 'json' }));
 
     expect(logSpy).toHaveBeenCalledWith(JSON.stringify(result, null, 2));
   });
@@ -471,7 +476,7 @@ describe('reviewCommand — functional tests', () => {
     mockReviewPipeline.mockResolvedValue(result);
 
     const { reviewCommand } = await import('./review.js');
-    await reviewCommand('.', defaultOptions({ format: 'markdown' }));
+    await reviewCommand('.', defaultOptions({ outputFormat: 'markdown' }));
 
     // The markdown output should contain the summary
     const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
@@ -498,7 +503,7 @@ describe('reviewCommand — functional tests', () => {
     mockReviewPipeline.mockResolvedValue(result);
 
     const { reviewCommand } = await import('./review.js');
-    await reviewCommand('.', defaultOptions({ format: 'markdown' }));
+    await reviewCommand('.', defaultOptions({ outputFormat: 'markdown' }));
 
     const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     const markdownOutput = allLogCalls.find((s: string) => s.includes('Findings'));
@@ -513,7 +518,7 @@ describe('reviewCommand — functional tests', () => {
     mockReviewPipeline.mockResolvedValue(makeReviewResult({ findings: [] }));
 
     const { reviewCommand } = await import('./review.js');
-    await reviewCommand('.', defaultOptions({ format: 'markdown' }));
+    await reviewCommand('.', defaultOptions({ outputFormat: 'markdown' }));
 
     const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     const markdownOutput = allLogCalls.find((s: string) => s.includes('No findings'));
@@ -528,7 +533,7 @@ describe('reviewCommand — functional tests', () => {
     mockReviewPipeline.mockResolvedValue(result);
 
     const { reviewCommand } = await import('./review.js');
-    await reviewCommand('.', defaultOptions({ format: 'markdown' }));
+    await reviewCommand('.', defaultOptions({ outputFormat: 'markdown' }));
 
     const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     const markdownOutput = allLogCalls.find((s: string) => s.includes('Static Analysis'));
@@ -804,7 +809,7 @@ describe('Phase 7: --list-tools flag', () => {
 
   it('should print JSON array with --list-tools --format json', async () => {
     const { reviewCommand } = await import('./review.js');
-    await reviewCommand('.', defaultOptions({ listTools: true, format: 'json' }));
+    await reviewCommand('.', defaultOptions({ listTools: true, outputFormat: 'json' }));
 
     expect(exitSpy).toHaveBeenCalledWith(0);
 

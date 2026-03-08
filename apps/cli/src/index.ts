@@ -56,8 +56,9 @@ program
 
 // Initialize TUI mode before any command runs (Design AD3)
 program.hook('preAction', (thisCommand) => {
-  const opts = thisCommand.optsWithGlobals() as { plain?: boolean };
-  tui.init({ plain: opts.plain });
+  const opts = thisCommand.optsWithGlobals() as { plain?: boolean; output?: string };
+  const isPlain = !!opts.plain || !process.stdout.isTTY || !!process.env.CI || !!opts.output;
+  tui.init({ plain: isPlain });
 });
 
 // ─── Login ──────────────────────────────────────────────────────
@@ -101,7 +102,8 @@ program
   )
   .option('--model <model>', 'LLM model identifier', process.env.GHAGGA_MODEL)
   .option('--api-key <key>', 'LLM provider API key', process.env.GHAGGA_API_KEY)
-  .option('-f, --format <format>', 'Output format', 'markdown')
+  .option('-o, --output <format>', 'Output format: json | sarif | markdown')
+  .option('-f, --format <format>', '(deprecated) Use --output instead')
   .option('--no-semgrep', '(deprecated) Use --disable-tool semgrep')
   .option('--no-trivy', '(deprecated) Use --disable-tool trivy')
   .option('--no-cpd', '(deprecated) Use --disable-tool cpd')
@@ -164,13 +166,28 @@ program
       process.exit(1);
     }
 
-    // ── Validate format ───────────────────────────────────────
-    const validFormats = ['markdown', 'json'];
-    if (!validFormats.includes(options.format)) {
-      tui.log.error(
-        `❌ Invalid format "${options.format}". Choose from: ${validFormats.join(', ')}`,
-      );
-      process.exit(1);
+    // ── Resolve output format (--output takes priority over deprecated --format) ──
+    let outputFormat: 'json' | 'sarif' | 'markdown' | undefined;
+    if (options.output) {
+      const validOutputs = ['json', 'sarif', 'markdown'];
+      if (!validOutputs.includes(options.output)) {
+        tui.log.error(
+          `❌ Invalid output format "${options.output}". Choose from: ${validOutputs.join(', ')}`,
+        );
+        process.exit(1);
+      }
+      outputFormat = options.output as 'json' | 'sarif' | 'markdown';
+    } else if (options.format) {
+      // Deprecated --format flag
+      console.error('Warning: --format is deprecated. Use --output instead.');
+      const validFormats = ['markdown', 'json'];
+      if (!validFormats.includes(options.format)) {
+        tui.log.error(
+          `❌ Invalid format "${options.format}". Choose from: ${validFormats.join(', ')}`,
+        );
+        process.exit(1);
+      }
+      outputFormat = options.format as 'json' | 'markdown';
     }
 
     // ── Validate API key (not required for ollama or --quick mode) ──
@@ -196,7 +213,8 @@ program
       provider,
       model,
       apiKey: options.apiKey ?? '',
-      format: options.format as 'markdown' | 'json',
+      outputFormat,
+      version: pkg.version,
       semgrep: options.semgrep,
       trivy: options.trivy,
       cpd: options.cpd,
@@ -231,7 +249,8 @@ interface ReviewCommandOptions {
   provider?: string;
   model?: string;
   apiKey?: string;
-  format: string;
+  format?: string;
+  output?: string;
   semgrep: boolean;
   trivy: boolean;
   cpd: boolean;

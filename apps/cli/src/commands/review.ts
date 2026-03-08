@@ -21,6 +21,7 @@ import type {
   ToolDefinition,
 } from 'ghagga-core';
 import {
+  buildSarif,
   DEFAULT_SETTINGS,
   EngramMemoryStorage,
   initializeDefaultTools,
@@ -42,7 +43,10 @@ export interface ReviewOptions {
   provider: LLMProvider;
   model: string;
   apiKey: string;
-  format: 'markdown' | 'json';
+  /** Output format. When set, TUI decorations are suppressed. */
+  outputFormat?: 'json' | 'sarif' | 'markdown';
+  /** Package version for SARIF output. */
+  version?: string;
   semgrep: boolean;
   trivy: boolean;
   cpd: boolean;
@@ -93,7 +97,7 @@ export async function reviewCommand(targetPath: string, options: ReviewOptions):
 
     // ── Handle --list-tools (exit early, no repo needed) ─────
     if (options.listTools) {
-      printToolList(options.format);
+      printToolList(options.outputFormat === 'json' ? 'json' : 'markdown');
       process.exit(0);
     }
 
@@ -121,7 +125,7 @@ export async function reviewCommand(targetPath: string, options: ReviewOptions):
 
       const message = readFileSync(commitMsgFile, 'utf-8');
 
-      if (options.format !== 'json') {
+      if (!options.outputFormat) {
         tui.intro('🤖 GHAGGA Commit Message Review');
       }
 
@@ -133,16 +137,12 @@ export async function reviewCommand(targetPath: string, options: ReviewOptions):
         quick: options.quick,
       });
 
-      // Output the result
-      if (options.format === 'json') {
-        console.log(JSON.stringify(result, null, 2));
-      } else {
-        tui.log.message(formatMarkdownResult(result));
-      }
+      // Output the result based on format
+      outputResult(result, options.outputFormat, options.version);
 
       // Exit code: --exit-on-issues overrides default behavior
       const exitCode = resolveExitCode(result, options.exitOnIssues ?? false);
-      if (options.format !== 'json') {
+      if (!options.outputFormat) {
         tui.outro('Commit message review complete');
       }
       process.exit(exitCode);
@@ -166,7 +166,7 @@ export async function reviewCommand(targetPath: string, options: ReviewOptions):
     const settings = mergeSettings(options, fileConfig);
 
     // Step 4: Show progress
-    if (options.format !== 'json') {
+    if (!options.outputFormat) {
       tui.intro('🤖 GHAGGA Code Review');
       tui.log.message(
         `   Mode: ${options.mode} | Provider: ${options.provider} | Model: ${options.model}`,
@@ -256,15 +256,11 @@ export async function reviewCommand(targetPath: string, options: ReviewOptions):
     await memoryStorage?.close();
 
     // Step 6: Output the result
-    if (options.format === 'json') {
-      console.log(JSON.stringify(result, null, 2));
-    } else {
-      tui.log.message(formatMarkdownResult(result));
-    }
+    outputResult(result, options.outputFormat, options.version);
 
     // Step 7: Exit code — --exit-on-issues overrides default behavior
     const exitCode = resolveExitCode(result, options.exitOnIssues ?? false);
-    if (options.format !== 'json') {
+    if (!options.outputFormat) {
       tui.outro('Review complete');
     }
     process.exit(exitCode);
@@ -514,6 +510,33 @@ function createProgressHandler(): ProgressCallback {
       tui.log.message(indented);
     }
   };
+}
+
+// ─── Output Formatting ──────────────────────────────────────────
+
+/**
+ * Route result output based on the chosen format.
+ * When outputFormat is undefined, uses styled TUI output (default).
+ */
+function outputResult(
+  result: ReviewResult,
+  outputFormat: 'json' | 'sarif' | 'markdown' | undefined,
+  version?: string,
+): void {
+  switch (outputFormat) {
+    case 'json':
+      console.log(JSON.stringify(result, null, 2));
+      break;
+    case 'sarif':
+      console.log(JSON.stringify(buildSarif(result, version ?? '0.0.0'), null, 2));
+      break;
+    case 'markdown':
+      console.log(formatMarkdownResult(result));
+      break;
+    default:
+      tui.log.message(formatMarkdownResult(result));
+      break;
+  }
 }
 
 // ─── Exit Code ──────────────────────────────────────────────────
