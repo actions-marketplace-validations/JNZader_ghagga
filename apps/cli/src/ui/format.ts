@@ -5,7 +5,7 @@
  * plus new shared formatters. All functions are pure (CC2).
  */
 
-import type { ReviewResult } from 'ghagga-core';
+import type { ReviewFinding, ReviewResult } from 'ghagga-core';
 import { SEVERITY_EMOJI, SOURCE_LABELS, STATUS_EMOJI } from './theme.js';
 
 // ─── Table & Value Formatting ───────────────────────────────────
@@ -158,4 +158,70 @@ export function formatMarkdownResult(result: ReviewResult): string {
   lines.push('Powered by GHAGGA — AI Code Review');
 
   return lines.join('\n');
+}
+
+// ─── TUI Summary Formatting ────────────────────────────────────
+
+/**
+ * Produce summary lines for a box display.
+ * Returns lines showing: status, finding counts by severity, time, tools run.
+ */
+export function formatBoxSummary(result: ReviewResult): string[] {
+  const status = STATUS_EMOJI[result.status] ?? result.status;
+  const timeSeconds = (result.metadata.executionTimeMs / 1000).toFixed(1);
+
+  const lines: string[] = [];
+  lines.push(`Status: ${status}`);
+  lines.push(`Time: ${timeSeconds}s | Tokens: ${result.metadata.tokensUsed}`);
+  lines.push(`Mode: ${result.metadata.mode} | Model: ${result.metadata.model}`);
+  lines.push('');
+
+  // Finding counts by severity
+  const counts: Record<string, number> = {};
+  for (const f of result.findings) {
+    counts[f.severity] = (counts[f.severity] ?? 0) + 1;
+  }
+
+  if (result.findings.length > 0) {
+    const parts: string[] = [];
+    for (const sev of ['critical', 'high', 'medium', 'low', 'info'] as const) {
+      if (counts[sev]) {
+        parts.push(`${SEVERITY_EMOJI[sev]} ${sev}: ${counts[sev]}`);
+      }
+    }
+    lines.push(`Findings: ${result.findings.length} total`);
+    lines.push(parts.join('  '));
+  } else {
+    lines.push('Findings: 0 — clean! 🎉');
+  }
+
+  // Tools run
+  if (result.metadata.toolsRun.length > 0) {
+    lines.push('');
+    lines.push(`Tools: ${result.metadata.toolsRun.join(', ')}`);
+  }
+
+  return lines;
+}
+
+/**
+ * Format a single finding with severity emoji and message.
+ * Used by both review and health commands.
+ */
+export function formatSeverityLine(finding: ReviewFinding): string {
+  const emoji = SEVERITY_EMOJI[finding.severity] ?? '';
+  const location = finding.line ? `${finding.file}:${finding.line}` : finding.file;
+  return `${emoji} [${finding.severity.toUpperCase()}] ${finding.category} — ${location}: ${finding.message}`;
+}
+
+/**
+ * Format health score for display.
+ * Returns lines for the health score box.
+ */
+export function formatHealthScore(score: number, grade: string): string[] {
+  const lines: string[] = [];
+  const bar = '█'.repeat(Math.round(score / 5)) + '░'.repeat(20 - Math.round(score / 5));
+  lines.push(`Health Score: ${score}/100 (${grade})`);
+  lines.push(`[${bar}]`);
+  return lines;
 }

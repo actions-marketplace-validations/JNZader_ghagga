@@ -65,3 +65,22 @@ export function resolveStepIcon(step: string): string {
   if (step.startsWith('vote-')) return '🗳️';
   return '▸';
 }
+
+/** Box-drawing characters for styled TUI output. */
+export const BOX_CHARS = {
+  topLeft: '┌',
+  topRight: '┐',
+  bottomLeft: '└',
+  bottomRight: '┘',
+  horizontal: '─',
+  vertical: '│',
+} as const;
+
+/** Divider character for section separators. */
+export const DIVIDER_CHAR = '─';
+
+/** Score thresholds for health grade coloring. */
+export const SCORE_THRESHOLDS = {
+  good: 80,
+  warning: 50,
+} as const;
