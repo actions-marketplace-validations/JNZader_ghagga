@@ -34,7 +34,7 @@ The CLI is best for:
 | **GitHub Models** (`gpt-4o-mini`) | **Free** — default provider, no API key needed |
 | **Ollama** | **Free** — runs locally, 100% offline, no API key |
 | **Other LLM providers** (Anthropic, OpenAI, Google, Qwen) | BYOK — you pay those providers directly at their standard rates |
-| **Static analysis** (Semgrep, Trivy, CPD) | Free — runs locally if installed |
+| **Static analysis** (up to 15 tools) | Free — runs locally if installed |
 
 > 💡 **TL;DR**: 100% free with `ghagga login` (GitHub Models) or `--provider ollama` (local). No credit card, no signup beyond GitHub.
 
@@ -131,7 +131,7 @@ flowchart LR
 
 1. The CLI runs `git diff` (staged changes first, then falls back to uncommitted changes; `--staged` forces `git diff --cached` only)
 2. The diff is parsed and the tech stack is auto-detected from file extensions
-3. If Semgrep, Trivy, or CPD are installed locally, static analysis runs first (zero LLM tokens)
+3. If static analysis tools are installed locally, they run first (zero LLM tokens) — up to 15 tools via the plugin registry
 4. Relevant observations are retrieved from the local memory database via FTS5 full-text search
 5. The diff + static findings + memory context are sent to the configured LLM provider (default: GitHub Models `gpt-4o-mini`)
 6. The LLM returns a structured review with findings, severity, and suggestions
@@ -270,9 +270,12 @@ ghagga hooks status
 | `--model <model>` | — | Auto | Model identifier (auto-selects best model per provider) |
 | `--api-key <key>` | — | — | LLM provider API key (or use env vars) |
 | `--format <format>` | `-f` | `markdown` | Output format: `markdown`, `json` |
-| `--no-semgrep` | — | — | Disable Semgrep security analysis |
-| `--no-trivy` | — | — | Disable Trivy vulnerability scanning |
-| `--no-cpd` | — | — | Disable CPD duplicate detection |
+| `--enable-tool <name>` | — | — | Force-enable a specific tool (can be repeated) |
+| `--disable-tool <name>` | — | — | Force-disable a specific tool (can be repeated) |
+| `--list-tools` | — | — | Show all 15 available tools with status, tier, and languages |
+| `--no-semgrep` | — | — | ⚠️ Deprecated — use `--disable-tool semgrep`. Disable Semgrep |
+| `--no-trivy` | — | — | ⚠️ Deprecated — use `--disable-tool trivy`. Disable Trivy |
+| `--no-cpd` | — | — | ⚠️ Deprecated — use `--disable-tool cpd`. Disable CPD |
 | `--no-memory` | — | — | Disable review memory (skip search and persist steps) |
 | `--memory-backend <type>` | — | `sqlite` | Memory backend: `sqlite` or `engram` |
 | `--config <path>` | `-c` | `.ghagga.json` | Path to config file (must be a file path, not inline JSON) |
@@ -338,9 +341,8 @@ Place a `.ghagga.json` in your project root for project-level defaults:
 {
   "mode": "workflow",
   "provider": "github",
-  "enableSemgrep": true,
-  "enableTrivy": true,
-  "enableCpd": false,
+  "enabledTools": ["ruff", "bandit"],
+  "disabledTools": ["markdownlint"],
   "customRules": [".semgrep/custom-rules.yml"],
   "ignorePatterns": ["*.test.ts", "*.spec.ts", "docs/**"],
   "reviewLevel": "strict"
@@ -430,21 +432,29 @@ ghagga review --provider ollama --model codellama:13b
 
 ## Static Analysis
 
-The CLI uses three static analysis tools **before** the LLM review — zero tokens consumed for known issues:
+The CLI supports up to **15 static analysis tools** organized in two tiers — zero tokens consumed for known issues. See [Static Analysis](static-analysis.md) for the full tool table.
 
-| Tool | What It Finds | Install |
-|------|--------------|---------|
-| **Semgrep** | Security vulnerabilities, dangerous patterns | `brew install semgrep` |
-| **Trivy** | Known CVEs in dependencies | `brew install trivy` |
-| **CPD** | Duplicated code blocks | `brew install pmd` |
+### Tool Tiers
+
+- **always-on** (7 tools) — Run on every review: Semgrep, Trivy, CPD, Gitleaks, ShellCheck, markdownlint, Lizard
+- **auto-detect** (8 tools) — Activate when matching files are in the diff: Ruff, Bandit, golangci-lint, Biome, PMD, Psalm, clippy, Hadolint
 
 Tools are **optional**. If a tool isn't installed, it's silently skipped. The review continues with whatever tools are available.
 
-Disable any tool with its flag:
+### Controlling Tools
 
 ```bash
-ghagga review --no-semgrep --no-trivy
+# List all tools and their status
+ghagga review --list-tools
+
+# Force-enable specific tools
+ghagga review --enable-tool ruff --enable-tool bandit
+
+# Force-disable a tool
+ghagga review --disable-tool markdownlint
 ```
+
+> The legacy flags `--no-semgrep`, `--no-trivy`, `--no-cpd` still work but show deprecation warnings. Use `--disable-tool <name>` instead.
 
 ---
 
@@ -654,15 +664,18 @@ ghagga review
 
 **Symptom**: No static analysis findings in the review, even for code with known vulnerabilities.
 
-**Cause**: Semgrep, Trivy, or CPD are not installed locally.
+**Cause**: The required tool binaries are not installed locally.
 
 **Expected behavior**: Tools are silently skipped — the review still works (LLM-only).
 
-**Fix**: Install the tools:
+**Fix**: Install the tools you need. Use `ghagga review --list-tools` to see which tools are available and which are missing:
 
 ```bash
-# macOS
+# macOS (core tools)
 brew install semgrep trivy pmd
+
+# Python tools
+pip install ruff bandit lizard
 
 # Linux (example for Semgrep)
 pip install semgrep
@@ -683,6 +696,6 @@ pip install semgrep
 - **[GitHub Action Guide](github-action.md)** — Automated PR reviews in CI
 - **[Configuration](configuration.md)** — Environment variables and config file options
 - **[Review Modes](review-modes.md)** — Learn about Simple, Workflow, and Consensus modes
-- **[Static Analysis](static-analysis.md)** — Semgrep rules, Trivy scanning, CPD detection
+- **[Static Analysis](static-analysis.md)** — 15 tools, tier system, per-tool control
 - **[SaaS Guide](saas-getting-started.md)** — Zero-config GitHub App with Dashboard
 - **[Self-Hosted Guide](self-hosted.md)** — Full deployment with memory and dashboard

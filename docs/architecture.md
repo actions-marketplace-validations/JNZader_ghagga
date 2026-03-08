@@ -134,4 +134,4 @@ If a user adds "GitHub Models" to their provider chain in the Dashboard without 
 
 ### Binary Execution for Static Analysis
 
-Semgrep, Trivy, and CPD are called as child processes — no separate microservices, no network latency, no SSRF concerns. All three tools output JSON/XML that's parsed locally.
+All static analysis tools are called as child processes — no separate microservices, no network latency, no SSRF concerns. Tool outputs (JSON, XML, or text) are parsed locally into a common `ReviewFinding` format.

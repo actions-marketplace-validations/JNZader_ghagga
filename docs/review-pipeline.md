@@ -50,16 +50,15 @@ Files are prioritized by modification size — larger changes get reviewed first
 
 ### Step 5: Parallel Analysis
 
-Static analysis and memory search run **in parallel**:
+Static analysis and memory search run **in parallel**. The tool registry resolves which tools to run based on tiers (always-on vs auto-detect), file patterns in the diff, and any `enabledTools`/`disabledTools` overrides:
 
 ```mermaid
 graph TB
   subgraph Parallel["Parallel Execution"]
     direction TB
-    subgraph Static["Static Tools"]
-      Semgrep
-      Trivy
-      CPD
+    subgraph Static["Tool Registry Orchestrator"]
+      AlwaysOn["Always-on<br/>Semgrep, Trivy, CPD,<br/>Gitleaks, ShellCheck,<br/>markdownlint, Lizard"]
+      AutoDetect["Auto-detect<br/>(matched by diff files)<br/>Ruff, Bandit, golangci-lint,<br/>Biome, PMD, Psalm,<br/>clippy, Hadolint"]
     end
     subgraph Mem["Memory Search"]
       FTS["tsvector<br/>full-text search"]
@@ -126,9 +125,7 @@ If an LLM call fails and retries, static analysis doesn't re-run. If memory sear
 
 | Component | If Missing/Failed | Pipeline Behavior |
 |-----------|-------------------|-------------------|
-| Semgrep | Not installed | Skipped, review continues |
-| Trivy | Not installed | Skipped, review continues |
-| CPD | Not installed | Skipped, review continues |
+| Static analysis tools | Not installed | Skipped individually, review continues with available tools |
 | Memory (PostgreSQL or SQLite) | No database connection | Skipped, no memory context |
 | LLM Provider | API error | Fallback chain attempts next provider |
 | Runner repo | Not configured | LLM-only review (no static analysis) |

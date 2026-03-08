@@ -4,7 +4,7 @@
 
 ## The Problem
 
-The Render free tier (512MB RAM) can't run Semgrep (Python ~400MB) + PMD/CPD (JVM ~300MB) simultaneously. Running all three tools requires ~800MB+ RAM.
+The Render free tier (512MB RAM) can't run Semgrep (Python ~400MB) + PMD/CPD (JVM ~300MB) and the other static analysis tools simultaneously. Running all tools requires significant RAM.
 
 ## The Solution
 
@@ -42,7 +42,7 @@ sequenceDiagram
     alt Runner exists
         S->>GH: Set GHAGGA_TOKEN secret
         S->>GH: workflow_dispatch (10 inputs)
-        R->>R: Install Semgrep, Trivy, CPD
+        R->>R: Install static analysis tools
         R->>R: Run analysis on PR diff
         R->>S: POST /runner/callback (HMAC-signed)
         S->>S: Verify HMAC, merge findings
@@ -65,9 +65,9 @@ The `workflow_dispatch` event carries exactly 10 string inputs (GitHub's maximum
 | `baseBranch` | Base branch (e.g., `main`) |
 | `callbackUrl` | Server URL for results delivery |
 | `callbackSecret` | Per-dispatch HMAC secret |
-| `enableSemgrep` | `"true"` or `"false"` |
-| `enableTrivy` | `"true"` or `"false"` |
-| `enableCpd` | `"true"` or `"false"` |
+| `enabledTools` | Comma-separated list of tools to force-enable |
+| `disabledTools` | Comma-separated list of tools to force-disable |
+| `toolRegistryEnabled` | `"true"` or `"false"` — use 15-tool registry or legacy 3-tool path |
 
 ### Callback
 
@@ -104,7 +104,7 @@ This ensures only the legitimate runner can deliver results, and secrets auto-ex
 
 If the runner repo doesn't exist or the dispatch fails, the server falls back to **LLM-only review**:
 
-- Static analysis is skipped entirely (no Semgrep, Trivy, or CPD findings)
+- Static analysis is skipped entirely (no tool findings)
 - The AI review still runs with diff + memory context
 - The review comment notes that static analysis was unavailable
 

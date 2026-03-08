@@ -31,6 +31,7 @@
 | `GHAGGA_MEMORY_BACKEND` | No | Memory backend: `sqlite` (default) or `engram` |
 | `GHAGGA_ENGRAM_HOST` | No | Engram server URL (default: `http://localhost:7437`) |
 | `GHAGGA_ENGRAM_TIMEOUT` | No | Engram connection timeout in seconds (default: `5`) |
+| `GHAGGA_TOOL_REGISTRY` | No | Set to `true` to enable the 15-tool plugin registry (default: `false` — uses original 3-tool path) |
 
 ### GitHub Action Mode
 
@@ -45,14 +46,15 @@ Place a `.ghagga.json` in your repo root for project-level defaults:
   "mode": "workflow",
   "provider": "github",
   "model": "claude-sonnet-4-20250514",
-  "enableSemgrep": true,
-  "enableTrivy": true,
-  "enableCpd": false,
+  "enabledTools": ["ruff", "bandit"],
+  "disabledTools": ["markdownlint"],
   "customRules": [".semgrep/custom-rules.yml"],
   "ignorePatterns": ["*.test.ts", "*.spec.ts", "docs/**"],
   "reviewLevel": "strict"
 }
 ```
+
+> The legacy fields `enableSemgrep`, `enableTrivy`, `enableCpd` still work but are deprecated. Use `enabledTools`/`disabledTools` arrays instead.
 
 **Priority**: CLI flags > config file > defaults.
 
@@ -146,4 +148,4 @@ The keyword is case-insensitive and can appear anywhere in the comment body. GHA
 
 Installation-wide defaults that apply to all repositories. Each repo can override with its own settings by toggling "Use global settings" off in the dashboard.
 
-Global settings include: provider chain, review mode, AI review enabled/disabled, static analysis toggles, and ignore patterns.
+Global settings include: provider chain, review mode, AI review enabled/disabled, static analysis tool toggles (via ToolGrid), and ignore patterns.

@@ -2,7 +2,7 @@
 
 > **AI-Powered Multi-Agent Code Review**
 
-GHAGGA is a code review tool that posts intelligent comments on your Pull Requests. It combines LLM analysis with static analysis tools (Semgrep, Trivy, CPD) and a project memory system that learns across reviews.
+GHAGGA is a code review tool that posts intelligent comments on your Pull Requests. It combines LLM analysis with up to 15 static analysis tools and a project memory system that learns across reviews.
 
 ## New Here? Start with Your Guide
 
@@ -28,7 +28,7 @@ GHAGGA is a code review tool that posts intelligent comments on your Pull Reques
 | Feature | Description |
 |---------|-------------|
 | **3 Review Modes** | Simple (single LLM), Workflow (5 specialist agents), Consensus (multi-model voting) |
-| **Static Analysis Trident** | Semgrep (security), Trivy (vulnerabilities), CPD (code duplication) — zero tokens |
+| **15 Static Analysis Tools** | Semgrep, Trivy, CPD, Gitleaks, ShellCheck, markdownlint, Lizard + 8 auto-detect tools — zero tokens |
 | **Delegated Runner** | Static analysis runs on user-owned GitHub Actions runners (7GB RAM, free for public repos) |
 | **Project Memory** | Learns patterns, decisions, and bug fixes across reviews (PostgreSQL + tsvector FTS for Server / SQLite + FTS5 for CLI & Action) |
 | **Multi-Provider** | 6 providers: GitHub Models (free), Anthropic, OpenAI, Google, Ollama (local), Qwen (Alibaba) — bring your own key |
@@ -52,7 +52,7 @@ graph TB
   end
 
   subgraph Core["@ghagga/core"]
-    SA["Static Analysis<br/>Semgrep · Trivy · CPD"]
+    SA["Static Analysis<br/>15-tool registry"]
     Agents["AI Agents<br/>Simple · Workflow · Consensus"]
     Memory["Memory<br/>Search · Persist · Privacy"]
   end
@@ -71,7 +71,7 @@ The review engine (`@ghagga/core`) is distribution-agnostic. Each app is a thin 
 - **[Quick Start](quick-start.md)** — Get running in 5 minutes
 - **[Architecture](architecture.md)** — Core + Adapters pattern explained
 - **[Review Modes](review-modes.md)** — Simple, Workflow, and Consensus
-- **[Static Analysis](static-analysis.md)** — Semgrep, Trivy, CPD
+- **[Static Analysis](static-analysis.md)** — 15 tools, tier system, per-tool control
 - **[Runner Architecture](runner-architecture.md)** — Delegated static analysis on GitHub Actions
 - **[Memory System](memory-system.md)** — How GHAGGA learns across reviews
 - **[Configuration](configuration.md)** — Environment variables and config files

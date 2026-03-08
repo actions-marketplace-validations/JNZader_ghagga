@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **Extensible Static Analysis (3→15 tools)** — Replaced hardcoded Semgrep/Trivy/CPD integration with a plugin registry supporting 15 static analysis tools across 5 categories (security, SCA, duplication, lint, complexity). Enable via `GHAGGA_TOOL_REGISTRY=true` feature flag.
+- **Tool Tier System** — Tools are classified as `always-on` (run on every review) or `auto-detect` (activate when matching files are detected in the diff). Resolution order: always-on → auto-detect(files) → +enabledTools → -disabledTools.
+- **7 always-on tools** — Semgrep (security), Trivy (SCA + license scanning), CPD (duplication), Gitleaks (secret detection in git history), ShellCheck (Bash/Shell lint), markdownlint (Markdown lint), Lizard (cyclomatic complexity, 20+ languages).
+- **8 auto-detect tools** — Ruff (Python lint), Bandit (Python security), golangci-lint (Go lint), Biome (JS/TS lint), PMD (Java lint), Psalm (PHP security), clippy (Rust lint), Hadolint (Dockerfile lint).
+- **`--enable-tool <name>` CLI flag** — Force-enable a specific tool regardless of tier or file detection.
+- **`--disable-tool <name>` CLI flag** — Force-disable a specific tool.
+- **`--list-tools` CLI flag** — Show all 15 available tools with their status, category, tier, and supported languages.
+- **`enabled-tools` Action input** — Comma-separated list of tools to force-enable in GitHub Action workflows.
+- **`disabled-tools` Action input** — Comma-separated list of tools to force-disable in GitHub Action workflows.
+- **`enabledTools`/`disabledTools` settings fields** — New settings in DB, API, dashboard, and `.ghagga.json` for per-repo tool control.
+- **ToolGrid dashboard component** — Settings page now includes a ToolGrid with category grouping and per-tool toggle switches.
+- **Delete reviews** — Users can now delete individual reviews from the dashboard and API.
+- **Delete memory sessions** — Users can now delete memory sessions from the dashboard and API.
+
+### Deprecated
+- **`--no-semgrep`, `--no-trivy`, `--no-cpd` CLI flags** — Still work but show deprecation warnings. Use `--disable-tool semgrep`, `--disable-tool trivy`, `--disable-tool cpd` instead.
+- **`enable-semgrep`, `enable-trivy`, `enable-cpd` Action inputs** — Still work but deprecated. Use `enabled-tools`/`disabled-tools` inputs instead.
+- **`enableSemgrep`, `enableTrivy`, `enableCpd` config fields** — Still work in `.ghagga.json` but deprecated. Use `enabledTools`/`disabledTools` arrays instead.
+
 ## [2.3.0] - 2026-03-07
 
 ### Security

@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="GHAGGA Logo — Trident (Semgrep, Trivy, CPD) with magnifying glass reviewing code" width="200" height="200" />
+  <img src="assets/logo.svg" alt="GHAGGA Logo — AI-powered code review with static analysis" width="200" height="200" />
 </p>
 
 # GHAGGA — AI-Powered Code Review
 
 > Inspired by [Gentleman Guardian Angel (GGA)](https://github.com/Gentleman-Programming/gentleman-guardian-angel) and [Engram](https://github.com/Gentleman-Programming/engram), two projects by [Gentleman Programming](https://youtube.com/@GentlemanProgramming).
 
-**Multi-agent code reviewer** that posts intelligent comments on your Pull Requests. Combines LLM analysis with static analysis tools (Semgrep, Trivy, CPD) and project memory that learns across reviews.
+**Multi-agent code reviewer** that posts intelligent comments on your Pull Requests. Combines LLM analysis with up to 15 static analysis tools and project memory that learns across reviews.
 
 **[Website](https://jnzader.github.io/ghagga/)** · **[Documentation](https://jnzader.github.io/ghagga/docs/)** · **[Dashboard](https://jnzader.github.io/ghagga/app/)**
 
@@ -16,7 +16,7 @@
 - [Quick Start](#quick-start)
 - [Architecture](#architecture)
 - [Review Modes](#review-modes)
-- [Static Analysis Trident](#static-analysis-trident)
+- [Static Analysis](#static-analysis)
 - [Runner Architecture](#runner-architecture)
 - [Memory System](#memory-system)
 - [Dashboard](#dashboard)
@@ -48,7 +48,7 @@ You bring your own API key (BYOK). GHAGGA never sees or stores your keys in plai
 | Feature | Description |
 |---------|-------------|
 | **3 Review Modes** | Simple (single LLM), Workflow (5 specialist agents), Consensus (multi-model voting) |
-| **Static Analysis Trident** | Semgrep (security), Trivy (vulnerabilities), CPD (code duplication) — zero tokens |
+| **15 Static Analysis Tools** | Semgrep, Trivy, CPD, Gitleaks, ShellCheck, markdownlint, Lizard + 8 auto-detect tools — zero tokens |
 | **Project Memory** | Learns patterns, decisions, and bug fixes across reviews (PostgreSQL + tsvector FTS) |
 | **Multi-Provider** | 6 providers: GitHub Models (free), Anthropic, OpenAI, Google, Ollama (local), Qwen (Alibaba) — bring your own key. **Note**: In SaaS mode, GitHub Models requires a personal access token in the provider chain — installation tokens lack `models:read` scope. Entries without an explicit API key are silently skipped. |
 | **3 Distribution Modes** | SaaS, GitHub Action, CLI |
@@ -106,9 +106,8 @@ jobs:
 | `mode` | No | `simple` | Review mode: `simple`, `workflow`, `consensus` |
 | `api-key` | No | — | LLM provider API key. Not required for `github` provider (free default). |
 | `github-token` | No | `${{ github.token }}` | GitHub token for PR access. Automatic. |
-| `enable-semgrep` | No | `true` | Enable Semgrep security analysis |
-| `enable-trivy` | No | `true` | Enable Trivy vulnerability scanning |
-| `enable-cpd` | No | `true` | Enable CPD duplicate detection |
+| `enabled-tools` | No | — | Comma-separated list of tools to force-enable |
+| `disabled-tools` | No | — | Comma-separated list of tools to force-disable |
 | `enable-memory` | No | `true` | Enable SQLite review memory (cached across runs) |
 
 #### Action Outputs
@@ -118,7 +117,7 @@ jobs:
 | `status` | Review result: `PASSED`, `FAILED`, `NEEDS_HUMAN_REVIEW`, `SKIPPED` |
 | `findings-count` | Number of findings detected |
 
-> Static analysis tools (Semgrep, Trivy, CPD) run **directly on the GitHub Actions runner** — no server or Docker image required. First run installs tools (~3-5 min), subsequent runs use `@actions/cache` (~1-2 min).
+> Static analysis tools (up to 15) run **directly on the GitHub Actions runner** — no server or Docker image required. First run installs tools (~3-5 min), subsequent runs use `@actions/cache` (~1-2 min).
 
 > ⚠️ **FAILED status**: When the review finds critical issues, the Action calls `core.setFailed()` which fails the CI check. Add `continue-on-error: true` to the step for advisory-only (non-blocking) reviews. See the [full GitHub Action Guide](docs/github-action.md) for details.
 
@@ -172,9 +171,9 @@ ghagga hooks install
 | `--model <model>` | — | Auto | Model identifier (or `GHAGGA_MODEL` env var) |
 | `--api-key <key>` | — | — | API key (or `GHAGGA_API_KEY` env var) |
 | `--format <format>` | `-f` | `markdown` | Output format: `markdown`, `json` |
-| `--no-semgrep` | — | — | Disable Semgrep |
-| `--no-trivy` | — | — | Disable Trivy |
-| `--no-cpd` | — | — | Disable CPD |
+| `--enable-tool <name>` | — | — | Force-enable a specific tool |
+| `--disable-tool <name>` | — | — | Force-disable a specific tool |
+| `--list-tools` | — | — | Show all 15 tools with status |
 | `--no-memory` | — | — | Disable review memory |
 | `--staged` | — | — | Review only staged files (for pre-commit hook usage) |
 | `--quick` | — | — | Static analysis only, skip AI review (~5-10s vs ~30-60s) |
@@ -201,9 +200,8 @@ Place a `.ghagga.json` in your repo root for project-level defaults:
   "mode": "workflow",
   "provider": "anthropic",
   "model": "claude-sonnet-4-20250514",
-  "enableSemgrep": true,
-  "enableTrivy": true,
-  "enableCpd": false,
+  "enabledTools": ["ruff", "bandit"],
+  "disabledTools": ["markdownlint"],
   "customRules": [".semgrep/custom-rules.yml"],
   "ignorePatterns": ["*.test.ts", "*.spec.ts", "docs/**"],
   "reviewLevel": "strict"
@@ -235,7 +233,7 @@ docker compose up -d
 
 This starts:
 - **PostgreSQL 16** on port 5432 with health checks
-- **GHAGGA Server** (Hono) on port 3000 with Semgrep, Trivy, and CPD pre-installed
+- **GHAGGA Server** (Hono) on port 3000 with static analysis tools pre-installed
 
 ---
 
@@ -251,11 +249,11 @@ graph TB
 
   subgraph Runner["Delegated Runner"]
     RunnerRepo["ghagga-runner<br/>GitHub Actions"]
-    RunnerTools["Semgrep · Trivy · CPD<br/>7GB RAM"]
+    RunnerTools["Static Analysis Tools<br/>7GB RAM"]
   end
 
   subgraph Core["@ghagga/core"]
-    SA["Static Analysis<br/>Semgrep · Trivy · CPD"]
+    SA["Static Analysis<br/>15-tool registry"]
     Agents["AI Agents<br/>Simple · Workflow · Consensus"]
     Memory["Memory<br/>Search · Persist · Privacy"]
   end
@@ -366,25 +364,26 @@ flowchart LR
 
 ---
 
-## Static Analysis Trident
+## Static Analysis
 
 Layer 0 analysis runs **before** any LLM call. Zero tokens consumed. Known issues are injected into agent prompts so the AI focuses on logic, architecture, and things static analysis can't detect.
 
-| Tool | What It Finds | Languages |
-|------|--------------|-----------|
-| **Semgrep** | Security vulnerabilities, dangerous patterns (eval, SQL injection, XSS, hardcoded secrets) | 20 custom rules across JavaScript, TypeScript, Python, Java, Go, Ruby, PHP, C# |
-| **Trivy** | Known CVEs in dependencies (npm, pip, Maven, Go modules, Cargo, etc.) | All ecosystems with lockfiles |
-| **CPD** | Duplicated code blocks (copy-paste detection) | 15+ languages via PMD |
+GHAGGA supports **15 static analysis tools** across 5 categories, organized into two tiers:
+
+- **7 always-on tools** run on every review: Semgrep (security), Trivy (SCA), CPD (duplication), Gitleaks (secrets), ShellCheck (shell lint), markdownlint (docs lint), Lizard (complexity)
+- **8 auto-detect tools** activate when matching files are in the diff: Ruff (Python), Bandit (Python security), golangci-lint (Go), Biome (JS/TS), PMD (Java), Psalm (PHP), clippy (Rust), Hadolint (Docker)
+
+> Set `GHAGGA_TOOL_REGISTRY=true` to enable the 15-tool registry. See [Static Analysis](docs/static-analysis.md) for the full tool table, tier system, and per-tool control.
 
 ### Graceful Degradation
 
-Tools are optional. If Semgrep, Trivy, or CPD aren't installed, they're silently skipped. The review continues with whatever tools are available.
+Tools are optional. If a tool isn't installed, it's silently skipped. The review continues with whatever tools are available.
 
-| Distribution | Semgrep | Trivy | CPD |
-|-------------|---------|-------|-----|
-| Docker (server) | Pre-installed | Pre-installed | Pre-installed |
-| GitHub Action (node20) | Auto-installed + cached | Auto-installed + cached | Auto-installed + cached |
-| CLI | If installed locally | If installed locally | If installed locally |
+| Distribution | Tools Available | How |
+|-------------|---------------|-----|
+| Docker (server) | All pre-installed | Included in Docker image |
+| GitHub Action (node20) | All auto-installed + cached | `@actions/cache` on runner |
+| CLI | If installed locally | Uses local binaries |
 
 > The GitHub Action installs tools directly on the `ubuntu-latest` runner and caches binaries with `@actions/cache`. First run takes ~3-5 minutes (installation); subsequent runs use cache (~1-2 minutes). Tool failures degrade gracefully — the review continues with whatever tools succeed.
 
@@ -404,7 +403,7 @@ GHAGGA ships with 20 security rules in `packages/core/src/tools/semgrep-rules.ym
 
 > SaaS mode only. GitHub Action and CLI run tools directly.
 
-The Render free tier (512MB RAM) can't run Semgrep (Python ~400MB) + PMD/CPD (JVM ~300MB) simultaneously. GHAGGA solves this by delegating static analysis to **user-owned GitHub Actions runners** on public repos (unlimited free minutes, 7GB RAM).
+The Render free tier (512MB RAM) can't run all static analysis tools simultaneously. GHAGGA solves this by delegating static analysis to **user-owned GitHub Actions runners** on public repos (unlimited free minutes, 7GB RAM).
 
 ### How It Works
 
@@ -412,7 +411,7 @@ The Render free tier (512MB RAM) can't run Semgrep (Python ~400MB) + PMD/CPD (JV
 2. **Discovery**: Server checks if `{owner}/ghagga-runner` exists (convention-based, GET → 200/404)
 3. **Secret**: Server sets a per-dispatch HMAC secret on the runner repo via GitHub API
 4. **Dispatch**: Server triggers `workflow_dispatch` with 10 inputs (repo, PR, SHA, callback URL, tools config)
-5. **Execution**: Runner installs/caches Semgrep, Trivy, CPD and runs analysis (~18 seconds)
+5. **Execution**: Runner installs/caches static analysis tools and runs analysis (~18 seconds)
 6. **Callback**: Runner POSTs results to `POST /runner/callback` with HMAC-SHA256 signature
 7. **Merge**: Server merges static findings with AI review and posts the combined comment
 
@@ -672,7 +671,7 @@ ghagga/
 │       ├── tasks.md               # 10 phases, tracked tasks
 │       └── specs/                 # Detailed specs per module
 │
-├── Dockerfile                 # Multi-stage build (Semgrep + Trivy + CPD)
+├── Dockerfile                 # Multi-stage build (static analysis tools pre-installed)
 ├── docker-compose.yml         # PostgreSQL + server for local dev
 ├── render.yaml                # Render Blueprint for SaaS deployment
 ├── .github/workflows/
@@ -799,7 +798,7 @@ pnpm exec turbo test          # Run all ~2,778 tests
 | **UI Patterns** | ConfirmDialog (3-tier) + Toast | Tiered destructive action safety, non-blocking notifications |
 | **CLI** | Commander 13 | Standard CLI framework for Node.js |
 | **Testing** | Vitest 3 | Fast, ESM-native, compatible with Jest API |
-| **Static Analysis** | Semgrep + Trivy + PMD/CPD | Security, vulnerabilities, duplication — zero tokens |
+| **Static Analysis** | 15-tool plugin registry | Security, SCA, duplication, linting, complexity — zero tokens |
 | **Encryption** | Node.js `crypto` (AES-256-GCM) | No external dependencies for cryptographic operations |
 
 ### Why These Choices
@@ -847,7 +846,7 @@ GHAGGA v2 is a **complete rewrite** from scratch. The v1 codebase (~11,000 lines
 | Deploy steps | 10+ manual steps | 3 env vars + `docker compose up` |
 | Test suite | 0 tests | ~2,778 tests |
 | Distribution modes | 1 (webhook only) | 3 (SaaS, Action, CLI) |
-| Static analysis | Semgrep only (via microservice) | Semgrep + Trivy + CPD (direct binary execution) |
+| Static analysis | Semgrep only (via microservice) | 15 tools via plugin registry (direct binary execution) |
 | Memory | Partial (stored but never consumed) | Full pipeline (search → inject → review → extract → persist) |
 | Dead code | ~40% of codebase | 0% |
 

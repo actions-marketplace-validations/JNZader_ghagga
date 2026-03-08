@@ -23,7 +23,7 @@ Add AI-powered code reviews to any repository in under 5 minutes. GHAGGA runs di
 | **GitHub Models** (`gpt-4o-mini`) | **Free** — default provider, no API key needed |
 | **Other LLM providers** (Anthropic, OpenAI, Google, Qwen) | BYOK — you pay those providers directly at their standard rates |
 | **Ollama** | Free — runs on a self-hosted runner with Ollama installed |
-| **Static analysis** (Semgrep, Trivy, CPD) | Free — runs on the GitHub Actions runner |
+| **Static analysis** (up to 15 tools) | Free — runs on the GitHub Actions runner |
 
 > 💡 **TL;DR**: 100% free for public repos with the default GitHub Models provider. No credit card, no API key, no signup.
 
@@ -114,7 +114,7 @@ sequenceDiagram
 
     PR->>GA: PR opened / updated
     GA->>GA: Checkout code
-    GA->>SA: Run Semgrep + Trivy + CPD
+    GA->>SA: Run static analysis tools
     SA->>GA: Static findings
     GA->>GA: Fetch PR diff
     GA->>LLM: Diff + static findings
@@ -123,7 +123,7 @@ sequenceDiagram
 ```
 
 1. A **pull request event** triggers the GitHub Actions workflow
-2. The Action **checks out the code** and runs **static analysis** (Semgrep, Trivy, CPD) directly on the runner
+2. The Action **checks out the code** and runs **static analysis** (up to 15 tools — always-on + auto-detected) directly on the runner
 3. The PR **diff is fetched** via the GitHub API
 4. The diff + static findings are sent to the configured **LLM provider** (default: GitHub Models `gpt-4o-mini`)
 5. The LLM returns a structured review, which is **posted as a PR comment**
@@ -143,9 +143,11 @@ All configuration is done via Action inputs in the workflow YAML. The Action doe
 | `mode` | No | `simple` | Review mode: `simple` (1 LLM call), `workflow` (5 specialists), `consensus` (multi-model voting) |
 | `api-key` | No | — | LLM provider API key. **Not required** for `github` provider (uses `GITHUB_TOKEN` automatically) |
 | `github-token` | No | `${{ github.token }}` | GitHub token for fetching PR diffs and posting comments. Automatic. |
-| `enable-semgrep` | No | `true` | Enable Semgrep security analysis (auto-installed and cached) |
-| `enable-trivy` | No | `true` | Enable Trivy vulnerability scanning (auto-installed and cached) |
-| `enable-cpd` | No | `true` | Enable PMD/CPD copy-paste detection (auto-installed and cached) |
+| `enabled-tools` | No | — | Comma-separated list of tools to force-enable (e.g., `ruff,bandit`) |
+| `disabled-tools` | No | — | Comma-separated list of tools to force-disable (e.g., `markdownlint`) |
+| `enable-semgrep` | No | `true` | ⚠️ Deprecated — use `disabled-tools`. Enable Semgrep |
+| `enable-trivy` | No | `true` | ⚠️ Deprecated — use `disabled-tools`. Enable Trivy |
+| `enable-cpd` | No | `true` | ⚠️ Deprecated — use `disabled-tools`. Enable CPD |
 | `enable-memory` | No | `true` | Enable SQLite review memory (cached across runs) |
 
 ---
@@ -203,7 +205,7 @@ Add `continue-on-error: true` to make reviews informational — findings are pos
 
 ### Node.js (Default)
 
-Uses `node20` runtime. Static analysis tools (Semgrep, Trivy, CPD) are **auto-installed and cached** on the GitHub Actions runner. First run takes ~3-5 minutes for tool installation; subsequent runs use `@actions/cache` (~1-2 minutes).
+Uses `node20` runtime. Static analysis tools are **auto-installed and cached** on the GitHub Actions runner. First run takes ~3-5 minutes for tool installation; subsequent runs use `@actions/cache` (~1-2 minutes).
 
 ```yaml
 - uses: JNZader/ghagga-action@v1
@@ -211,7 +213,7 @@ Uses `node20` runtime. Static analysis tools (Semgrep, Trivy, CPD) are **auto-in
 
 ### Docker
 
-Uses the `apps/action/Dockerfile` which includes Semgrep, Trivy, and PMD/CPD pre-installed. No first-run delay.
+Uses the `apps/action/Dockerfile` which includes all static analysis tools pre-installed. No first-run delay.
 
 ```yaml
 - uses: docker://ghcr.io/jnzader/ghagga-action:latest
@@ -287,23 +289,21 @@ jobs:
 
 ## Static Analysis Tools
 
-GHAGGA runs three static analysis tools **before** the LLM review. Zero LLM tokens consumed for known issues — the AI focuses on logic, architecture, and things static analysis can't detect.
+GHAGGA runs up to **15 static analysis tools** before the LLM review. Zero LLM tokens consumed for known issues — the AI focuses on logic, architecture, and things static analysis can't detect. See [Static Analysis](static-analysis.md) for the full tool table.
 
-| Tool | What It Finds | Enabled By Default |
-|------|--------------|-------------------|
-| **Semgrep** | Security vulnerabilities, dangerous patterns (eval, SQL injection, XSS, hardcoded secrets) | ✅ Yes |
-| **Trivy** | Known CVEs in dependencies (npm, pip, Maven, Go modules, etc.) | ✅ Yes |
-| **CPD** | Duplicated code blocks (copy-paste detection) | ✅ Yes |
+- **7 always-on tools** run on every review: Semgrep, Trivy, CPD, Gitleaks, ShellCheck, markdownlint, Lizard
+- **8 auto-detect tools** activate when matching files are in the diff: Ruff, Bandit, golangci-lint, Biome, PMD, Psalm, clippy, Hadolint
 
-Disable any tool with its boolean input:
+Control tools with the `enabled-tools` and `disabled-tools` inputs:
 
 ```yaml
 - uses: JNZader/ghagga-action@v1
   with:
-    enable-semgrep: 'false'
-    enable-trivy: 'false'
-    enable-cpd: 'true'
+    enabled-tools: 'ruff,bandit'
+    disabled-tools: 'markdownlint'
 ```
+
+> The legacy boolean inputs `enable-semgrep`, `enable-trivy`, `enable-cpd` still work but are deprecated. Use `disabled-tools` instead.
 
 ---
 
@@ -396,7 +396,7 @@ Or check repo **Settings** → **Actions** → **General** → **Workflow permis
 
 **Symptom**: The Action is much slower than expected on first run.
 
-**Cause**: Static analysis tools (Semgrep, Trivy, CPD) are being installed for the first time.
+**Cause**: Static analysis tools are being installed for the first time.
 
 **Expected behavior**: Subsequent runs use `@actions/cache` and take ~1-2 minutes. This is a one-time cost.
 
@@ -451,6 +451,6 @@ Also ensure the workflow file is committed to the branch that the PR targets (us
 - **[CLI Guide](cli.md)** — Review local changes from your terminal
 - **[Configuration](configuration.md)** — Environment variables and config file options
 - **[Review Modes](review-modes.md)** — Learn about Simple, Workflow, and Consensus modes
-- **[Static Analysis](static-analysis.md)** — Semgrep rules, Trivy scanning, CPD detection
+- **[Static Analysis](static-analysis.md)** — 15 tools, tier system, per-tool control
 - **[Self-Hosted Guide](self-hosted.md)** — Full deployment with memory and dashboard
 - **[SaaS Guide](saas-getting-started.md)** — Zero-config GitHub App with Dashboard
