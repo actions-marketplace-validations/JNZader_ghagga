@@ -3,8 +3,8 @@
 
 -- Step 1: Add new columns
 ALTER TABLE "repositories"
-  ADD COLUMN "provider_chain" jsonb DEFAULT '[]'::jsonb NOT NULL,
-  ADD COLUMN "ai_review_enabled" boolean DEFAULT true NOT NULL;
+  ADD COLUMN IF NOT EXISTS "provider_chain" jsonb DEFAULT '[]'::jsonb NOT NULL,
+  ADD COLUMN IF NOT EXISTS "ai_review_enabled" boolean DEFAULT true NOT NULL;
 
 --> statement-breakpoint
 

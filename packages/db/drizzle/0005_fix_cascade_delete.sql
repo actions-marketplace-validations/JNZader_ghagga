@@ -4,7 +4,7 @@
 -- causes a FK violation error when deleting sessions that have observations.
 
 ALTER TABLE "memory_observations"
-  DROP CONSTRAINT "memory_observations_session_id_memory_sessions_id_fk";
+  DROP CONSTRAINT IF EXISTS "memory_observations_session_id_memory_sessions_id_fk";
 
 ALTER TABLE "memory_observations"
   ADD CONSTRAINT "memory_observations_session_id_memory_sessions_id_fk"

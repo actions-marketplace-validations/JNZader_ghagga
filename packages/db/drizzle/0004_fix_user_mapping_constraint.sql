@@ -8,8 +8,10 @@
 -- Reversible: DROP "uq_user_installation", ADD UNIQUE("github_user_id")
 
 -- Drop the old UNIQUE constraint on github_user_id only
-ALTER TABLE "github_user_mappings" DROP CONSTRAINT "github_user_mappings_github_user_id_unique";
+ALTER TABLE "github_user_mappings" DROP CONSTRAINT IF EXISTS "github_user_mappings_github_user_id_unique";
 
 -- Add composite UNIQUE constraint on (github_user_id, installation_id)
+ALTER TABLE "github_user_mappings"
+  DROP CONSTRAINT IF EXISTS "uq_user_installation";
 ALTER TABLE "github_user_mappings"
   ADD CONSTRAINT "uq_user_installation" UNIQUE ("github_user_id", "installation_id");
