@@ -1,0 +1,36 @@
+{
+  "SchemaVersion": 2,
+  "Results": [
+    {
+      "Target": "package-lock.json",
+      "Class": "lang-pkgs",
+      "Type": "npm",
+      "Vulnerabilities": [
+        {
+          "VulnerabilityID": "CVE-2024-48930",
+          "PkgName": "express",
+          "InstalledVersion": "4.18.2",
+          "FixedVersion": "4.21.2",
+          "Severity": "HIGH",
+          "Title": "Express.js improper input handling"
+        }
+      ],
+      "Licenses": [
+        {
+          "Severity": "UNKNOWN",
+          "Category": "restricted",
+          "PkgName": "copyleft-lib",
+          "Name": "GPL-3.0",
+          "Confidence": 1.0
+        },
+        {
+          "Severity": "LOW",
+          "Category": "notice",
+          "PkgName": "express",
+          "Name": "MIT",
+          "Confidence": 1.0
+        }
+      ]
+    }
+  ]
+}

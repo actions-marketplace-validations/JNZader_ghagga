@@ -1,0 +1,45 @@
+{
+  "results": [
+    {
+      "check_id": "javascript.lang.security.audit.detect-hardcoded-secrets",
+      "path": "/workspace/src/auth/login.ts",
+      "start": { "line": 42, "col": 5 },
+      "end": { "line": 42, "col": 48 },
+      "extra": {
+        "severity": "ERROR",
+        "message": "Detected hardcoded password in source code. Use environment variables or a secrets manager instead.",
+        "metadata": {
+          "cwe": ["CWE-798"],
+          "owasp": ["A02:2021"]
+        }
+      }
+    },
+    {
+      "check_id": "javascript.express.security.audit.xss.mustache-escape",
+      "path": "/workspace/src/api/render.ts",
+      "start": { "line": 17, "col": 10 },
+      "end": { "line": 17, "col": 55 },
+      "extra": {
+        "severity": "WARNING",
+        "message": "Unescaped user input rendered in template. This may lead to XSS.",
+        "metadata": {
+          "cwe": ["CWE-79"],
+          "owasp": ["A03:2021"]
+        }
+      }
+    },
+    {
+      "check_id": "javascript.lang.best-practice.leftover-debugging",
+      "path": "/workspace/src/utils/helpers.ts",
+      "start": { "line": 88, "col": 1 },
+      "end": { "line": 88, "col": 25 },
+      "extra": {
+        "severity": "INFO",
+        "message": "Leftover debugging statement (console.log). Consider removing before production.",
+        "metadata": {}
+      }
+    }
+  ],
+  "errors": [],
+  "version": "1.90.0"
+}

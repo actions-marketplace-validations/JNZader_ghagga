@@ -96,6 +96,8 @@ export {
   allocateTimeBudget,
   createNodeExecutionContext,
   getEffectiveBudget,
+  initializeDefaultTools,
+  isToolRegistryEnabled,
   resolveActivatedTools,
   runTools,
   ToolRegistry,

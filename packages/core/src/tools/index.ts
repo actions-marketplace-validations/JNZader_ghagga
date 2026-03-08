@@ -2,7 +2,7 @@
  * Extensible tool system — barrel export.
  *
  * Re-exports all public types, the registry singleton,
- * and the orchestrator entry point.
+ * the orchestrator entry point, and plugin initialization.
  */
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -38,3 +38,11 @@ export { runTools } from './orchestrator.js';
 // ─── Execution Contexts ─────────────────────────────────────────
 
 export { createNodeExecutionContext } from './execution.js';
+
+// ─── Plugins ────────────────────────────────────────────────────
+
+export { initializeDefaultTools } from './plugins/index.js';
+
+// ─── Runner (feature flag) ──────────────────────────────────────
+
+export { isToolRegistryEnabled } from './runner.js';
