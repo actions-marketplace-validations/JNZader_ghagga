@@ -104,3 +104,14 @@ export {
   ToolRegistry,
   toolRegistry,
 } from './tools/index.js';
+
+// ─── SARIF Output ───────────────────────────────────────────────
+
+export type {
+  SarifDocument,
+  SarifLevel,
+  SarifLocation,
+  SarifResult,
+  SarifRule,
+} from './sarif/index.js';
+export { buildSarif } from './sarif/index.js';
