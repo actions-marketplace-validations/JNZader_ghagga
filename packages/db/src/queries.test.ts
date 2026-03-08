@@ -55,6 +55,7 @@ import {
   deleteMappingsByInstallationId,
   deleteMemoryObservation,
   deleteMemorySession,
+  deleteReviewsByRepoId,
   deleteStaleUserMappings,
   endMemorySession,
   getEffectiveRepoSettings,
@@ -681,6 +682,45 @@ describe('getReviewStats', () => {
 
     const result = await getReviewStats(db, 1);
     expect(result).toEqual(stats);
+  });
+});
+
+describe('deleteReviewsByRepoId', () => {
+  it('should return count of deleted rows when reviews exist', async () => {
+    const deletedRows = [{ id: 1 }, { id: 2 }, { id: 3 }];
+    const mockReturning = vi.fn().mockResolvedValue(deletedRows);
+    const mockWhere = vi.fn().mockReturnValue({ returning: mockReturning });
+    const mockDelete = vi.fn().mockReturnValue({ where: mockWhere });
+    const db = { delete: mockDelete } as unknown as Database;
+
+    const result = await deleteReviewsByRepoId(db, 42);
+
+    expect(result).toBe(3);
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
+  it('should return 0 when no reviews exist for the repository', async () => {
+    const mockReturning = vi.fn().mockResolvedValue([]);
+    const mockWhere = vi.fn().mockReturnValue({ returning: mockReturning });
+    const mockDelete = vi.fn().mockReturnValue({ where: mockWhere });
+    const db = { delete: mockDelete } as unknown as Database;
+
+    const result = await deleteReviewsByRepoId(db, 99);
+
+    expect(result).toBe(0);
+  });
+
+  it('should call db.delete with the reviews table', async () => {
+    const mockReturning = vi.fn().mockResolvedValue([{ id: 1 }]);
+    const mockWhere = vi.fn().mockReturnValue({ returning: mockReturning });
+    const mockDelete = vi.fn().mockReturnValue({ where: mockWhere });
+    const db = { delete: mockDelete } as unknown as Database;
+
+    await deleteReviewsByRepoId(db, 42);
+
+    expect(mockDelete).toHaveBeenCalled();
+    expect(mockWhere).toHaveBeenCalled();
+    expect(mockReturning).toHaveBeenCalled();
   });
 });
 

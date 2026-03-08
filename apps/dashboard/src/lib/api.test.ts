@@ -15,6 +15,7 @@ import {
   useConfigureRunnerSecret,
   useCreateRunner,
   useDeleteObservation,
+  useDeleteRepoReviews,
   useDeleteSession,
   useInstallationSettings,
   useInstallations,
@@ -1056,6 +1057,144 @@ describe('useCleanupEmptySessions', () => {
 
     act(() => {
       result.current.mutate({ project: 'acme/app' });
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useDeleteRepoReviews
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useDeleteRepoReviews', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+  });
+
+  it('sends DELETE to /api/reviews/:repoFullName with URL-encoded name', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { deletedReviews: 5, clearedMemory: null } }),
+    );
+
+    const { result } = renderHook(() => useDeleteRepoReviews(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ repoFullName: 'acme/widgets' });
+    });
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/reviews/acme%2Fwidgets');
+    expect(url).not.toContain('includeMemory');
+    expect(options.method).toBe('DELETE');
+  });
+
+  it('appends includeMemory=true when requested', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { deletedReviews: 3, clearedMemory: 10 } }),
+    );
+
+    const { result } = renderHook(() => useDeleteRepoReviews(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ repoFullName: 'acme/widgets', includeMemory: true });
+    });
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/reviews/acme%2Fwidgets?includeMemory=true');
+  });
+
+  it('invalidates reviews and stats cache on success (without memory)', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { deletedReviews: 5, clearedMemory: null } }),
+    );
+
+    const { result } = renderHook(() => useDeleteRepoReviews(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ repoFullName: 'acme/widgets' });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['reviews'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['stats', 'acme/widgets'] });
+    // Should NOT invalidate memory
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['memory'] });
+  });
+
+  it('also invalidates memory cache when includeMemory is true', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { deletedReviews: 3, clearedMemory: 10 } }),
+    );
+
+    const { result } = renderHook(() => useDeleteRepoReviews(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ repoFullName: 'acme/widgets', includeMemory: true });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['reviews'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['stats', 'acme/widgets'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['memory'] });
+  });
+
+  it('returns the response data on success', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: { deletedReviews: 7, clearedMemory: null } }),
+    );
+
+    const { result } = renderHook(() => useDeleteRepoReviews(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => {
+      result.current.mutate({ repoFullName: 'acme/widgets' });
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data).toEqual({ deletedReviews: 7, clearedMemory: null });
+  });
+
+  it('reports error on API failure (404)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Repository not found' }), { status: 404 }),
+    );
+
+    const { result } = renderHook(() => useDeleteRepoReviews(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => {
+      result.current.mutate({ repoFullName: 'unknown/repo' });
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+
+  it('reports error on API failure (500)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'DELETE_FAILED' }), { status: 500 }),
+    );
+
+    const { result } = renderHook(() => useDeleteRepoReviews(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => {
+      result.current.mutate({ repoFullName: 'acme/widgets' });
     });
 
     await waitFor(() => expect(result.current.isError).toBe(true));

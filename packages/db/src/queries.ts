@@ -349,6 +349,19 @@ export async function getReviewsByDay(db: Database, repositoryId: number) {
     .orderBy(sql`date(${reviews.createdAt}) asc`);
 }
 
+/**
+ * Delete all reviews for a specific repository by its ID.
+ * Returns the count of deleted rows.
+ */
+export async function deleteReviewsByRepoId(db: Database, repositoryId: number): Promise<number> {
+  const result = await db
+    .delete(reviews)
+    .where(eq(reviews.repositoryId, repositoryId))
+    .returning({ id: reviews.id });
+
+  return result.length;
+}
+
 // ─── Memory: Sessions ───────────────────────────────────────────
 
 export async function createMemorySession(

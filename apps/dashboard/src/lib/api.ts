@@ -97,6 +97,31 @@ export function useReviews(repo?: string, page: number = 1) {
   });
 }
 
+export function useDeleteRepoReviews() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      repoFullName,
+      includeMemory,
+    }: {
+      repoFullName: string;
+      includeMemory?: boolean;
+    }) => {
+      const url = `/api/reviews/${encodeURIComponent(repoFullName)}${includeMemory ? '?includeMemory=true' : ''}`;
+      return fetchData<{ deletedReviews: number; clearedMemory: number | null }>(url, {
+        method: 'DELETE',
+      });
+    },
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: ['reviews'] });
+      void queryClient.invalidateQueries({ queryKey: ['stats', variables.repoFullName] });
+      if (variables.includeMemory) {
+        void queryClient.invalidateQueries({ queryKey: ['memory'] });
+      }
+    },
+  });
+}
+
 // ─── Stats ────────────────────────────────────────────────
 
 export function useStats(repo: string) {

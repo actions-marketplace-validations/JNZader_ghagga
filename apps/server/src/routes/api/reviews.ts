@@ -1,9 +1,16 @@
 /**
- * Review-related API routes: GET /api/reviews, GET /api/stats
+ * Review-related API routes: GET /api/reviews, GET /api/stats, DELETE /api/reviews/:repoFullName
  */
 
 import type { Database } from 'ghagga-db';
-import { getRepoByFullName, getReviewStats, getReviewsByDay, getReviewsByRepoId } from 'ghagga-db';
+import {
+  clearMemoryObservationsByProject,
+  deleteReviewsByRepoId,
+  getRepoByFullName,
+  getReviewStats,
+  getReviewsByDay,
+  getReviewsByRepoId,
+} from 'ghagga-db';
 import { Hono } from 'hono';
 import type { AuthUser } from '../../middleware/auth.js';
 import { generateErrorId, logger } from './utils.js';
@@ -106,6 +113,47 @@ export function createReviewsRouter(db: Database) {
         'Failed to fetch stats',
       );
       return c.json({ error: 'FETCH_FAILED', message: 'Failed to fetch stats', errorId }, 500);
+    }
+  });
+
+  // ── DELETE /api/reviews/:repoFullName ────────────────────────
+  router.delete('/api/reviews/:repoFullName', async (c) => {
+    const user = c.get('user') as AuthUser;
+    const repoFullName = decodeURIComponent(c.req.param('repoFullName'));
+    const includeMemory = c.req.query('includeMemory') === 'true';
+
+    try {
+      const repo = await getRepoByFullName(db, repoFullName);
+
+      if (!repo) {
+        return c.json({ error: 'NOT_FOUND', message: 'Repository not found' }, 404);
+      }
+
+      if (!user.installationIds.includes(repo.installationId)) {
+        return c.json({ error: 'FORBIDDEN', message: 'Forbidden' }, 403);
+      }
+
+      const deletedReviews = await deleteReviewsByRepoId(db, repo.id);
+
+      let clearedMemory: number | null = null;
+      if (includeMemory) {
+        clearedMemory = await clearMemoryObservationsByProject(
+          db,
+          repo.installationId,
+          repoFullName,
+        );
+      }
+
+      return c.json({
+        data: { deletedReviews, clearedMemory },
+      });
+    } catch (err) {
+      const errorId = generateErrorId();
+      logger.error(
+        { err, errorId, repo: repoFullName, user: user.githubLogin },
+        'Failed to delete reviews',
+      );
+      return c.json({ error: 'DELETE_FAILED', message: 'Failed to delete reviews', errorId }, 500);
     }
   });
 

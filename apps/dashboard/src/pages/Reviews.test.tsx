@@ -1,21 +1,27 @@
 /**
  * Tests for Reviews page.
  * Covers: table rendering, loading/empty/error states, filters,
- * pagination, review detail modal, status badges, and finding counts.
+ * pagination, review detail modal, status badges, finding counts,
+ * and delete reviews functionality.
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ToastProvider } from '@/components/Toast';
 
 // ─── Mock modules ───────────────────────────────────────────────
 
 const mockUseReviews = vi.fn();
 const mockUseRepositories = vi.fn();
+const mockDeleteMutate = vi.fn();
+const mockDeleteReset = vi.fn();
+const mockUseDeleteRepoReviews = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   useReviews: (...args: unknown[]) => mockUseReviews(...args),
   useRepositories: () => mockUseRepositories(),
+  useDeleteRepoReviews: () => mockUseDeleteRepoReviews(),
 }));
 
 const mockUseSelectedRepo = vi.fn();
@@ -101,7 +107,9 @@ function renderReviews() {
   const queryClient = createTestQueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
-      <Reviews />
+      <ToastProvider>
+        <Reviews />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }
@@ -131,6 +139,12 @@ beforeEach(() => {
   mockUseReviews.mockReturnValue({
     data: undefined,
     isLoading: false,
+  });
+  mockUseDeleteRepoReviews.mockReturnValue({
+    mutate: mockDeleteMutate,
+    reset: mockDeleteReset,
+    isPending: false,
+    error: null,
   });
 });
 
@@ -638,5 +652,243 @@ describe('Reviews — combined filters', () => {
     // Only the FAILED acme/api should be visible
     expect(screen.getByText('acme/api')).toBeInTheDocument();
     expect(screen.queryByText('acme/app')).not.toBeInTheDocument();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Delete Reviews
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Reviews — delete reviews', () => {
+  it('shows "Delete Reviews" button when a repo is selected', () => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/widgets',
+      setSelectedRepo: vi.fn(),
+    });
+    mockReviewsData([makeReview({ repo: 'acme/widgets' })]);
+
+    renderReviews();
+
+    expect(screen.getByText('Delete Reviews')).toBeInTheDocument();
+  });
+
+  it('does NOT show "Delete Reviews" button when no repo is selected (All repositories)', () => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: '',
+      setSelectedRepo: vi.fn(),
+    });
+    mockReviewsData(MULTI_REVIEWS);
+
+    renderReviews();
+
+    expect(screen.queryByText('Delete Reviews')).not.toBeInTheDocument();
+  });
+
+  it('opens confirmation dialog when "Delete Reviews" is clicked', () => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/widgets',
+      setSelectedRepo: vi.fn(),
+    });
+    mockReviewsData([makeReview({ repo: 'acme/widgets' })]);
+
+    renderReviews();
+
+    fireEvent.click(screen.getByText('Delete Reviews'));
+
+    // Dialog should be open with correct title
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('Delete all reviews for acme/widgets?')).toBeInTheDocument();
+    // Should have a confirmation text input
+    expect(screen.getByLabelText('Confirmation text')).toBeInTheDocument();
+  });
+
+  it('shows the memory clear checkbox in the confirmation dialog', () => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/widgets',
+      setSelectedRepo: vi.fn(),
+    });
+    mockReviewsData([makeReview({ repo: 'acme/widgets' })]);
+
+    renderReviews();
+
+    fireEvent.click(screen.getByText('Delete Reviews'));
+
+    expect(
+      screen.getByText('Also clear memory observations for this repository'),
+    ).toBeInTheDocument();
+  });
+
+  it('calls mutation with includeMemory: false when checkbox is unchecked', () => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/widgets',
+      setSelectedRepo: vi.fn(),
+    });
+    mockReviewsData([makeReview({ repo: 'acme/widgets' })]);
+
+    renderReviews();
+
+    // Open dialog
+    fireEvent.click(screen.getByText('Delete Reviews'));
+
+    // Type the repo name to enable confirm
+    fireEvent.change(screen.getByLabelText('Confirmation text'), {
+      target: { value: 'acme/widgets' },
+    });
+
+    // Click confirm (the button inside the dialog, not the "Delete Reviews" trigger)
+    const dialog = screen.getByRole('dialog');
+    const confirmBtn = within(dialog).getByText('Delete Reviews');
+    fireEvent.click(confirmBtn);
+
+    expect(mockDeleteMutate).toHaveBeenCalledTimes(1);
+    expect(mockDeleteMutate).toHaveBeenCalledWith(
+      { repoFullName: 'acme/widgets', includeMemory: false },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
+  it('calls mutation with includeMemory: true when checkbox is checked', () => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/widgets',
+      setSelectedRepo: vi.fn(),
+    });
+    mockReviewsData([makeReview({ repo: 'acme/widgets' })]);
+
+    renderReviews();
+
+    // Open dialog
+    fireEvent.click(screen.getByText('Delete Reviews'));
+
+    // Check the memory checkbox — click the checkbox input inside the label
+    const checkbox = screen.getByRole('checkbox');
+    fireEvent.click(checkbox);
+
+    // Type the repo name to enable confirm
+    fireEvent.change(screen.getByLabelText('Confirmation text'), {
+      target: { value: 'acme/widgets' },
+    });
+
+    // Click confirm
+    const dialog = screen.getByRole('dialog');
+    const confirmBtn = within(dialog).getByText('Delete Reviews');
+    fireEvent.click(confirmBtn);
+
+    expect(mockDeleteMutate).toHaveBeenCalledTimes(1);
+    expect(mockDeleteMutate).toHaveBeenCalledWith(
+      { repoFullName: 'acme/widgets', includeMemory: true },
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+  });
+
+  it('cancel closes dialog without making API call', () => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/widgets',
+      setSelectedRepo: vi.fn(),
+    });
+    mockReviewsData([makeReview({ repo: 'acme/widgets' })]);
+
+    renderReviews();
+
+    // Open dialog
+    fireEvent.click(screen.getByText('Delete Reviews'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    // Click cancel
+    fireEvent.click(screen.getByText('Cancel'));
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mockDeleteMutate).not.toHaveBeenCalled();
+  });
+
+  it('shows success toast after deletion succeeds', () => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/widgets',
+      setSelectedRepo: vi.fn(),
+    });
+    mockReviewsData([makeReview({ repo: 'acme/widgets' })]);
+
+    // Make mutate call onSuccess immediately
+    mockDeleteMutate.mockImplementation(
+      (_vars: unknown, opts: { onSuccess: (data: { deletedReviews: number }) => void }) => {
+        opts.onSuccess({ deletedReviews: 5 });
+      },
+    );
+
+    renderReviews();
+
+    // Open dialog
+    fireEvent.click(screen.getByText('Delete Reviews'));
+
+    // Type the repo name
+    fireEvent.change(screen.getByLabelText('Confirmation text'), {
+      target: { value: 'acme/widgets' },
+    });
+
+    // Confirm
+    const dialog = screen.getByRole('dialog');
+    const confirmBtn = within(dialog).getByText('Delete Reviews');
+    fireEvent.click(confirmBtn);
+
+    // Toast should appear
+    expect(screen.getByText('Deleted 5 reviews for acme/widgets')).toBeInTheDocument();
+    // Dialog should close
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('shows error message in dialog when deletion fails', () => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/widgets',
+      setSelectedRepo: vi.fn(),
+    });
+    mockReviewsData([makeReview({ repo: 'acme/widgets' })]);
+
+    // Simulate error state
+    mockUseDeleteRepoReviews.mockReturnValue({
+      mutate: mockDeleteMutate,
+      reset: mockDeleteReset,
+      isPending: false,
+      error: { message: 'DELETE_FAILED' },
+    });
+
+    renderReviews();
+
+    // Open dialog
+    fireEvent.click(screen.getByText('Delete Reviews'));
+
+    // Error should be visible in dialog
+    expect(screen.getByText('DELETE_FAILED')).toBeInTheDocument();
+    // Dialog should remain open
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('confirm button is disabled until user types exact repo name', () => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/widgets',
+      setSelectedRepo: vi.fn(),
+    });
+    mockReviewsData([makeReview({ repo: 'acme/widgets' })]);
+
+    renderReviews();
+
+    // Open dialog
+    fireEvent.click(screen.getByText('Delete Reviews'));
+
+    const dialog = screen.getByRole('dialog');
+    const confirmBtn = within(dialog).getByText('Delete Reviews').closest('button')!;
+
+    // Initially disabled (empty input)
+    expect(confirmBtn).toBeDisabled();
+
+    // Partial text — still disabled
+    fireEvent.change(screen.getByLabelText('Confirmation text'), {
+      target: { value: 'acme/widge' },
+    });
+    expect(confirmBtn).toBeDisabled();
+
+    // Exact text — enabled
+    fireEvent.change(screen.getByLabelText('Confirmation text'), {
+      target: { value: 'acme/widgets' },
+    });
+    expect(confirmBtn).not.toBeDisabled();
   });
 });

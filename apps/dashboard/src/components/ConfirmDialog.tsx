@@ -23,6 +23,9 @@ export interface ConfirmDialogProps {
 
   /** Tier 3: Countdown in seconds before confirm becomes available */
   countdownSeconds?: number;
+
+  /** Optional extra content rendered between description and the confirm input */
+  children?: React.ReactNode;
 }
 
 // ─── Component ──────────────────────────────────────────────────
@@ -40,6 +43,7 @@ export function ConfirmDialog({
   confirmText,
   confirmPlaceholder,
   countdownSeconds,
+  children,
 }: ConfirmDialogProps) {
   const [inputValue, setInputValue] = useState('');
   const [secondsRemaining, setSecondsRemaining] = useState(countdownSeconds ?? 0);
@@ -127,6 +131,9 @@ export function ConfirmDialog({
         </h2>
 
         <p className="mt-2 text-sm text-text-secondary">{description}</p>
+
+        {/* Optional extra content (e.g. checkboxes) */}
+        {children}
 
         {/* Error message */}
         {error && (

@@ -29,6 +29,7 @@ const mockDecrypt = vi.fn();
 const mockDeleteMemoryObservation = vi.fn();
 const mockClearMemoryObservationsByProject = vi.fn();
 const mockClearAllMemoryObservations = vi.fn();
+const mockDeleteReviewsByRepoId = vi.fn();
 const mockDeleteMemorySession = vi.fn();
 const mockClearEmptyMemorySessions = vi.fn();
 
@@ -51,6 +52,7 @@ vi.mock('ghagga-db', () => ({
   clearMemoryObservationsByProject: (...args: unknown[]) =>
     mockClearMemoryObservationsByProject(...args),
   clearAllMemoryObservations: (...args: unknown[]) => mockClearAllMemoryObservations(...args),
+  deleteReviewsByRepoId: (...args: unknown[]) => mockDeleteReviewsByRepoId(...args),
   deleteMemorySession: (...args: unknown[]) => mockDeleteMemorySession(...args),
   clearEmptyMemorySessions: (...args: unknown[]) => mockClearEmptyMemorySessions(...args),
   DEFAULT_REPO_SETTINGS: {
@@ -421,6 +423,170 @@ describe('GET /api/stats', () => {
     const json = await res.json();
     expect(json.error).toBe('FETCH_FAILED');
     expect(json.message).toBe('Failed to fetch stats');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// DELETE /api/reviews/:repoFullName
+// ═══════════════════════════════════════════════════════════════════
+
+describe('DELETE /api/reviews/:repoFullName', () => {
+  it('returns 200 with deletedReviews count (happy path)', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockDeleteReviewsByRepoId.mockResolvedValueOnce(15);
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/owner%2Frepo', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deletedReviews: 15, clearedMemory: null });
+    expect(mockDeleteReviewsByRepoId).toHaveBeenCalledWith(mockDb, 42);
+    expect(mockClearMemoryObservationsByProject).not.toHaveBeenCalled();
+  });
+
+  it('returns 200 with both counts when includeMemory=true', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockDeleteReviewsByRepoId.mockResolvedValueOnce(10);
+    mockClearMemoryObservationsByProject.mockResolvedValueOnce(25);
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/owner%2Frepo?includeMemory=true', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deletedReviews: 10, clearedMemory: 25 });
+    expect(mockDeleteReviewsByRepoId).toHaveBeenCalledWith(mockDb, 42);
+    expect(mockClearMemoryObservationsByProject).toHaveBeenCalledWith(mockDb, 100, 'owner/repo');
+  });
+
+  it('returns clearedMemory: null when includeMemory is not set (default)', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockDeleteReviewsByRepoId.mockResolvedValueOnce(5);
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/owner%2Frepo', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data.clearedMemory).toBeNull();
+    expect(mockClearMemoryObservationsByProject).not.toHaveBeenCalled();
+  });
+
+  it('returns 200 with deletedReviews: 0 when no reviews exist', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockDeleteReviewsByRepoId.mockResolvedValueOnce(0);
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/owner%2Frepo', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deletedReviews: 0, clearedMemory: null });
+  });
+
+  it('returns 404 when repo is not found', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/nonexistent%2Frepo', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toBe('NOT_FOUND');
+    expect(json.message).toBe('Repository not found');
+    expect(mockDeleteReviewsByRepoId).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 when user lacks access to repo installation', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce({
+      ...FAKE_REPO,
+      installationId: 999, // Not in user's installationIds
+    });
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/owner%2Frepo', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe('FORBIDDEN');
+    expect(json.message).toBe('Forbidden');
+    expect(mockDeleteReviewsByRepoId).not.toHaveBeenCalled();
+  });
+
+  it('URL-decodes the repoFullName parameter', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockDeleteReviewsByRepoId.mockResolvedValueOnce(3);
+
+    const app = createApp();
+    await app.request('/api/reviews/owner%2Frepo', {
+      method: 'DELETE',
+    });
+
+    expect(mockGetRepoByFullName).toHaveBeenCalledWith(mockDb, 'owner/repo');
+  });
+
+  it('returns 500 with errorId on DB error during delete', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockDeleteReviewsByRepoId.mockRejectedValueOnce(new Error('DB error'));
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/owner%2Frepo', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('DELETE_FAILED');
+    expect(json.message).toBe('Failed to delete reviews');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
+  });
+
+  it('returns 500 with errorId when memory clear fails (partial failure)', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockDeleteReviewsByRepoId.mockResolvedValueOnce(10);
+    mockClearMemoryObservationsByProject.mockRejectedValueOnce(new Error('Memory clear failed'));
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/owner%2Frepo?includeMemory=true', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('DELETE_FAILED');
+    expect(json.message).toBe('Failed to delete reviews');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
+  });
+
+  it('returns 500 with errorId when getRepoByFullName throws', async () => {
+    mockGetRepoByFullName.mockRejectedValueOnce(new Error('DB error'));
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/owner%2Frepo', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('DELETE_FAILED');
+    expect(json.message).toBe('Failed to delete reviews');
     expect(json).toHaveProperty('errorId');
     expect(json.errorId).toHaveLength(8);
   });

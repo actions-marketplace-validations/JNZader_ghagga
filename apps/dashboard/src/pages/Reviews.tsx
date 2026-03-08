@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Card } from '@/components/Card';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { SeverityBadge } from '@/components/SeverityBadge';
 import { StatusBadge } from '@/components/StatusBadge';
-import { useRepositories, useReviews } from '@/lib/api';
+import { useToast } from '@/components/Toast';
+import { useDeleteRepoReviews, useRepositories, useReviews } from '@/lib/api';
 import { useSelectedRepo } from '@/lib/repo-context';
 import type { Finding, Review, ReviewStatus } from '@/lib/types';
 
@@ -93,9 +95,13 @@ export function Reviews() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [selectedReview, setSelectedReview] = useState<Review | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [includeMemory, setIncludeMemory] = useState(false);
 
+  const { addToast } = useToast();
   const { data: repos } = useRepositories();
   const { data, isLoading } = useReviews(selectedRepo || undefined, page);
+  const deleteReviews = useDeleteRepoReviews();
 
   const reviews = data?.reviews ?? [];
   const total = data?.total ?? 0;
@@ -161,6 +167,16 @@ export function Reviews() {
           onChange={(e) => setSearch(e.target.value)}
           className="input-field w-64"
         />
+
+        {selectedRepo && (
+          <button
+            type="button"
+            onClick={() => setShowDeleteDialog(true)}
+            className="ml-auto rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
+          >
+            Delete Reviews
+          </button>
+        )}
       </div>
 
       {/* Table */}
@@ -242,6 +258,48 @@ export function Reviews() {
       {selectedReview && (
         <ReviewDetail review={selectedReview} onClose={() => setSelectedReview(null)} />
       )}
+
+      {/* Delete Reviews Confirmation Dialog */}
+      <ConfirmDialog
+        open={showDeleteDialog}
+        title={`Delete all reviews for ${selectedRepo}?`}
+        description="This will permanently delete all review history and stats for this repository. This action cannot be undone."
+        confirmText={selectedRepo}
+        confirmLabel="Delete Reviews"
+        confirmVariant="danger"
+        isLoading={deleteReviews.isPending}
+        error={deleteReviews.error?.message ?? null}
+        onConfirm={() => {
+          deleteReviews.mutate(
+            { repoFullName: selectedRepo, includeMemory },
+            {
+              onSuccess: (data) => {
+                setShowDeleteDialog(false);
+                setIncludeMemory(false);
+                addToast({
+                  message: `Deleted ${data.deletedReviews} review${data.deletedReviews === 1 ? '' : 's'} for ${selectedRepo}`,
+                  type: 'success',
+                });
+              },
+            },
+          );
+        }}
+        onCancel={() => {
+          setShowDeleteDialog(false);
+          setIncludeMemory(false);
+          deleteReviews.reset();
+        }}
+      >
+        <label className="mt-3 flex cursor-pointer items-center gap-2 text-sm text-text-secondary">
+          <input
+            type="checkbox"
+            checked={includeMemory}
+            onChange={(e) => setIncludeMemory(e.target.checked)}
+            className="h-4 w-4 rounded border-surface-border"
+          />
+          Also clear memory observations for this repository
+        </label>
+      </ConfirmDialog>
     </div>
   );
 }
