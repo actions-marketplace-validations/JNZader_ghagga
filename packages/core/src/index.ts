@@ -115,3 +115,15 @@ export type {
   SarifRule,
 } from './sarif/index.js';
 export { buildSarif } from './sarif/index.js';
+
+// ─── AI Enhance ─────────────────────────────────────────────────
+
+export type {
+  EnhancedReviewFinding,
+  EnhanceInput,
+  EnhanceMetadata,
+  EnhanceResult,
+  FilteredFinding,
+  FindingGroup,
+} from './enhance/index.js';
+export { enhanceFindings, mergeEnhanceResult } from './enhance/index.js';
