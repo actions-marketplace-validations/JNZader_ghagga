@@ -2,7 +2,7 @@
 
 ## Phase 1: TUI Foundation — Chalk Adapter, TUI Extensions, Theme
 
-- [ ] 1.1 Add `chalk` dependency and create `ui/chalk.ts` adapter (~30 lines new)
+- [x] 1.1 Add `chalk` dependency and create `ui/chalk.ts` adapter (~30 lines new)
   - Add `"chalk": "^5.4.0"` to `apps/cli/package.json` dependencies
   - Run `pnpm install`
   - Create `apps/cli/src/ui/chalk.ts`:
@@ -15,7 +15,7 @@
   - **Verify**: `pnpm install` succeeds; `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 1.2 Extend `ui/theme.ts` with severity colors and box-drawing constants (~25 lines added)
+- [x] 1.2 Extend `ui/theme.ts` with severity colors and box-drawing constants (~25 lines added)
   - Add `SEVERITY_COLORS` map: `Record<FindingSeverity, string>` mapping severity to human label+color name (used for plain-mode prefix and documentation)
   - Add `BOX_CHARS` constant: `{ topLeft: '┌', topRight: '┐', bottomLeft: '└', bottomRight: '┘', horizontal: '─', vertical: '│' }`
   - Add `DIVIDER_CHAR` constant: `'─'`
@@ -24,7 +24,7 @@
   - **Verify**: `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 1.3 Extend `ui/tui.ts` with `severity()`, `box()`, `divider()`, `progress()` methods (~80 lines added)
+- [x] 1.3 Extend `ui/tui.ts` with `severity()`, `box()`, `divider()`, `progress()` methods (~80 lines added)
   - Import `colorSeverity` from `./chalk.js`
   - Import `BOX_CHARS`, `DIVIDER_CHAR` from `./theme.js`
   - Import type `FindingSeverity` from `ghagga-core`
@@ -46,7 +46,7 @@
   - **Verify**: `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 1.4 Extend `ui/format.ts` with `formatBoxSummary()`, `formatSeverityLine()`, `formatDivider()` (~60 lines added)
+- [x] 1.4 Extend `ui/format.ts` with `formatBoxSummary()`, `formatSeverityLine()`, `formatDivider()` (~60 lines added)
   - Add `formatBoxSummary(result: ReviewResult): string[]` — produces an array of lines for the summary box: status, finding counts by severity, execution time, tools run
   - Add `formatSeverityLine(finding: ReviewFinding): string` — formats a single finding with severity emoji and message (used by both review and health)
   - Add `formatDivider(label: string): string` — produces a labeled divider line (calls through to tui-agnostic logic, so format.ts stays pure)
@@ -55,7 +55,7 @@
   - **Verify**: `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 1.5 Unit tests for TUI foundation (~120 lines new)
+- [x] 1.5 Unit tests for TUI foundation (~120 lines new)
   - Create `apps/cli/src/ui/__tests__/tui-extensions.test.ts`
   - Tests (vitest):
     - `tui.severity()` in plain mode → returns `[CRITICAL] text`, no ANSI codes
@@ -77,7 +77,7 @@
 
 ## Phase 2: Output Formats — --output Flag, SARIF Builder, Format Routing
 
-- [ ] 2.1 Create SARIF type definitions in `packages/core/src/sarif/types.ts` (~40 lines new)
+- [x] 2.1 Create SARIF type definitions in `packages/core/src/sarif/types.ts` (~40 lines new)
   - Create directory `packages/core/src/sarif/`
   - Create `types.ts` with inline SARIF v2.1.0 type subset: `SarifDocument`, `SarifRun`, `SarifDriver`, `SarifRule`, `SarifResult`, `SarifLocation`, `SarifLevel`
   - Exactly as specified in design.md interfaces section
@@ -85,7 +85,7 @@
   - **Verify**: `npx tsc --noEmit` in `packages/core`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 2.2 Create SARIF builder in `packages/core/src/sarif/builder.ts` (~200 lines new)
+- [x] 2.2 Create SARIF builder in `packages/core/src/sarif/builder.ts` (~200 lines new)
   - Create `buildSarif(result: ReviewResult, version: string): SarifDocument` — pure function:
     - `$.version` = `"2.1.0"`, `$.schema` = official SARIF schema URI
     - `$.runs[0].tool.driver` = `{ name: "ghagga", version, informationUri: "https://ghagga.dev" }`
@@ -102,14 +102,14 @@
   - **Verify**: `npx tsc --noEmit` in `packages/core`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 2.3 Export SARIF module from `packages/core/src/index.ts` (~5 lines added)
+- [x] 2.3 Export SARIF module from `packages/core/src/index.ts` (~5 lines added)
   - Add `export { buildSarif } from './sarif/index.js';`
   - Add `export type { SarifDocument, SarifLevel, SarifResult, SarifRule } from './sarif/types.js';`
   - **Files**: `packages/core/src/index.ts`
   - **Verify**: `npx tsc --noEmit` in `packages/core`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 2.4 Add `--output` flag, deprecate `--format`, wire plain mode in `index.ts` (~40 lines modified)
+- [x] 2.4 Add `--output` flag, deprecate `--format`, wire plain mode in `index.ts` (~40 lines modified)
   - Replace `.option('-f, --format <format>', 'Output format', 'markdown')` with:
     - `.option('-o, --output <format>', 'Output format: json | sarif | markdown')` with `choices(['json', 'sarif', 'markdown'])`
     - `.option('-f, --format <format>', '(deprecated) Use --output instead')`
@@ -122,7 +122,7 @@
   - **Verify**: `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 2.5 Update `review.ts` with output format routing (~60 lines modified)
+- [x] 2.5 Update `review.ts` with output format routing (~60 lines modified)
   - Add `outputFormat?: 'json' | 'sarif' | 'markdown'` to `ReviewOptions` interface
   - Import `buildSarif` from `ghagga-core`
   - After pipeline completes (Step 6 area), replace existing format conditional with switch:
@@ -140,13 +140,13 @@
   - **Verify**: `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 2.6 Create CLI-side SARIF re-export `apps/cli/src/ui/sarif.ts` (~5 lines new)
+- [x] 2.6 Create CLI-side SARIF re-export `apps/cli/src/ui/sarif.ts` (~5 lines new)
   - Re-export `buildSarif` from `ghagga-core` for CLI convenience
   - **Files**: `apps/cli/src/ui/sarif.ts` (new)
   - **Verify**: `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 2.7 Unit tests for SARIF builder (~150 lines new)
+- [x] 2.7 Unit tests for SARIF builder (~150 lines new)
   - Create `packages/core/src/sarif/builder.test.ts`
   - Tests (vitest):
     - Zero findings → valid SARIF with empty `results[]`, version "2.1.0", correct schema URI
@@ -161,7 +161,7 @@
   - **Verify**: `pnpm --filter ghagga-core test` passes
   - **Post**: `pnpm lint:fix`
 
-- [ ] 2.8 Integration test: `--output` flag routing (~80 lines new)
+- [x] 2.8 Integration test: `--output` flag routing (~80 lines new)
   - Create `apps/cli/src/commands/__tests__/review-output.test.ts` (or extend `review.test.ts`)
   - Tests:
     - `--output json` produces valid JSON (parse with `JSON.parse`, no ANSI codes)
@@ -176,7 +176,7 @@
 
 ## Phase 3: TUI Polish — Integrate Severity/Box/Divider/Progress Into Review Flow
 
-- [ ] 3.1 Wire step progress `[n/m]` into review pipeline (~40 lines modified)
+- [x] 3.1 Wire step progress `[n/m]` into review pipeline (~40 lines modified)
   - In `review.ts`, modify the non-verbose path (when `!options.verbose`):
     - Create a spinner via `tui.spinner()` and register it with `tui.setActiveSpinner(s)`
     - Create a `ProgressCallback` that calls `tui.progress(stepIndex, totalSteps, event.message)` instead of just the spinner
@@ -188,7 +188,7 @@
   - **Verify**: `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 3.2 Add section dividers between tool finding groups in review output (~30 lines modified)
+- [x] 3.2 Add section dividers between tool finding groups in review output (~30 lines modified)
   - In `formatMarkdownResult()` in `ui/format.ts`, insert `tui.divider(toolLabel)` (or a format-equivalent divider) between each tool's findings section
   - Since `format.ts` must remain pure (no `tui.*` calls), add a `formatToolDivider(label: string, plain: boolean): string` pure function in `format.ts` that produces either `--- label ---` or `──── label ────`
   - Update the loop in `formatMarkdownResult()` to insert a divider before each tool section (except the first)
@@ -196,7 +196,7 @@
   - **Verify**: `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 3.3 Add colored severity to finding rendering (~15 lines modified)
+- [x] 3.3 Add colored severity to finding rendering (~15 lines modified)
   - In the styled TUI output path in `review.ts` (the `default` case of the output switch), apply `tui.severity()` to each finding's severity label when rendering
   - Update `formatMarkdownResult()` to accept an optional `styled` parameter — when true, use `tui.severity()` for severity labels
   - Alternatively: keep `formatMarkdownResult` pure and apply severity coloring in the review.ts output path only (post-format transformation)
@@ -204,7 +204,7 @@
   - **Verify**: `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 3.4 Add box-drawing summary at end of review (~30 lines modified)
+- [x] 3.4 Add box-drawing summary at end of review (~30 lines modified)
   - In `review.ts`, after rendering findings in the styled output path:
     - Build summary lines using `formatBoxSummary(result)` from `format.ts`
     - Render using `tui.box("Review Summary", summaryLines)` in styled mode
@@ -214,7 +214,7 @@
   - **Verify**: `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 3.5 Tests for TUI-polished review output (~100 lines new)
+- [x] 3.5 Tests for TUI-polished review output (~100 lines new)
   - Create or extend `apps/cli/src/commands/__tests__/review-tui.test.ts`
   - Tests:
     - Styled mode review → output contains box-drawing characters (`┌`, `└`, `│`)
@@ -229,7 +229,7 @@
 
 ## Phase 4: AI Enhance — Core Module, Pipeline Integration, CLI Flags
 
-- [ ] 4.1 Create enhance type definitions in `packages/core/src/enhance/types.ts` (~50 lines new)
+- [x] 4.1 Create enhance type definitions in `packages/core/src/enhance/types.ts` (~50 lines new)
   - Create directory `packages/core/src/enhance/`
   - Define interfaces exactly as specified in design.md:
     - `EnhanceInput` — `{ findings, provider, model, apiKey }`
@@ -242,7 +242,7 @@
   - **Verify**: `npx tsc --noEmit` in `packages/core`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 4.2 Create AI enhance prompt template in `packages/core/src/enhance/prompt.ts` (~100 lines new)
+- [x] 4.2 Create AI enhance prompt template in `packages/core/src/enhance/prompt.ts` (~100 lines new)
   - Export `buildEnhancePrompt(findings: EnhanceFindingSummary[]): string`
   - System prompt: role definition ("You are a code review assistant analyzing static analysis findings")
   - Instructions: group related findings, prioritize by real-world impact (1-10), suggest concrete fixes, identify false positives
@@ -255,7 +255,7 @@
   - **Verify**: `npx tsc --noEmit` in `packages/core`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 4.3 Create enhance main function in `packages/core/src/enhance/enhance.ts` (~200 lines new)
+- [x] 4.3 Create enhance main function in `packages/core/src/enhance/enhance.ts` (~200 lines new)
   - Export `enhanceFindings(input: EnhanceInput): Promise<EnhanceResult>`
   - Flow:
     1. If `input.findings.length === 0` → return empty result (skip AI call)
@@ -272,7 +272,7 @@
   - **Verify**: `npx tsc --noEmit` in `packages/core`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 4.4 Add enhance fields to core types (~30 lines modified)
+- [x] 4.4 Add enhance fields to core types (~30 lines modified)
   - In `packages/core/src/types.ts`, add optional fields to `ReviewResult`:
     - `enhanced?: boolean`
     - `enhanceMetadata?: EnhanceMetadata` (import from `./enhance/types.js`)
@@ -287,7 +287,7 @@
   - **Verify**: `npx tsc --noEmit` in `packages/core`; existing tests still pass (optional fields)
   - **Post**: `pnpm lint:fix`
 
-- [ ] 4.5 Integrate enhance step into pipeline.ts (~20 lines modified)
+- [x] 4.5 Integrate enhance step into pipeline.ts (~20 lines modified)
   - Import `enhanceFindings`, `mergeEnhanceResult` from `./enhance/index.js`
   - After static analysis step (Step 4) and before agent mode (Step 5):
     - If `input.enhance === true` and static findings exist:
@@ -299,14 +299,14 @@
   - **Verify**: `npx tsc --noEmit` in `packages/core`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 4.6 Export enhance module from `packages/core/src/index.ts` (~5 lines added)
+- [x] 4.6 Export enhance module from `packages/core/src/index.ts` (~5 lines added)
   - Add `export { enhanceFindings, mergeEnhanceResult } from './enhance/index.js';`
   - Add `export type { EnhanceMetadata, EnhanceResult, FindingGroup } from './enhance/types.js';`
   - **Files**: `packages/core/src/index.ts`
   - **Verify**: `npx tsc --noEmit` in `packages/core`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 4.7 Add `--enhance` / `--no-enhance` flags to CLI (~30 lines modified)
+- [x] 4.7 Add `--enhance` / `--no-enhance` flags to CLI (~30 lines modified)
   - In `apps/cli/src/index.ts`:
     - Add `.option('--enhance', 'Enable AI-powered post-analysis enhancement')` to the review command
     - Add `.option('--no-enhance', 'Disable AI enhancement')` (Commander handles boolean toggle)
@@ -319,7 +319,7 @@
   - **Verify**: `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 4.8 Unit tests for enhance module (~150 lines new)
+- [x] 4.8 Unit tests for enhance module (~150 lines new)
   - Create `packages/core/src/enhance/enhance.test.ts`
   - Tests (vitest, mock LLM calls via `vi.mock`):
     - Zero findings → returns empty result, no LLM call made
@@ -381,7 +381,7 @@
   - **Verify**: `npx tsc --noEmit` in `packages/core`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 5.4 Create health barrel export and add types to core (~15 lines new/modified)
+- [x] 5.4 Create health barrel export and add types to core (~15 lines new/modified)
   - Create `packages/core/src/health/index.ts` — barrel export for all health modules
   - In `packages/core/src/types.ts`, add `HealthResult` type:
     - `{ score: HealthScore, trend: HealthTrend, recommendations: HealthRecommendation[], topIssues: ReviewFinding[], toolsRun: string[], timestamp: string }`
@@ -394,7 +394,7 @@
   - **Verify**: `npx tsc --noEmit` in `packages/core`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 5.5 Create health command handler `apps/cli/src/commands/health.ts` (~300 lines new)
+- [x] 5.5 Create health command handler `apps/cli/src/commands/health.ts` (~300 lines new)
   - Export `HealthOptions` interface: `{ output?: 'json', plain?: boolean, top?: number }`
   - Export `healthCommand(targetPath: string, options: HealthOptions): Promise<void>`
   - Flow:
@@ -421,7 +421,7 @@
   - **Verify**: `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 5.6 Register health command in `apps/cli/src/index.ts` (~20 lines added)
+- [x] 5.6 Register health command in `apps/cli/src/index.ts` (~20 lines added)
   - Import `healthCommand` from `./commands/health.js`
   - Add command registration after the review command:
     ```
@@ -439,7 +439,7 @@
   - **Verify**: `npx tsc --noEmit` in `apps/cli`; `node dist/index.js health --help` shows the command
   - **Post**: `pnpm lint:fix`
 
-- [ ] 5.7 Unit tests for health scoring and recommendations (~150 lines new)
+- [x] 5.7 Unit tests for health scoring and recommendations (~150 lines new)
   - Create `packages/core/src/health/score.test.ts`
   - Tests:
     - Zero findings → score 100, grade A
@@ -458,7 +458,7 @@
   - **Verify**: `pnpm --filter ghagga-core test` passes
   - **Post**: `pnpm lint:fix`
 
-- [ ] 5.8 Unit tests for health trends (~100 lines new)
+- [x] 5.8 Unit tests for health trends (~100 lines new)
   - Create `packages/core/src/health/trends.test.ts`
   - Tests:
     - `loadHistory` with missing file → returns []
@@ -475,7 +475,7 @@
   - **Verify**: `pnpm --filter ghagga-core test` passes
   - **Post**: `pnpm lint:fix`
 
-- [ ] 5.9 Line count verification for health feature
+- [x] 5.9 Line count verification for health feature
   - Run `wc -l` on all health-specific files (excluding tests):
     - `apps/cli/src/commands/health.ts`
     - `packages/core/src/health/score.ts`
@@ -487,7 +487,7 @@
 
 ## Phase 6: Issue Flag — GitHub API Client, --issue Flag
 
-- [ ] 6.1 Create GitHub API client `apps/cli/src/lib/github-api.ts` (~150 lines new)
+- [x] 6.1 Create GitHub API client `apps/cli/src/lib/github-api.ts` (~150 lines new)
   - Export `GitHubApiError` class extending `Error` with `status: number` and `body: string`
   - Export `createIssue(opts: { token, owner, repo, title, body, labels }): Promise<CreateIssueResult>`:
     - `POST /repos/{owner}/{repo}/issues` via `fetch`
@@ -513,7 +513,7 @@
   - **Verify**: `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 6.2 Add `--issue` flag to CLI and wire into review command (~50 lines modified)
+- [x] 6.2 Add `--issue` flag to CLI and wire into review command (~50 lines modified)
   - In `apps/cli/src/index.ts`:
     - Add `.option('--issue <target>', 'Create/update a GitHub issue with review results (use "new" or issue number)')` to review command
   - In `apps/cli/src/commands/review.ts`:
@@ -534,7 +534,7 @@
   - **Verify**: `npx tsc --noEmit` in `apps/cli`
   - **Post**: `pnpm lint:fix`
 
-- [ ] 6.3 Unit tests for GitHub API client (~120 lines new)
+- [x] 6.3 Unit tests for GitHub API client (~120 lines new)
   - Create `apps/cli/src/lib/github-api.test.ts`
   - Tests (vitest, mock `fetch` via `vi.fn()`):
     - `parseGitHubRemote()`:
@@ -565,45 +565,45 @@
 
 ## Phase 7: Verification, Build, and Cross-Cutting Validation
 
-- [ ] 7.1 Run full test suite — all existing + new tests pass
+- [x] 7.1 Run full test suite — all existing + new tests pass
   - Run `pnpm test` at repo root
   - All existing tests MUST pass without modification (zero regressions)
   - All new tests from phases 1-6 MUST pass
   - **Verify**: Exit code 0, no failures
 
-- [ ] 7.2 Run TypeScript type check across entire monorepo
+- [x] 7.2 Run TypeScript type check across entire monorepo
   - Run `pnpm -r exec npx tsc --noEmit` (or equivalent turbo command)
   - All packages must compile with zero type errors
   - **Verify**: Clean output, exit code 0
 
-- [ ] 7.3 Verify ncc bundling with chalk
+- [x] 7.3 Verify ncc bundling with chalk
   - Run `pnpm --filter ghagga-cli build` (which runs `ncc build`)
   - Verify bundle succeeds and includes chalk
   - Check bundle size increase: `ls -la` the output — increase must be < 30KB over baseline
   - If chalk bundling fails: implement fallback (vendor 50 lines of ANSI color functions in `chalk.ts`)
   - **Verify**: Bundle compiles; size delta < 30KB
 
-- [ ] 7.4 Verify no direct chalk imports in commands
+- [x] 7.4 Verify no direct chalk imports in commands
   - Search for `import.*chalk` or `from 'chalk'` in `apps/cli/src/commands/` and `apps/cli/src/lib/`
   - Only `ui/chalk.ts` should import chalk directly
   - **Verify**: `grep -r "from 'chalk'" apps/cli/src/commands/ apps/cli/src/lib/` returns zero matches
 
-- [ ] 7.5 Verify TUI facade encapsulation — no direct `@clack/prompts` imports in commands
+- [x] 7.5 Verify TUI facade encapsulation — no direct `@clack/prompts` imports in commands
   - Search for `import.*@clack/prompts` in `apps/cli/src/commands/`
   - Only `ui/tui.ts` should import `@clack/prompts`
   - **Verify**: `grep -r "@clack/prompts" apps/cli/src/commands/` returns zero matches
 
-- [ ] 7.6 Health line budget final verification
+- [x] 7.6 Health line budget final verification
   - Count non-test lines in health feature files
   - MUST be ≤ 1,500 lines
   - **Verify**: `wc -l` on health files (excluding tests, blank lines OK)
 
-- [ ] 7.7 Run linter and fix any remaining issues
+- [x] 7.7 Run linter and fix any remaining issues
   - Run `pnpm lint:fix` across the monorepo
   - Run `pnpm lint` to verify clean output
   - **Verify**: Zero lint errors
 
-- [ ] 7.8 Smoke tests (manual or scripted)
+- [x] 7.8 Smoke tests (manual or scripted)
   - Build the CLI: `pnpm build`
   - Test commands:
     - `CI=true node dist/index.js review . --quick` → plain mode, no ANSI
