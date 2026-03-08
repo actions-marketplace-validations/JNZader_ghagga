@@ -48,7 +48,10 @@ interface CachedUser {
 }
 
 export const tokenCache = new Map<string, CachedUser>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// Token cache TTL: balance between reducing GitHub API calls and
+// limiting the window where a revoked token remains valid.
+// 2 minutes is acceptable for a code review tool.
+const CACHE_TTL_MS = 2 * 60 * 1000;
 
 function getCachedUser(token: string): GitHubUser | null {
   const cached = tokenCache.get(token);
