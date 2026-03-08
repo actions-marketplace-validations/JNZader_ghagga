@@ -6,6 +6,7 @@
  */
 
 import { createHmac, createSign, timingSafeEqual } from 'node:crypto';
+import { githubCircuitBreaker } from '../lib/circuit-breaker.js';
 
 // ─── PR Data ────────────────────────────────────────────────────
 
@@ -21,24 +22,26 @@ export async function fetchPRDetails(
 ): Promise<{ headSha: string; baseBranch: string }> {
   const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`;
 
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
+  const data = await githubCircuitBreaker.execute(async () => {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `GitHub API error fetching PR details: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    return (await response.json()) as {
+      head: { sha: string };
+      base: { ref: string };
+    };
   });
-
-  if (!response.ok) {
-    throw new Error(
-      `GitHub API error fetching PR details: ${response.status} ${response.statusText}`,
-    );
-  }
-
-  const data = (await response.json()) as {
-    head: { sha: string };
-    base: { ref: string };
-  };
 
   return { headSha: data.head.sha, baseBranch: data.base.ref };
 }
@@ -54,19 +57,21 @@ export async function fetchPRDiff(
 ): Promise<string> {
   const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`;
 
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github.v3.diff',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
+  return githubCircuitBreaker.execute(async () => {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github.v3.diff',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`GitHub API error fetching diff: ${response.status} ${response.statusText}`);
+    }
+
+    return response.text();
   });
-
-  if (!response.ok) {
-    throw new Error(`GitHub API error fetching diff: ${response.status} ${response.statusText}`);
-  }
-
-  return response.text();
 }
 
 /**
@@ -81,23 +86,27 @@ export async function postComment(
 ): Promise<{ id: number }> {
   const url = `https://api.github.com/repos/${owner}/${repo}/issues/${prNumber}/comments`;
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-    body: JSON.stringify({ body }),
+  return githubCircuitBreaker.execute(async () => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify({ body }),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `GitHub API error posting comment: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const data = (await response.json()) as { id: number };
+    return { id: data.id };
   });
-
-  if (!response.ok) {
-    throw new Error(`GitHub API error posting comment: ${response.status} ${response.statusText}`);
-  }
-
-  const data = (await response.json()) as { id: number };
-  return { id: data.id };
 }
 
 /**
@@ -111,22 +120,26 @@ export async function getPRCommitMessages(
 ): Promise<string[]> {
   const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/commits?per_page=100`;
 
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
+  return githubCircuitBreaker.execute(async () => {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `GitHub API error fetching commits: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const commits = (await response.json()) as Array<{
+      commit: { message: string };
+    }>;
+    return commits.map((c) => c.commit.message);
   });
-
-  if (!response.ok) {
-    throw new Error(`GitHub API error fetching commits: ${response.status} ${response.statusText}`);
-  }
-
-  const commits = (await response.json()) as Array<{
-    commit: { message: string };
-  }>;
-  return commits.map((c) => c.commit.message);
 }
 
 /**
@@ -140,20 +153,22 @@ export async function getPRFileList(
 ): Promise<string[]> {
   const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/files?per_page=100`;
 
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
+  return githubCircuitBreaker.execute(async () => {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`GitHub API error fetching files: ${response.status} ${response.statusText}`);
+    }
+
+    const files = (await response.json()) as Array<{ filename: string }>;
+    return files.map((f) => f.filename);
   });
-
-  if (!response.ok) {
-    throw new Error(`GitHub API error fetching files: ${response.status} ${response.statusText}`);
-  }
-
-  const files = (await response.json()) as Array<{ filename: string }>;
-  return files.map((f) => f.filename);
 }
 
 // ─── Reactions ──────────────────────────────────────────────────
@@ -171,20 +186,28 @@ export async function addCommentReaction(
 ): Promise<void> {
   const url = `https://api.github.com/repos/${owner}/${repo}/issues/comments/${commentId}/reactions`;
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-    body: JSON.stringify({ content: reaction }),
-  });
+  try {
+    await githubCircuitBreaker.execute(async () => {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+          'Content-Type': 'application/json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify({ content: reaction }),
+      });
 
-  if (!response.ok) {
+      if (!response.ok) {
+        throw new Error(
+          `GitHub API error adding reaction: ${response.status} ${response.statusText}`,
+        );
+      }
+    });
+  } catch {
     // Non-critical — log but don't throw
-    console.warn(`[ghagga] Failed to add reaction: ${response.status} ${response.statusText}`);
+    console.warn(`[ghagga] Failed to add reaction`);
   }
 }
 
@@ -267,25 +290,27 @@ export async function getInstallationToken(
     body.repository_ids = options.repositoryIds;
   }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${jwt}`,
-      Accept: 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-    ...(Object.keys(body).length > 0 && { body: JSON.stringify(body) }),
+  return githubCircuitBreaker.execute(async () => {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      ...(Object.keys(body).length > 0 && { body: JSON.stringify(body) }),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `GitHub API error getting installation token: ${response.status} ${response.statusText}`,
+      );
+    }
+
+    const data = (await response.json()) as { token: string };
+    return data.token;
   });
-
-  if (!response.ok) {
-    throw new Error(
-      `GitHub API error getting installation token: ${response.status} ${response.statusText}`,
-    );
-  }
-
-  const data = (await response.json()) as { token: string };
-  return data.token;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────

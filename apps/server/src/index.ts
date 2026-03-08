@@ -18,6 +18,7 @@ import { serve as serveInngest } from 'inngest/hono';
 import { inngest } from './inngest/client.js';
 import { reviewFunction } from './inngest/review.js';
 import { githubCircuitBreaker } from './lib/circuit-breaker.js';
+import { getClientIp } from './lib/get-client-ip.js';
 import { logger } from './lib/logger.js';
 import { authMiddleware } from './middleware/auth.js';
 import { createApiRouter } from './routes/api.js';
@@ -114,21 +115,21 @@ app.use(
 const apiLimiter = rateLimiter({
   windowMs: 60 * 1000,
   limit: 100,
-  keyGenerator: (c) => c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? 'unknown',
+  keyGenerator: (c) => getClientIp(c),
   standardHeaders: 'draft-6',
 });
 
 const oauthLimiter = rateLimiter({
   windowMs: 60 * 1000,
   limit: 10,
-  keyGenerator: (c) => c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? 'unknown',
+  keyGenerator: (c) => getClientIp(c),
   standardHeaders: 'draft-6',
 });
 
 const webhookLimiter = rateLimiter({
   windowMs: 60 * 1000,
   limit: 200,
-  keyGenerator: (c) => c.req.header('x-forwarded-for') ?? c.req.header('x-real-ip') ?? 'unknown',
+  keyGenerator: (c) => getClientIp(c),
   standardHeaders: 'draft-6',
 });
 

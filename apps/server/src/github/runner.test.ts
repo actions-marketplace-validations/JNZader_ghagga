@@ -491,7 +491,7 @@ describe('discoverRunnerRepo', () => {
     );
 
     await expect(discoverRunnerRepo('acme', 'ghp_token')).rejects.toThrow(
-      /GitHub API error discovering runner repo: 500/,
+      'Failed to communicate with GitHub API',
     );
   });
 
@@ -642,7 +642,7 @@ describe('setRunnerSecret', () => {
 
     await expect(
       setRunnerSecret('acme/ghagga-runner', 'MY_SECRET', 'val', 'ghp_token'),
-    ).rejects.toThrow(/GitHub API error fetching public key: 500/);
+    ).rejects.toThrow('Failed to communicate with GitHub API');
 
     expect(mockFetch).toHaveBeenCalledOnce();
   });
@@ -662,7 +662,7 @@ describe('setRunnerSecret', () => {
 
     await expect(
       setRunnerSecret('acme/ghagga-runner', 'MY_SECRET', 'val', 'ghp_token'),
-    ).rejects.toThrow(/GitHub API error setting secret: 500/);
+    ).rejects.toThrow('Failed to communicate with GitHub API');
   });
 });
 
@@ -949,9 +949,7 @@ describe('dispatchWorkflow', () => {
     setupMockChain(422, '{"message":"Validation Failed"}');
 
     const params = makeDispatchParams();
-    await expect(dispatchWorkflow(params)).rejects.toThrow(
-      /GitHub API error dispatching workflow: 422/,
-    );
+    await expect(dispatchWorkflow(params)).rejects.toThrow('Failed to communicate with GitHub API');
 
     // Verify all 5 fetch calls were made (both setRunnerSecret calls succeeded)
     expect(mockFetch).toHaveBeenCalledTimes(5);

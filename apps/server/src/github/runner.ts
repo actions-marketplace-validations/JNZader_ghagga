@@ -224,9 +224,11 @@ export async function discoverRunnerRepo(
   }
 
   if (!response.ok) {
-    throw new Error(
-      `GitHub API error discovering runner repo: ${response.status} ${response.statusText}`,
+    logger.error(
+      { status: response.status, statusText: response.statusText, owner: ownerLogin },
+      'GitHub API error discovering runner repo',
     );
+    throw new Error('Failed to communicate with GitHub API');
   }
 
   const data = (await response.json()) as { id: number; full_name: string; private: boolean };
@@ -256,9 +258,11 @@ export async function setRunnerSecret(
   });
 
   if (!keyResponse.ok) {
-    throw new Error(
-      `GitHub API error fetching public key: ${keyResponse.status} ${keyResponse.statusText}`,
+    logger.error(
+      { status: keyResponse.status, statusText: keyResponse.statusText, repo: repoFullName },
+      'GitHub API error fetching public key',
     );
+    throw new Error('Failed to communicate with GitHub API');
   }
 
   const { key: publicKeyB64, key_id: keyId } = (await keyResponse.json()) as {
@@ -290,7 +294,11 @@ export async function setRunnerSecret(
   });
 
   if (!response.ok) {
-    throw new Error(`GitHub API error setting secret: ${response.status} ${response.statusText}`);
+    logger.error(
+      { status: response.status, statusText: response.statusText, repo: repoFullName, secretName },
+      'GitHub API error setting secret',
+    );
+    throw new Error('Failed to communicate with GitHub API');
   }
 }
 
@@ -360,9 +368,11 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(
-      `GitHub API error dispatching workflow: ${response.status} ${response.statusText} — ${body}`,
+    logger.error(
+      { status: response.status, statusText: response.statusText, body, repo: runnerRepo },
+      'GitHub API error dispatching workflow',
     );
+    throw new Error('Failed to communicate with GitHub API');
   }
 
   logger.info({ callbackId, runnerRepo, repoFullName, prNumber }, 'Dispatched runner workflow');
@@ -472,7 +482,11 @@ export async function createRunnerRepo(
     }
 
     const body = await generateResponse.text();
-    throw new RunnerCreationError('github_error', `GitHub API error: ${status} — ${body}`);
+    creationLogger.error(
+      { status, body, repo: repoFullName },
+      'GitHub API error creating runner repo',
+    );
+    throw new RunnerCreationError('github_error', 'Failed to communicate with GitHub API');
   }
 
   const createData = (await generateResponse.json()) as {

@@ -84,26 +84,43 @@ export function createRunnerRouter(_db: Database) {
       return c.json({ data: response }, 201);
     } catch (err) {
       if (err instanceof RunnerCreationError) {
+        const userMessages: Record<string, string> = {
+          insufficient_scope:
+            'Your token does not have permission to create repositories. Please re-authenticate.',
+          already_exists: 'Runner repo already exists.',
+          rate_limited: 'GitHub API rate limit exceeded. Please try again later.',
+          template_unavailable:
+            'The runner template is temporarily unavailable. Please try again later.',
+          org_permission_denied:
+            'You do not have permission to create repositories in this organization.',
+          creation_timeout: 'Repository creation timed out. Please check GitHub and try again.',
+          secret_failed: 'Runner operation failed.',
+          github_error: 'GitHub communication failed. Please try again later.',
+        };
+
         switch (err.code) {
           case 'insufficient_scope':
-            return c.json({ error: 'insufficient_scope', message: err.message }, 403);
+            return c.json(
+              { error: 'insufficient_scope', message: userMessages.insufficient_scope },
+              403,
+            );
           case 'already_exists':
             return c.json({ error: 'already_exists', repoFullName: err.repoFullName }, 409);
           case 'rate_limited':
             return c.json({ error: 'rate_limited', retryAfter: err.retryAfter }, 429);
           case 'template_unavailable':
             logger.error('Runner template repo JNZader/ghagga-runner-template is not accessible');
-            return c.json({ error: 'template_unavailable', message: err.message }, 502);
-          case 'org_permission_denied':
-            return c.json({ error: 'org_permission_denied', message: err.message }, 403);
-          case 'creation_timeout':
             return c.json(
-              {
-                error: 'github_error',
-                message: 'Repository creation timed out. Please check GitHub and try again.',
-              },
+              { error: 'template_unavailable', message: userMessages.template_unavailable },
               502,
             );
+          case 'org_permission_denied':
+            return c.json(
+              { error: 'org_permission_denied', message: userMessages.org_permission_denied },
+              403,
+            );
+          case 'creation_timeout':
+            return c.json({ error: 'github_error', message: userMessages.creation_timeout }, 502);
           case 'secret_failed':
             return c.json(
               {
@@ -117,7 +134,7 @@ export function createRunnerRouter(_db: Database) {
               201,
             );
           default:
-            return c.json({ error: 'github_error', message: err.message }, 502);
+            return c.json({ error: 'github_error', message: userMessages.github_error }, 502);
         }
       }
 
