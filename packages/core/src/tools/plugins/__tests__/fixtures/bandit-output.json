@@ -1,0 +1,50 @@
+{
+  "errors": [],
+  "generated_at": "2024-01-15T10:30:00Z",
+  "metrics": {},
+  "results": [
+    {
+      "code": ">> eval(user_input)\n",
+      "col_offset": 0,
+      "end_col_offset": 20,
+      "filename": "/workspace/src/utils.py",
+      "issue_confidence": "HIGH",
+      "issue_cwe": { "id": 78, "link": "https://cwe.mitre.org/data/definitions/78.html" },
+      "issue_severity": "HIGH",
+      "issue_text": "Use of eval() detected. Consider using ast.literal_eval() instead.",
+      "line_number": 45,
+      "line_range": [45],
+      "more_info": "https://bandit.readthedocs.io/en/latest/plugins/b307_eval.html",
+      "test_id": "B307",
+      "test_name": "blacklist"
+    },
+    {
+      "code": ">> subprocess.call(cmd, shell=True)\n",
+      "col_offset": 0,
+      "end_col_offset": 35,
+      "filename": "/workspace/src/deploy.py",
+      "issue_confidence": "HIGH",
+      "issue_severity": "MEDIUM",
+      "issue_text": "subprocess call with shell=True identified, security issue.",
+      "line_number": 20,
+      "line_range": [20],
+      "more_info": "https://bandit.readthedocs.io/en/latest/plugins/b602_subprocess_popen_with_shell_equals_true.html",
+      "test_id": "B602",
+      "test_name": "subprocess_popen_with_shell_equals_true"
+    },
+    {
+      "code": ">> import pickle\n",
+      "col_offset": 0,
+      "end_col_offset": 13,
+      "filename": "/workspace/src/cache.py",
+      "issue_confidence": "HIGH",
+      "issue_severity": "LOW",
+      "issue_text": "Consider possible security implications associated with pickle module.",
+      "line_number": 1,
+      "line_range": [1],
+      "more_info": "https://bandit.readthedocs.io/en/latest/blacklists/calls.html#b301-pickle",
+      "test_id": "B403",
+      "test_name": "blacklist"
+    }
+  ]
+}

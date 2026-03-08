@@ -1,0 +1,43 @@
+{
+  "Issues": [
+    {
+      "FromLinter": "gosec",
+      "Text": "G101: Potential hardcoded credentials",
+      "Severity": "HIGH",
+      "SourceLines": ["var password = \"admin123\""],
+      "Pos": {
+        "Filename": "/workspace/internal/auth/config.go",
+        "Offset": 0,
+        "Line": 15,
+        "Column": 5
+      }
+    },
+    {
+      "FromLinter": "errcheck",
+      "Text": "Error return value of `os.Remove` is not checked",
+      "Severity": "",
+      "SourceLines": ["os.Remove(tmpFile)"],
+      "Pos": {
+        "Filename": "/workspace/cmd/server/main.go",
+        "Offset": 0,
+        "Line": 42,
+        "Column": 2
+      }
+    },
+    {
+      "FromLinter": "staticcheck",
+      "Text": "SA1019: grpc.Dial is deprecated: use grpc.NewClient instead",
+      "Severity": "",
+      "SourceLines": ["conn, err := grpc.Dial(addr)"],
+      "Pos": {
+        "Filename": "/workspace/internal/client/grpc.go",
+        "Offset": 0,
+        "Line": 28,
+        "Column": 14
+      }
+    }
+  ],
+  "Report": {
+    "Linters": [{ "Name": "gosec" }, { "Name": "errcheck" }, { "Name": "staticcheck" }]
+  }
+}

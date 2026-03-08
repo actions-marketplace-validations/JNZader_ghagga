@@ -1,0 +1,75 @@
+{
+  "formatVersion": 0,
+  "pmdVersion": "7.8.0",
+  "timestamp": "2024-01-15T10:30:00.000+00:00",
+  "files": [
+    {
+      "filename": "/workspace/src/main/java/com/example/App.java",
+      "violations": [
+        {
+          "beginline": 25,
+          "begincolumn": 9,
+          "endline": 27,
+          "endcolumn": 10,
+          "description": "Avoid empty catch blocks",
+          "rule": "EmptyCatchBlock",
+          "ruleset": "Error Prone",
+          "priority": 1,
+          "externalInfoUrl": "https://pmd.github.io/pmd/pmd_rules_java_errorprone.html#emptycatchblock"
+        },
+        {
+          "beginline": 30,
+          "begincolumn": 5,
+          "endline": 30,
+          "endcolumn": 20,
+          "description": "Avoid unused local variables such as 'temp'",
+          "rule": "UnusedLocalVariable",
+          "ruleset": "Best Practices",
+          "priority": 3,
+          "externalInfoUrl": "https://pmd.github.io/pmd/pmd_rules_java_bestpractices.html#unusedlocalvariable"
+        }
+      ]
+    },
+    {
+      "filename": "/workspace/src/main/java/com/example/Service.java",
+      "violations": [
+        {
+          "beginline": 50,
+          "begincolumn": 1,
+          "endline": 120,
+          "endcolumn": 2,
+          "description": "The method 'processAll' has a cyclomatic complexity of 15",
+          "rule": "CyclomaticComplexity",
+          "ruleset": "Design",
+          "priority": 2,
+          "externalInfoUrl": "https://pmd.github.io/pmd/pmd_rules_java_design.html#cyclomaticcomplexity"
+        },
+        {
+          "beginline": 130,
+          "begincolumn": 5,
+          "endline": 130,
+          "endcolumn": 40,
+          "description": "System.out.println is used",
+          "rule": "SystemPrintln",
+          "ruleset": "Best Practices",
+          "priority": 4,
+          "externalInfoUrl": "https://pmd.github.io/pmd/pmd_rules_java_bestpractices.html#systemprintln"
+        },
+        {
+          "beginline": 135,
+          "begincolumn": 1,
+          "endline": 135,
+          "endcolumn": 50,
+          "description": "Commented-out code should be removed",
+          "rule": "CommentedOutCode",
+          "ruleset": "Best Practices",
+          "priority": 5,
+          "externalInfoUrl": "https://pmd.github.io/pmd/pmd_rules_java_bestpractices.html"
+        }
+      ]
+    }
+  ],
+  "suppressedViolations": [],
+  "processingErrors": [],
+  "configurationErrors": []
+}

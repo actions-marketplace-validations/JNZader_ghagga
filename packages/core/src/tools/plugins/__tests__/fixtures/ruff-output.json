@@ -1,0 +1,35 @@
+[
+  {
+    "cell": null,
+    "code": "F401",
+    "end_location": { "column": 10, "row": 3 },
+    "filename": "/workspace/src/main.py",
+    "fix": { "applicability": "safe", "edits": [], "message": "Remove unused import: `os`" },
+    "location": { "column": 1, "row": 3 },
+    "message": "`os` imported but unused",
+    "noqa_row": 3,
+    "url": "https://docs.astral.sh/ruff/rules/unused-import"
+  },
+  {
+    "cell": null,
+    "code": "E501",
+    "end_location": { "column": 150, "row": 15 },
+    "filename": "/workspace/src/main.py",
+    "fix": null,
+    "location": { "column": 89, "row": 15 },
+    "message": "Line too long (150 > 88)",
+    "noqa_row": 15,
+    "url": "https://docs.astral.sh/ruff/rules/line-too-long"
+  },
+  {
+    "cell": null,
+    "code": "W291",
+    "end_location": { "column": 20, "row": 22 },
+    "filename": "/workspace/tests/test_utils.py",
+    "fix": { "applicability": "safe", "edits": [], "message": "Remove trailing whitespace" },
+    "location": { "column": 15, "row": 22 },
+    "message": "Trailing whitespace",
+    "noqa_row": 22,
+    "url": "https://docs.astral.sh/ruff/rules/trailing-whitespace"
+  }
+]

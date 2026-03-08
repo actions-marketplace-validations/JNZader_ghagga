@@ -1,0 +1,61 @@
+{
+  "diagnostics": [
+    {
+      "category": "lint/correctness/noUnusedVariables",
+      "description": "This variable is unused.",
+      "message": [
+        {
+          "content": "This variable is unused.",
+          "elements": []
+        }
+      ],
+      "severity": "error",
+      "location": {
+        "path": { "file": "/workspace/src/app.tsx" },
+        "span": [120, 135],
+        "sourceCode": "const unused = 42;"
+      },
+      "advices": [],
+      "verboseAdvices": [],
+      "tags": ["unnecessary"]
+    },
+    {
+      "category": "lint/suspicious/noDoubleEquals",
+      "description": "Use === instead of ==.",
+      "message": [
+        {
+          "content": "Use === instead of ==.",
+          "elements": []
+        }
+      ],
+      "severity": "warning",
+      "location": {
+        "path": { "file": "/workspace/src/utils.ts" },
+        "span": [200, 210],
+        "sourceCode": "if (a == b)"
+      },
+      "advices": [],
+      "verboseAdvices": [],
+      "tags": []
+    },
+    {
+      "category": "lint/style/useConst",
+      "description": "This variable could be declared as const.",
+      "message": [
+        {
+          "content": "This let declaration can be a const.",
+          "elements": []
+        }
+      ],
+      "severity": "information",
+      "location": {
+        "path": { "file": "/workspace/src/utils.ts" },
+        "span": [50, 65],
+        "sourceCode": "let x = 10;"
+      },
+      "advices": [],
+      "verboseAdvices": [],
+      "tags": []
+    }
+  ]
+}
