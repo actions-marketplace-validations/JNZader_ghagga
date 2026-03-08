@@ -54,7 +54,7 @@
     "@ai-sdk/anthropic": "^2.0.0",
     "@ai-sdk/google": "^2.0.0",
     "@ai-sdk/openai": "^2.0.0",
-    "ai": "^5.0.0",
+    "ai": "^6.0.116",
     "minimatch": "^10.2.0",
     "fts5-sql-bundle": "^1.0.2",
     "zod": "^4.3.0"
