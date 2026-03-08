@@ -41,6 +41,11 @@ import * as tui from './ui/tui.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8'));
 
+/** Collect repeatable option values into an array (Commander pattern) */
+function collect(value: string, previous: string[]): string[] {
+  return previous.concat([value]);
+}
+
 const program = new Command();
 
 program
@@ -97,9 +102,12 @@ program
   .option('--model <model>', 'LLM model identifier', process.env.GHAGGA_MODEL)
   .option('--api-key <key>', 'LLM provider API key', process.env.GHAGGA_API_KEY)
   .option('-f, --format <format>', 'Output format', 'markdown')
-  .option('--no-semgrep', 'Disable Semgrep static analysis')
-  .option('--no-trivy', 'Disable Trivy vulnerability scanning')
-  .option('--no-cpd', 'Disable CPD duplicate detection')
+  .option('--no-semgrep', '(deprecated) Use --disable-tool semgrep')
+  .option('--no-trivy', '(deprecated) Use --disable-tool trivy')
+  .option('--no-cpd', '(deprecated) Use --disable-tool cpd')
+  .option('--disable-tool <name>', 'Disable a specific tool (repeatable)', collect, [])
+  .option('--enable-tool <name>', 'Force-enable a specific tool (repeatable)', collect, [])
+  .option('--list-tools', 'List all available analysis tools and exit')
   .option('--no-memory', 'Disable review memory')
   .option('-c, --config <path>', 'Path to .ghagga.json config file')
   .option('-v, --verbose', 'Show detailed progress during review')
@@ -200,6 +208,9 @@ program
       commitMsg: options.commitMsg,
       exitOnIssues: options.exitOnIssues ?? false,
       quick: options.quick ?? false,
+      disableTools: options.disableTool ?? [],
+      enableTools: options.enableTool ?? [],
+      listTools: options.listTools ?? false,
     });
   });
 
@@ -233,4 +244,8 @@ interface ReviewCommandOptions {
   commitMsg?: string;
   exitOnIssues?: boolean;
   quick?: boolean;
+  // Extensible tool system flags (Phase 7)
+  disableTool: string[];
+  enableTool: string[];
+  listTools?: boolean;
 }

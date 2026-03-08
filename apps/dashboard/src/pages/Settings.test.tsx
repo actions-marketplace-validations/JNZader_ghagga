@@ -29,6 +29,34 @@ vi.mock('@/lib/repo-context', () => ({
   useSelectedRepo: () => mockUseSelectedRepo(),
 }));
 
+// Mock ToolGrid (tested separately)
+vi.mock('@/components/settings/ToolGrid', () => ({
+  ToolGrid: ({
+    tools,
+    disabledTools,
+    onToggle,
+    readOnly,
+  }: {
+    tools: { name: string }[];
+    disabledTools: string[];
+    onToggle: (d: string[]) => void;
+    readOnly?: boolean;
+  }) => (
+    <div data-testid="tool-grid">
+      <span data-testid="tool-count">{tools.length}</span>
+      <span data-testid="disabled-count">{disabledTools.length}</span>
+      <span data-testid="tool-grid-readonly">{readOnly ? 'true' : 'false'}</span>
+      <button
+        type="button"
+        data-testid="toggle-tool-btn"
+        onClick={() => onToggle([...disabledTools, 'gitleaks'])}
+      >
+        Toggle Tool
+      </button>
+    </div>
+  ),
+}));
+
 // Mock ProviderChainEditor (complex component not tested here)
 vi.mock('@/components/settings/ProviderChainEditor', () => ({
   ProviderChainEditor: ({
@@ -81,6 +109,14 @@ const DEFAULT_REPOS = [
   { id: 2, fullName: 'acme/api' },
 ];
 
+const REGISTERED_TOOLS = [
+  { name: 'semgrep', displayName: 'Semgrep', category: 'security', tier: 'always-on' },
+  { name: 'trivy', displayName: 'Trivy', category: 'sca', tier: 'always-on' },
+  { name: 'cpd', displayName: 'CPD', category: 'duplication', tier: 'always-on' },
+  { name: 'gitleaks', displayName: 'Gitleaks', category: 'secrets', tier: 'always-on' },
+  { name: 'ruff', displayName: 'Ruff', category: 'linting', tier: 'auto-detect' },
+];
+
 const DEFAULT_SETTINGS = {
   repoId: 1,
   repoFullName: 'acme/app',
@@ -101,6 +137,9 @@ const DEFAULT_SETTINGS = {
   enableMemory: true,
   customRules: 'no eval()',
   ignorePatterns: ['*.lock', 'dist/**'],
+  enabledTools: [] as string[],
+  disabledTools: ['cpd'] as string[],
+  registeredTools: REGISTERED_TOOLS,
 };
 
 const GLOBAL_SETTINGS = {
@@ -117,6 +156,8 @@ const GLOBAL_SETTINGS = {
   enableMemory: false,
   customRules: 'global rules',
   ignorePatterns: ['vendor/**'],
+  enabledTools: [] as string[],
+  disabledTools: ['trivy'] as string[],
 };
 
 const SETTINGS_WITH_GLOBAL = {
@@ -225,7 +266,7 @@ describe('Settings — custom settings form', () => {
 
     expect(screen.getByText('Repository Settings')).toBeInTheDocument();
     expect(screen.getByText('Save Settings')).toBeInTheDocument();
-    expect(screen.getByText('Static Analysis')).toBeInTheDocument();
+    expect(screen.getByText('Static Analysis Tools')).toBeInTheDocument();
   });
 
   it('renders the provider chain editor', () => {
@@ -270,47 +311,37 @@ describe('Settings — custom settings form', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('Settings — static analysis toggles', () => {
-  it('renders all analysis tool checkboxes with correct initial state', () => {
+  it('renders tool grid with registered tools when registeredTools is populated', () => {
     setupWithSettings();
 
     renderSettings();
 
-    // Semgrep and Trivy are enabled, CPD is disabled, Memory is enabled
-    const semgrepLabel = screen.getByText('Semgrep (security + patterns)');
-    const trivyLabel = screen.getByText('Trivy (vulnerabilities)');
-    const cpdLabel = screen.getByText('PMD/CPD (code duplication)');
-    const memoryLabel = screen.getByText('Memory (project knowledge)');
-
-    // Find the checkboxes via their labels
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
-    const semgrepCheckbox = semgrepLabel.closest('label')!.querySelector('input[type="checkbox"]')!;
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
-    const trivyCheckbox = trivyLabel.closest('label')!.querySelector('input[type="checkbox"]')!;
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
-    const cpdCheckbox = cpdLabel.closest('label')!.querySelector('input[type="checkbox"]')!;
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
-    const memoryCheckbox = memoryLabel.closest('label')!.querySelector('input[type="checkbox"]')!;
-
-    expect(semgrepCheckbox).toBeChecked();
-    expect(trivyCheckbox).toBeChecked();
-    expect(cpdCheckbox).not.toBeChecked();
-    expect(memoryCheckbox).toBeChecked();
+    // When registeredTools is populated, ToolGrid is rendered instead of old checkboxes
+    expect(screen.getByTestId('tool-grid')).toBeInTheDocument();
+    expect(screen.getByTestId('tool-count')).toHaveTextContent('5');
   });
 
-  it('toggles a static analysis checkbox', () => {
+  it('renders old checkboxes when registeredTools is empty (fallback)', () => {
+    setupWithSettings({
+      ...DEFAULT_SETTINGS,
+      registeredTools: [],
+    });
+
+    renderSettings();
+
+    expect(screen.queryByTestId('tool-grid')).not.toBeInTheDocument();
+    expect(screen.getByText('Semgrep (security + patterns)')).toBeInTheDocument();
+    expect(screen.getByText('Trivy (vulnerabilities)')).toBeInTheDocument();
+    expect(screen.getByText('PMD/CPD (code duplication)')).toBeInTheDocument();
+  });
+
+  it('passes correct disabledTools to ToolGrid', () => {
     setupWithSettings();
 
     renderSettings();
 
-    const cpdLabel = screen.getByText('PMD/CPD (code duplication)');
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
-    const cpdCheckbox = cpdLabel.closest('label')!.querySelector('input[type="checkbox"]')!;
-
-    expect(cpdCheckbox).not.toBeChecked();
-
-    fireEvent.click(cpdCheckbox);
-
-    expect(cpdCheckbox).toBeChecked();
+    // DEFAULT_SETTINGS has disabledTools: ['cpd']
+    expect(screen.getByTestId('disabled-count')).toHaveTextContent('1');
   });
 });
 
@@ -324,7 +355,8 @@ describe('Settings — AI review toggle', () => {
 
     renderSettings();
 
-    expect(screen.getByText('Enabled')).toBeInTheDocument();
+    // Both AI Review and Memory may show "Enabled", so use getAllByText
+    expect(screen.getAllByText('Enabled').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByTestId('provider-chain-editor')).toBeInTheDocument();
     expect(screen.getByText('Review Mode')).toBeInTheDocument();
   });
@@ -337,7 +369,8 @@ describe('Settings — AI review toggle', () => {
 
     renderSettings();
 
-    expect(screen.getByText('Disabled')).toBeInTheDocument();
+    // With AI disabled, "Disabled" appears for the AI Review section
+    expect(screen.getAllByText('Disabled').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByTestId('provider-chain-editor')).not.toBeInTheDocument();
     expect(screen.queryByText('Review Mode')).not.toBeInTheDocument();
   });
@@ -347,17 +380,17 @@ describe('Settings — AI review toggle', () => {
 
     renderSettings();
 
-    // Find the AI Review toggle (the one labeled "Enabled" / "Disabled")
-    expect(screen.getByText('Enabled')).toBeInTheDocument();
+    // Navigate from the "AI Review" heading up to the Card container, then find the toggle
+    const aiReviewHeading = screen.getByText('AI Review');
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
+    const aiReviewCard = aiReviewHeading.closest('.rounded-lg')!;
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
+    const aiToggle = aiReviewCard.querySelector('input[type="checkbox"]')!;
+
     expect(screen.getByTestId('provider-chain-editor')).toBeInTheDocument();
 
-    // The AI review checkbox is the peer sr-only one near "Enabled"
-    const enabledLabel = screen.getByText('Enabled');
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
-    const aiToggle = enabledLabel.closest('label')!.querySelector('input[type="checkbox"]')!;
     fireEvent.click(aiToggle);
 
-    expect(screen.getByText('Disabled')).toBeInTheDocument();
     expect(screen.queryByTestId('provider-chain-editor')).not.toBeInTheDocument();
   });
 });
@@ -752,5 +785,87 @@ describe('Settings — save with provider chain', () => {
         apiKey: 'sk-test',
       });
     });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 6: Tool grid in settings
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Settings — tool grid', () => {
+  it('renders the ToolGrid component with registered tools', () => {
+    setupWithSettings();
+
+    renderSettings();
+
+    expect(screen.getByTestId('tool-grid')).toBeInTheDocument();
+    expect(screen.getByTestId('tool-count')).toHaveTextContent('5'); // 5 registered tools in mock
+  });
+
+  it('passes disabledTools from settings to ToolGrid', () => {
+    setupWithSettings();
+
+    renderSettings();
+
+    expect(screen.getByTestId('disabled-count')).toHaveTextContent('1'); // 'cpd' is disabled
+  });
+
+  it('renders tool grid as non-readonly in custom mode', () => {
+    setupWithSettings();
+
+    renderSettings();
+
+    expect(screen.getByTestId('tool-grid-readonly')).toHaveTextContent('false');
+  });
+
+  it('includes disabledTools in save payload', async () => {
+    const mockMutateAsync = vi.fn().mockResolvedValue({ message: 'ok' });
+    mockUseUpdateSettings.mockReturnValue({
+      mutateAsync: mockMutateAsync,
+      isPending: false,
+      isError: false,
+    });
+
+    setupWithSettings();
+
+    renderSettings();
+
+    // Toggle a tool to add to disabledTools
+    fireEvent.click(screen.getByTestId('toggle-tool-btn'));
+
+    fireEvent.click(screen.getByText('Save Settings'));
+
+    await waitFor(() => {
+      // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
+      const payload = mockMutateAsync.mock.calls[0]![0];
+      expect(payload.disabledTools).toBeDefined();
+      expect(payload.disabledTools).toContain('gitleaks');
+    });
+  });
+
+  it('renders readonly tool grid in global settings inherited view', () => {
+    setupSelectedRepo();
+    mockUseSettings.mockReturnValue({
+      data: SETTINGS_WITH_GLOBAL,
+      isLoading: false,
+    });
+
+    renderSettings();
+
+    expect(screen.getByTestId('tool-grid')).toBeInTheDocument();
+    expect(screen.getByTestId('tool-grid-readonly')).toHaveTextContent('true');
+  });
+
+  it('falls back to old checkboxes when registeredTools is empty', () => {
+    setupWithSettings({
+      ...DEFAULT_SETTINGS,
+      registeredTools: [],
+    });
+
+    renderSettings();
+
+    // Should show old checkboxes since no registered tools
+    expect(screen.queryByTestId('tool-grid')).not.toBeInTheDocument();
+    expect(screen.getByText('Semgrep (security + patterns)')).toBeInTheDocument();
   });
 });

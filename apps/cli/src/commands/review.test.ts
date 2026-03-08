@@ -11,32 +11,154 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mock ghagga-core to prevent actual LLM calls ───────────────
 
-vi.mock('ghagga-core', () => ({
-  reviewPipeline: vi.fn(),
-  SqliteMemoryStorage: {
-    create: vi.fn().mockResolvedValue({
-      searchObservations: vi.fn().mockResolvedValue([]),
-      saveObservation: vi.fn().mockResolvedValue({}),
-      createSession: vi.fn().mockResolvedValue({ id: 1 }),
-      endSession: vi.fn().mockResolvedValue(undefined),
-      close: vi.fn().mockResolvedValue(undefined),
-    }),
-  },
-  DEFAULT_SETTINGS: {
-    enableSemgrep: true,
-    enableTrivy: true,
-    enableCpd: true,
-    enableMemory: true,
-    customRules: [],
-    ignorePatterns: ['*.md', '*.txt', '.gitignore', 'LICENSE', '*.lock'],
-    reviewLevel: 'normal',
-  },
-  DEFAULT_MODELS: {
-    anthropic: 'claude-sonnet-4-20250514',
-    openai: 'gpt-4o',
-    google: 'gemini-2.0-flash',
-  },
-}));
+vi.mock('ghagga-core', () => {
+  const mockTools = [
+    {
+      name: 'semgrep',
+      displayName: 'Security (SAST multi-language)',
+      category: 'security',
+      tier: 'always-on',
+      version: '1.90.0',
+    },
+    {
+      name: 'trivy',
+      displayName: 'SCA + IaC + Licenses',
+      category: 'sca',
+      tier: 'always-on',
+      version: '0.69.3',
+    },
+    {
+      name: 'cpd',
+      displayName: 'Duplication detection',
+      category: 'duplication',
+      tier: 'always-on',
+      version: '7.8.0',
+    },
+    {
+      name: 'gitleaks',
+      displayName: 'Secrets scanning',
+      category: 'secrets',
+      tier: 'always-on',
+      version: '8.21.2',
+    },
+    {
+      name: 'shellcheck',
+      displayName: 'Shell script analysis',
+      category: 'linting',
+      tier: 'always-on',
+      version: '0.10.0',
+    },
+    {
+      name: 'markdownlint',
+      displayName: 'Markdown linting',
+      category: 'docs',
+      tier: 'always-on',
+      version: '0.17.1',
+    },
+    {
+      name: 'lizard',
+      displayName: 'Cyclomatic complexity',
+      category: 'complexity',
+      tier: 'always-on',
+      version: '1.17.13',
+    },
+    {
+      name: 'ruff',
+      displayName: 'Python quality (*.py)',
+      category: 'linting',
+      tier: 'auto-detect',
+      version: '0.9.7',
+    },
+    {
+      name: 'bandit',
+      displayName: 'Python security (*.py)',
+      category: 'security',
+      tier: 'auto-detect',
+      version: '1.8.3',
+    },
+    {
+      name: 'golangci-lint',
+      displayName: 'Go quality + security (go.mod)',
+      category: 'linting',
+      tier: 'auto-detect',
+      version: '1.63.4',
+    },
+    {
+      name: 'biome',
+      displayName: 'JS/TS quality (*.ts, *.js)',
+      category: 'linting',
+      tier: 'auto-detect',
+      version: '1.9.4',
+    },
+    {
+      name: 'pmd',
+      displayName: 'Java quality (*.java)',
+      category: 'quality',
+      tier: 'auto-detect',
+      version: '7.8.0',
+    },
+    {
+      name: 'psalm',
+      displayName: 'PHP quality + security (*.php)',
+      category: 'quality',
+      tier: 'auto-detect',
+      version: '6.5.1',
+    },
+    {
+      name: 'clippy',
+      displayName: 'Rust quality (Cargo.toml)',
+      category: 'linting',
+      tier: 'auto-detect',
+      version: '0.0.0',
+    },
+    {
+      name: 'hadolint',
+      displayName: 'Dockerfile best practices (Dockerfile)',
+      category: 'linting',
+      tier: 'auto-detect',
+      version: '2.12.0',
+    },
+  ];
+
+  return {
+    reviewPipeline: vi.fn(),
+    SqliteMemoryStorage: {
+      create: vi.fn().mockResolvedValue({
+        searchObservations: vi.fn().mockResolvedValue([]),
+        saveObservation: vi.fn().mockResolvedValue({}),
+        createSession: vi.fn().mockResolvedValue({ id: 1 }),
+        endSession: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+      }),
+    },
+    DEFAULT_SETTINGS: {
+      enableSemgrep: true,
+      enableTrivy: true,
+      enableCpd: true,
+      enableMemory: true,
+      customRules: [],
+      ignorePatterns: ['*.md', '*.txt', '.gitignore', 'LICENSE', '*.lock'],
+      reviewLevel: 'normal',
+      enabledTools: [],
+      disabledTools: [],
+    },
+    DEFAULT_MODELS: {
+      anthropic: 'claude-sonnet-4-20250514',
+      openai: 'gpt-4o',
+      google: 'gemini-2.0-flash',
+    },
+    initializeDefaultTools: vi.fn(),
+    toolRegistry: {
+      getAll: vi.fn().mockReturnValue(mockTools),
+      getByName: vi.fn(),
+      getByTier: vi.fn(),
+      register: vi.fn(),
+      size: 15,
+      validateAll: vi.fn(),
+      clear: vi.fn(),
+    },
+  };
+});
 
 vi.mock('node:child_process', () => ({
   execSync: vi.fn(),
@@ -219,6 +341,8 @@ function defaultOptions(overrides: Partial<ReviewOptions> = {}): ReviewOptions {
     cpd: true,
     memory: true,
     verbose: false,
+    disableTools: [],
+    enableTools: [],
     ...overrides,
   };
 }
@@ -517,5 +641,396 @@ describe('reviewCommand — functional tests', () => {
     expect(allLogCalls.some((s: string) => s.includes('workflow'))).toBe(true);
     expect(allLogCalls.some((s: string) => s.includes('openai'))).toBe(true);
     expect(allLogCalls.some((s: string) => s.includes('gpt-4o'))).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Phase 7: Extensible tool system CLI flags
+// ═══════════════════════════════════════════════════════════════
+
+describe('Phase 7: --disable-tool flag', () => {
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let logSpy: any;
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let errorSpy: any;
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let exitSpy: any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    mockExistsSync.mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it('should pass disabledTools to settings when --disable-tool is used', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ disableTools: ['gitleaks'] }));
+
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    const settings = callArgs.settings as Record<string, unknown>;
+    expect(settings.disabledTools).toContain('gitleaks');
+  });
+
+  it('should pass multiple disabledTools when --disable-tool is repeated', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ disableTools: ['gitleaks', 'shellcheck', 'cpd'] }));
+
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    const settings = callArgs.settings as Record<string, unknown>;
+    const disabled = settings.disabledTools as string[];
+    expect(disabled).toContain('gitleaks');
+    expect(disabled).toContain('shellcheck');
+    expect(disabled).toContain('cpd');
+  });
+
+  it('should warn but not error for unknown tool in --disable-tool', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ disableTools: ['nonexistent'] }));
+
+    // Should warn about unknown tool
+    const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(allLogCalls.some((s: string) => s.includes('Unknown tool "nonexistent"'))).toBe(true);
+
+    // Should still proceed with review (not exit with error)
+    expect(mockReviewPipeline).toHaveBeenCalled();
+  });
+});
+
+describe('Phase 7: --enable-tool flag', () => {
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let logSpy: any;
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let errorSpy: any;
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let exitSpy: any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    mockExistsSync.mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it('should pass enabledTools to settings when --enable-tool is used', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ enableTools: ['ruff'] }));
+
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    const settings = callArgs.settings as Record<string, unknown>;
+    expect(settings.enabledTools).toContain('ruff');
+  });
+
+  it('should disable tool when both --enable-tool and --disable-tool for same tool', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ enableTools: ['ruff'], disableTools: ['ruff'] }));
+
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    const settings = callArgs.settings as Record<string, unknown>;
+    // --disable-tool takes precedence
+    expect(settings.disabledTools).toContain('ruff');
+    expect(settings.enabledTools).not.toContain('ruff');
+  });
+});
+
+describe('Phase 7: --list-tools flag', () => {
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let logSpy: any;
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let errorSpy: any;
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let exitSpy: any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    mockExistsSync.mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it('should print tool list and exit 0 with --list-tools', async () => {
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ listTools: true }));
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+
+    const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const output = allLogCalls.join('\n');
+    expect(output).toContain('ALWAYS-ON:');
+    expect(output).toContain('AUTO-DETECT:');
+    expect(output).toContain('semgrep');
+    expect(output).toContain('ruff');
+    expect(output).toContain('hadolint');
+  });
+
+  it('should print JSON array with --list-tools --format json', async () => {
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ listTools: true, format: 'json' }));
+
+    expect(exitSpy).toHaveBeenCalledWith(0);
+
+    // Find the JSON output
+    const jsonCall = logSpy.mock.calls.find((c: unknown[]) => {
+      try {
+        JSON.parse(String(c[0]));
+        return true;
+      } catch {
+        return false;
+      }
+    });
+
+    expect(jsonCall).toBeDefined();
+    const tools = JSON.parse(String(jsonCall[0]));
+    expect(Array.isArray(tools)).toBe(true);
+    expect(tools.length).toBe(15);
+
+    // Each tool should have the required fields
+    const first = tools[0];
+    expect(first).toHaveProperty('name');
+    expect(first).toHaveProperty('displayName');
+    expect(first).toHaveProperty('category');
+    expect(first).toHaveProperty('tier');
+    expect(first).toHaveProperty('version');
+  });
+
+  it('should call process.exit(0) before review pipeline when --list-tools is used', async () => {
+    // Note: process.exit is mocked as no-op, so execution continues past it.
+    // We verify exit(0) is called first (real behavior: exits before pipeline).
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ listTools: true }));
+
+    // Verify exit(0) was called (which would terminate before pipeline in real execution)
+    expect(exitSpy).toHaveBeenCalledWith(0);
+
+    // Verify exit was called before reviewPipeline would have been invoked
+    // In real execution, process.exit(0) terminates — the pipeline never runs.
+    const exitCallOrder = exitSpy.mock.invocationCallOrder[0];
+    if (mockReviewPipeline.mock.invocationCallOrder.length > 0) {
+      const pipelineCallOrder = mockReviewPipeline.mock.invocationCallOrder[0];
+      expect(exitCallOrder).toBeLessThan(pipelineCallOrder);
+    }
+  });
+});
+
+describe('Phase 7: deprecated --no-semgrep/--no-trivy/--no-cpd flags', () => {
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let logSpy: any;
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let errorSpy: any;
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let exitSpy: any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+    mockExistsSync.mockReturnValue(false);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it('should emit deprecation warning and map --no-semgrep to disabledTools', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ semgrep: false }));
+
+    // Deprecation warning should be printed
+    const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(
+      allLogCalls.some((s: string) =>
+        s.includes('--no-semgrep is deprecated, use --disable-tool semgrep instead'),
+      ),
+    ).toBe(true);
+
+    // Settings should have semgrep in disabledTools
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    const settings = callArgs.settings as Record<string, unknown>;
+    expect(settings.disabledTools).toContain('semgrep');
+  });
+
+  it('should emit deprecation warning for --no-trivy', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ trivy: false }));
+
+    const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(
+      allLogCalls.some((s: string) =>
+        s.includes('--no-trivy is deprecated, use --disable-tool trivy instead'),
+      ),
+    ).toBe(true);
+
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    const settings = callArgs.settings as Record<string, unknown>;
+    expect(settings.disabledTools).toContain('trivy');
+  });
+
+  it('should emit deprecation warning for --no-cpd', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ cpd: false }));
+
+    const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(
+      allLogCalls.some((s: string) =>
+        s.includes('--no-cpd is deprecated, use --disable-tool cpd instead'),
+      ),
+    ).toBe(true);
+
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    const settings = callArgs.settings as Record<string, unknown>;
+    expect(settings.disabledTools).toContain('cpd');
+  });
+
+  it('should combine deprecated --no-semgrep with new --disable-tool gitleaks', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ semgrep: false, disableTools: ['gitleaks'] }));
+
+    // Deprecation warning for --no-semgrep
+    const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(allLogCalls.some((s: string) => s.includes('--no-semgrep is deprecated'))).toBe(true);
+
+    // Both should be in disabledTools
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    const settings = callArgs.settings as Record<string, unknown>;
+    const disabled = settings.disabledTools as string[];
+    expect(disabled).toContain('semgrep');
+    expect(disabled).toContain('gitleaks');
+  });
+});
+
+describe('Phase 7: config file with new tool fields', () => {
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let logSpy: any;
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let errorSpy: any;
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let exitSpy: any;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+
+  it('should merge config file disabledTools with CLI --disable-tool', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        disabledTools: ['cpd', 'markdownlint'],
+      }),
+    );
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ disableTools: ['gitleaks'] }));
+
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    const settings = callArgs.settings as Record<string, unknown>;
+    const disabled = settings.disabledTools as string[];
+    expect(disabled).toContain('cpd');
+    expect(disabled).toContain('markdownlint');
+    expect(disabled).toContain('gitleaks');
+  });
+
+  it('should merge config file enabledTools with CLI --enable-tool', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        enabledTools: ['ruff'],
+      }),
+    );
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ enableTools: ['bandit'] }));
+
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    const settings = callArgs.settings as Record<string, unknown>;
+    const enabled = settings.enabledTools as string[];
+    expect(enabled).toContain('ruff');
+    expect(enabled).toContain('bandit');
+  });
+
+  it('should handle config file with old enableCpd: false format', async () => {
+    mockExecSync.mockReturnValue('diff content' as never);
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        enableCpd: false,
+      }),
+    );
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    const settings = callArgs.settings as Record<string, unknown>;
+    expect(settings.disabledTools).toContain('cpd');
   });
 });

@@ -5,6 +5,7 @@
  */
 
 import type { SaaSProvider } from 'ghagga-core';
+import { toolRegistry } from 'ghagga-core';
 import type { Database, DbProviderChainEntry, RepoSettings } from 'ghagga-db';
 import {
   DEFAULT_REPO_SETTINGS,
@@ -31,8 +32,32 @@ const RepoSettingsSchema = z
     reviewLevel: z.enum(['soft', 'normal', 'strict']).optional(),
     customRules: z.union([z.string(), z.array(z.string())]).optional(),
     ignorePatterns: z.array(z.string()).optional(),
+    enabledTools: z.array(z.string()).optional(),
+    disabledTools: z.array(z.string()).optional(),
   })
   .strict();
+
+/** Map of deprecated boolean field names to their tool names */
+const DEPRECATED_TOOL_BOOLEANS: Record<string, string> = {
+  enableSemgrep: 'semgrep',
+  enableTrivy: 'trivy',
+  enableCpd: 'cpd',
+};
+
+/** Get all valid tool names from the registry */
+function getValidToolNames(): Set<string> {
+  return new Set(toolRegistry.getAll().map((t) => t.name));
+}
+
+/** Get the registered tools list for API responses */
+function getRegisteredToolsList() {
+  return toolRegistry.getAll().map((t) => ({
+    name: t.name,
+    displayName: t.displayName,
+    category: t.category,
+    tier: t.tier,
+  }));
+}
 
 export function createSettingsRouter(db: Database) {
   const router = new Hono();
@@ -99,6 +124,9 @@ export function createSettingsRouter(db: Database) {
           enableMemory: settings.enableMemory,
           customRules: (settings.customRules ?? []).join('\n'),
           ignorePatterns: settings.ignorePatterns ?? [],
+          enabledTools: settings.enabledTools ?? [],
+          disabledTools: settings.disabledTools ?? [],
+          registeredTools: getRegisteredToolsList(),
           globalSettings,
         },
       });
@@ -139,6 +167,8 @@ export function createSettingsRouter(db: Database) {
       'reviewLevel',
       'customRules',
       'ignorePatterns',
+      'enabledTools',
+      'disabledTools',
     ];
     for (const key of SETTINGS_KEYS) {
       if (key in body) {
@@ -160,6 +190,29 @@ export function createSettingsRouter(db: Database) {
           },
           400,
         );
+      }
+
+      // Validate tool names against the registry
+      const validToolNames = getValidToolNames();
+      const toolArrayFields = ['enabledTools', 'disabledTools'] as const;
+      for (const field of toolArrayFields) {
+        const tools = parsed.data[field];
+        if (tools && tools.length > 0) {
+          const invalidTools = tools.filter((t: string) => !validToolNames.has(t));
+          if (invalidTools.length > 0) {
+            return c.json(
+              {
+                error: 'VALIDATION_ERROR',
+                message: `Unknown tool name(s): ${invalidTools.join(', ')}`,
+                details: invalidTools.map((name: string) => ({
+                  path: field,
+                  message: `Unknown tool: "${name}"`,
+                })),
+              },
+              400,
+            );
+          }
+        }
       }
     }
 
@@ -250,7 +303,36 @@ export function createSettingsRouter(db: Database) {
           typeof body.reviewLevel === 'string'
             ? (body.reviewLevel as RepoSettings['reviewLevel'])
             : currentSettings.reviewLevel,
+        enabledTools: Array.isArray(body.enabledTools)
+          ? (body.enabledTools as string[])
+          : currentSettings.enabledTools,
+        disabledTools: Array.isArray(body.disabledTools)
+          ? (body.disabledTools as string[])
+          : currentSettings.disabledTools,
       };
+
+      // ── Bidirectional translation: old booleans → new arrays ──
+      // If old boolean fields were sent, sync them into disabledTools
+      for (const [boolField, toolName] of Object.entries(DEPRECATED_TOOL_BOOLEANS)) {
+        if (typeof body[boolField] === 'boolean' && !Array.isArray(body.disabledTools)) {
+          // Only translate if the new array fields weren't explicitly sent
+          const disabled = settingsUpdate.disabledTools ?? [];
+          if (body[boolField] === false && !disabled.includes(toolName)) {
+            settingsUpdate.disabledTools = [...disabled, toolName];
+          } else if (body[boolField] === true) {
+            settingsUpdate.disabledTools = disabled.filter((t) => t !== toolName);
+          }
+        }
+      }
+
+      // ── Bidirectional translation: new arrays → old booleans ──
+      // If disabledTools was sent, sync back to old boolean fields
+      if (Array.isArray(body.disabledTools)) {
+        const disabled = body.disabledTools as string[];
+        settingsUpdate.enableSemgrep = !disabled.includes('semgrep');
+        settingsUpdate.enableTrivy = !disabled.includes('trivy');
+        settingsUpdate.enableCpd = !disabled.includes('cpd');
+      }
 
       await updateRepoSettings(db, repo.id, {
         settings: settingsUpdate,

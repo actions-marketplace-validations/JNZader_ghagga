@@ -69,6 +69,36 @@ vi.mock('ghagga-db', () => ({
     customRules: [],
     ignorePatterns: ['*.md', '*.txt', '.gitignore', 'LICENSE', '*.lock'],
     reviewLevel: 'normal',
+    enabledTools: undefined,
+    disabledTools: [],
+  },
+}));
+
+// Mock tool registry for settings API validation
+vi.mock('ghagga-core', () => ({
+  toolRegistry: {
+    getAll: () => [
+      { name: 'semgrep', displayName: 'Semgrep', category: 'security', tier: 'always-on' },
+      { name: 'trivy', displayName: 'Trivy', category: 'sca', tier: 'always-on' },
+      { name: 'cpd', displayName: 'CPD', category: 'duplication', tier: 'always-on' },
+      { name: 'gitleaks', displayName: 'Gitleaks', category: 'secrets', tier: 'always-on' },
+      { name: 'shellcheck', displayName: 'ShellCheck', category: 'linting', tier: 'always-on' },
+      { name: 'markdownlint', displayName: 'markdownlint', category: 'docs', tier: 'always-on' },
+      { name: 'lizard', displayName: 'Lizard', category: 'complexity', tier: 'always-on' },
+      { name: 'ruff', displayName: 'Ruff', category: 'linting', tier: 'auto-detect' },
+      { name: 'bandit', displayName: 'Bandit', category: 'security', tier: 'auto-detect' },
+      {
+        name: 'golangci-lint',
+        displayName: 'golangci-lint',
+        category: 'linting',
+        tier: 'auto-detect',
+      },
+      { name: 'biome', displayName: 'Biome', category: 'linting', tier: 'auto-detect' },
+      { name: 'pmd', displayName: 'PMD', category: 'quality', tier: 'auto-detect' },
+      { name: 'psalm', displayName: 'Psalm', category: 'quality', tier: 'auto-detect' },
+      { name: 'clippy', displayName: 'Clippy', category: 'linting', tier: 'auto-detect' },
+      { name: 'hadolint', displayName: 'Hadolint', category: 'linting', tier: 'auto-detect' },
+    ],
   },
 }));
 
@@ -3043,5 +3073,263 @@ describe('DELETE /api/memory/observations/batch', () => {
     expect(json.error).toBe('DELETE_FAILED');
     expect(json).toHaveProperty('errorId');
     expect(json.errorId).toHaveLength(8);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 6: Settings — enabledTools / disabledTools
+// ═══════════════════════════════════════════════════════════════════
+
+describe('GET /api/settings — tool fields', () => {
+  it('returns enabledTools, disabledTools, and registeredTools in response', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce({
+      ...FAKE_REPO,
+      settings: {
+        ...FAKE_REPO.settings,
+        enabledTools: [],
+        disabledTools: ['cpd', 'markdownlint'],
+      },
+    });
+    mockGetInstallationSettings.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request('/api/settings?repo=owner/repo');
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    const data = json.data;
+
+    expect(data.enabledTools).toEqual([]);
+    expect(data.disabledTools).toEqual(['cpd', 'markdownlint']);
+    expect(data.registeredTools).toBeDefined();
+    expect(data.registeredTools).toHaveLength(15);
+    expect(data.registeredTools[0]).toEqual(
+      expect.objectContaining({
+        name: expect.any(String),
+        displayName: expect.any(String),
+        category: expect.any(String),
+        tier: expect.stringMatching(/^(always-on|auto-detect)$/),
+      }),
+    );
+  });
+
+  it('defaults enabledTools to [] and disabledTools to [] when not in DB', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce({
+      ...FAKE_REPO,
+      settings: {
+        enableSemgrep: true,
+        enableTrivy: true,
+        enableCpd: true,
+        enableMemory: true,
+        customRules: [],
+        ignorePatterns: [],
+        reviewLevel: 'normal',
+        // No enabledTools or disabledTools in DB
+      },
+    });
+    mockGetInstallationSettings.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request('/api/settings?repo=owner/repo');
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data.enabledTools).toEqual([]);
+    expect(json.data.disabledTools).toEqual([]);
+  });
+});
+
+describe('PUT /api/settings — tool fields', () => {
+  it('accepts disabledTools array and saves it', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockUpdateRepoSettings.mockResolvedValueOnce(undefined);
+
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        disabledTools: ['cpd', 'markdownlint'],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const [, , updates] = mockUpdateRepoSettings.mock.calls[0];
+    expect(updates.settings.disabledTools).toEqual(['cpd', 'markdownlint']);
+    // Backward compat: disabledTools syncs to boolean fields
+    expect(updates.settings.enableCpd).toBe(false);
+    expect(updates.settings.enableSemgrep).toBe(true);
+    expect(updates.settings.enableTrivy).toBe(true);
+  });
+
+  it('accepts enabledTools array and saves it', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockUpdateRepoSettings.mockResolvedValueOnce(undefined);
+
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        enabledTools: ['semgrep', 'trivy', 'gitleaks'],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const [, , updates] = mockUpdateRepoSettings.mock.calls[0];
+    expect(updates.settings.enabledTools).toEqual(['semgrep', 'trivy', 'gitleaks']);
+  });
+
+  it('returns 400 for invalid tool names in disabledTools', async () => {
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        disabledTools: ['nonexistent-tool'],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toContain('nonexistent-tool');
+  });
+
+  it('returns 400 for invalid tool names in enabledTools', async () => {
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        enabledTools: ['fake-tool', 'another-fake'],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toContain('fake-tool');
+    expect(json.message).toContain('another-fake');
+  });
+
+  it('returns 400 when disabledTools is a string instead of array', async () => {
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        disabledTools: 'semgrep',
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toBe('Invalid settings');
+  });
+
+  it('new array fields take precedence over old booleans (spec: new fields override deprecated)', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockUpdateRepoSettings.mockResolvedValueOnce(undefined);
+
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        enableSemgrep: false,
+        enableTrivy: true,
+        disabledTools: ['cpd', 'gitleaks'],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const [, , updates] = mockUpdateRepoSettings.mock.calls[0];
+    // disabledTools was explicitly sent — new fields take precedence over deprecated booleans
+    expect(updates.settings.disabledTools).toEqual(['cpd', 'gitleaks']);
+    expect(updates.settings.enableCpd).toBe(false); // 'cpd' in disabledTools → false
+    // enableSemgrep: new array takes precedence — semgrep not in disabledTools → true
+    expect(updates.settings.enableSemgrep).toBe(true);
+    expect(updates.settings.enableTrivy).toBe(true);
+  });
+
+  it('translates old boolean enableSemgrep:false to disabledTools when new fields not sent', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce({
+      ...FAKE_REPO,
+      settings: {
+        ...FAKE_REPO.settings,
+        disabledTools: [],
+      },
+    });
+    mockUpdateRepoSettings.mockResolvedValueOnce(undefined);
+
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        enableSemgrep: false,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const [, , updates] = mockUpdateRepoSettings.mock.calls[0];
+    expect(updates.settings.enableSemgrep).toBe(false);
+    // Should have added 'semgrep' to disabledTools
+    expect(updates.settings.disabledTools).toContain('semgrep');
+  });
+
+  it('accepts valid tool names without error', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockUpdateRepoSettings.mockResolvedValueOnce(undefined);
+
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        disabledTools: ['semgrep', 'trivy', 'cpd', 'gitleaks', 'ruff'],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const [, , updates] = mockUpdateRepoSettings.mock.calls[0];
+    expect(updates.settings.disabledTools).toEqual(['semgrep', 'trivy', 'cpd', 'gitleaks', 'ruff']);
+  });
+
+  it('preserves existing disabledTools when not sent in update', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce({
+      ...FAKE_REPO,
+      settings: {
+        ...FAKE_REPO.settings,
+        disabledTools: ['cpd', 'markdownlint'],
+      },
+    });
+    mockUpdateRepoSettings.mockResolvedValueOnce(undefined);
+
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        enableMemory: false,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const [, , updates] = mockUpdateRepoSettings.mock.calls[0];
+    // Should preserve existing disabledTools since we didn't send it
+    expect(updates.settings.disabledTools).toEqual(['cpd', 'markdownlint']);
+    expect(updates.settings.enableMemory).toBe(false);
   });
 });

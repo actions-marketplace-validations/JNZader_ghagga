@@ -104,7 +104,14 @@ export const reviewFunction = inngest.createFunction(
     // Step 2: Dispatch static analysis to runner (if available)
     const runnerResult = await step.run('dispatch-runner', async () => {
       // Check if any static analysis tool is enabled
-      const anyToolEnabled = settings.enableSemgrep || settings.enableTrivy || settings.enableCpd;
+      // If new tool fields exist, always dispatch (tool resolution happens on runner)
+      // Otherwise fall back to legacy boolean check
+      const anyToolEnabled =
+        settings.enabledTools !== undefined ||
+        settings.disabledTools !== undefined ||
+        settings.enableSemgrep ||
+        settings.enableTrivy ||
+        settings.enableCpd;
       if (!anyToolEnabled) {
         log.info('No static analysis tools enabled — skipping runner');
         return { dispatched: false as const, callbackId: null };
@@ -148,6 +155,8 @@ export const reviewFunction = inngest.createFunction(
           enableSemgrep: settings.enableSemgrep,
           enableTrivy: settings.enableTrivy,
           enableCpd: settings.enableCpd,
+          enabledTools: settings.enabledTools,
+          disabledTools: settings.disabledTools,
           token,
         });
 
@@ -288,6 +297,8 @@ export const reviewFunction = inngest.createFunction(
           customRules: settings.customRules,
           ignorePatterns: settings.ignorePatterns,
           reviewLevel: settings.reviewLevel as ReviewLevel,
+          enabledTools: settings.enabledTools,
+          disabledTools: settings.disabledTools,
         },
         context: {
           repoFullName,

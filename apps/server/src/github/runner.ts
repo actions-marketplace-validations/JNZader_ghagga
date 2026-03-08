@@ -79,6 +79,8 @@ export interface WorkflowDispatchInputs {
   enableSemgrep: string;
   enableTrivy: string;
   enableCpd: string;
+  enabledTools: string;
+  disabledTools: string;
 }
 
 export interface DispatchParams {
@@ -91,6 +93,8 @@ export interface DispatchParams {
   enableSemgrep: boolean;
   enableTrivy: boolean;
   enableCpd: boolean;
+  enabledTools?: string[];
+  disabledTools?: string[];
   token: string;
 }
 
@@ -335,6 +339,8 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
     enableSemgrep,
     enableTrivy,
     enableCpd,
+    enabledTools,
+    disabledTools,
     token,
   } = params;
 
@@ -358,6 +364,8 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
     enableSemgrep: String(enableSemgrep),
     enableTrivy: String(enableTrivy),
     enableCpd: String(enableCpd),
+    enabledTools: JSON.stringify(enabledTools ?? []),
+    disabledTools: JSON.stringify(disabledTools ?? []),
   };
 
   const dispatchUrl = `https://api.github.com/repos/${runnerRepo}/actions/workflows/ghagga-analysis.yml/dispatches`;

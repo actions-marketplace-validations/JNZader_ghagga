@@ -72,6 +72,8 @@ export interface ReviewRequestedData {
     customRules: string[];
     ignorePatterns: string[];
     reviewLevel: string;
+    enabledTools?: string[];
+    disabledTools?: string[];
   };
 }
 

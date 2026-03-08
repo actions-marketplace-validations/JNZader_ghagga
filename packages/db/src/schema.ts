@@ -33,6 +33,12 @@ export interface RepoSettings {
   customRules: string[];
   ignorePatterns: string[];
   reviewLevel: 'soft' | 'normal' | 'strict';
+
+  // ── Extensible tool configuration (Phase 6) ──
+  /** Force-enable specific tools (overrides auto-detect). undefined = use tier defaults. */
+  enabledTools?: string[];
+  /** Force-disable specific tools (overrides always-on and auto-detect). */
+  disabledTools?: string[];
 }
 
 export const DEFAULT_REPO_SETTINGS: RepoSettings = {
@@ -43,6 +49,8 @@ export const DEFAULT_REPO_SETTINGS: RepoSettings = {
   customRules: [],
   ignorePatterns: ['*.md', '*.txt', '.gitignore', 'LICENSE', '*.lock'],
   reviewLevel: 'normal',
+  enabledTools: undefined,
+  disabledTools: [],
 };
 
 /**

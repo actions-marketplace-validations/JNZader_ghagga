@@ -3,9 +3,15 @@ import { Link } from 'react-router-dom';
 import { Card, CardHeader } from '@/components/Card';
 import { ProviderChainEditor } from '@/components/settings/ProviderChainEditor';
 import type { ProviderEntryState } from '@/components/settings/ProviderEntry';
+import { ToolGrid } from '@/components/settings/ToolGrid';
 import { useRepositories, useSettings, useUpdateSettings } from '@/lib/api';
 import { useSelectedRepo } from '@/lib/repo-context';
-import type { ProviderChainUpdate, ProviderChainView, ReviewMode } from '@/lib/types';
+import type {
+  ProviderChainUpdate,
+  ProviderChainView,
+  RegisteredTool,
+  ReviewMode,
+} from '@/lib/types';
 
 export function Settings() {
   const { selectedRepo, setSelectedRepo } = useSelectedRepo();
@@ -16,11 +22,15 @@ export function Settings() {
   // ── Global vs custom toggle ─────────────────────────────────
   const [useGlobalSettings, setUseGlobalSettings] = useState(true);
 
-  // ── Static analysis toggles ─────────────────────────────────
+  // ── Static analysis toggles (legacy) ─────────────────────────
   const [enableSemgrep, setEnableSemgrep] = useState(true);
   const [enableTrivy, setEnableTrivy] = useState(true);
   const [enableCpd, setEnableCpd] = useState(false);
   const [enableMemory, setEnableMemory] = useState(true);
+
+  // ── Tool grid state ─────────────────────────────────────────
+  const [disabledTools, setDisabledTools] = useState<string[]>([]);
+  const [registeredTools, setRegisteredTools] = useState<RegisteredTool[]>([]);
 
   // ── AI Review toggle ────────────────────────────────────────
   const [aiReviewEnabled, setAiReviewEnabled] = useState(true);
@@ -50,6 +60,8 @@ export function Settings() {
       setReviewMode(settings.reviewMode);
       setCustomRules(settings.customRules);
       setIgnorePatterns(settings.ignorePatterns.join('\n'));
+      setDisabledTools(settings.disabledTools ?? []);
+      setRegisteredTools(settings.registeredTools ?? []);
 
       // Map server chain view to local entry state
       setProviderChain(
@@ -126,6 +138,7 @@ export function Settings() {
         enableTrivy,
         enableCpd,
         enableMemory,
+        disabledTools,
         customRules,
         ignorePatterns: ignorePatterns
           .split('\n')
@@ -223,30 +236,45 @@ export function Settings() {
             /* ── Read-only inherited view ─────────────────────── */
             <div className="space-y-6 opacity-75">
               <Card>
-                <CardHeader title="Static Analysis" description="Inherited from global settings" />
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {[
-                    { label: 'Semgrep (security + patterns)', value: globalSettings.enableSemgrep },
-                    { label: 'Trivy (vulnerabilities)', value: globalSettings.enableTrivy },
-                    { label: 'PMD/CPD (code duplication)', value: globalSettings.enableCpd },
-                    { label: 'Memory (project knowledge)', value: globalSettings.enableMemory },
-                  ].map((toggle) => (
-                    <div
-                      key={toggle.label}
-                      className="flex items-center gap-3 rounded-lg border border-surface-border bg-surface-bg p-3"
-                    >
-                      <span
-                        className={`text-sm ${toggle.value ? 'text-green-400' : 'text-text-muted'}`}
+                <CardHeader
+                  title="Static Analysis Tools"
+                  description="Inherited from global settings"
+                />
+                {registeredTools.length > 0 ? (
+                  <ToolGrid
+                    tools={registeredTools}
+                    disabledTools={globalSettings.disabledTools ?? []}
+                    onToggle={() => {}}
+                    readOnly
+                  />
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {[
+                      {
+                        label: 'Semgrep (security + patterns)',
+                        value: globalSettings.enableSemgrep,
+                      },
+                      { label: 'Trivy (vulnerabilities)', value: globalSettings.enableTrivy },
+                      { label: 'PMD/CPD (code duplication)', value: globalSettings.enableCpd },
+                      { label: 'Memory (project knowledge)', value: globalSettings.enableMemory },
+                    ].map((toggle) => (
+                      <div
+                        key={toggle.label}
+                        className="flex items-center gap-3 rounded-lg border border-surface-border bg-surface-bg p-3"
                       >
-                        {toggle.value ? '✓' : '✕'}
-                      </span>
-                      <span className="text-sm text-text-secondary">{toggle.label}</span>
-                      <span className="ml-auto rounded bg-primary-600/20 px-2 py-0.5 text-xs text-primary-400">
-                        Inherited
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                        <span
+                          className={`text-sm ${toggle.value ? 'text-green-400' : 'text-text-muted'}`}
+                        >
+                          {toggle.value ? '✓' : '✕'}
+                        </span>
+                        <span className="text-sm text-text-secondary">{toggle.label}</span>
+                        <span className="ml-auto rounded bg-primary-600/20 px-2 py-0.5 text-xs text-primary-400">
+                          Inherited
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </Card>
 
               <Card>
@@ -274,44 +302,76 @@ export function Settings() {
           ) : !useGlobalSettings ? (
             /* ── Editable custom settings ─────────────────────── */
             <>
-              {/* ── Static Analysis ──────────────────────────────── */}
+              {/* ── Static Analysis Tools ────────────────────────── */}
               <Card>
                 <CardHeader
-                  title="Static Analysis"
+                  title="Static Analysis Tools"
                   description="Configure which static analysis tools run on pull requests"
                 />
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {[
-                    {
-                      label: 'Semgrep (security + patterns)',
-                      value: enableSemgrep,
-                      setter: setEnableSemgrep,
-                    },
-                    {
-                      label: 'Trivy (vulnerabilities)',
-                      value: enableTrivy,
-                      setter: setEnableTrivy,
-                    },
-                    { label: 'PMD/CPD (code duplication)', value: enableCpd, setter: setEnableCpd },
-                    {
-                      label: 'Memory (project knowledge)',
-                      value: enableMemory,
-                      setter: setEnableMemory,
-                    },
-                  ].map((toggle) => (
-                    <label
-                      key={toggle.label}
-                      className="flex cursor-pointer items-center gap-3 rounded-lg border border-surface-border bg-surface-bg p-3 transition-colors hover:border-surface-border/80"
-                    >
+                {registeredTools.length > 0 ? (
+                  <ToolGrid
+                    tools={registeredTools}
+                    disabledTools={disabledTools}
+                    onToggle={setDisabledTools}
+                  />
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {[
+                      {
+                        label: 'Semgrep (security + patterns)',
+                        value: enableSemgrep,
+                        setter: setEnableSemgrep,
+                      },
+                      {
+                        label: 'Trivy (vulnerabilities)',
+                        value: enableTrivy,
+                        setter: setEnableTrivy,
+                      },
+                      {
+                        label: 'PMD/CPD (code duplication)',
+                        value: enableCpd,
+                        setter: setEnableCpd,
+                      },
+                    ].map((toggle) => (
+                      <label
+                        key={toggle.label}
+                        className="flex cursor-pointer items-center gap-3 rounded-lg border border-surface-border bg-surface-bg p-3 transition-colors hover:border-surface-border/80"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={toggle.value}
+                          onChange={(e) => toggle.setter(e.target.checked)}
+                          className="h-4 w-4 accent-primary-600"
+                        />
+                        <span className="text-sm text-text-primary">{toggle.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </Card>
+
+              {/* ── Memory ────────────────────────────────────────── */}
+              <Card>
+                <div className="flex items-center justify-between">
+                  <CardHeader
+                    title="Memory"
+                    description="Enable project knowledge memory for context-aware reviews"
+                  />
+                  <label className="flex cursor-pointer items-center gap-3">
+                    <span className="text-sm text-text-secondary">
+                      {enableMemory ? 'Enabled' : 'Disabled'}
+                    </span>
+                    <div className="relative">
                       <input
                         type="checkbox"
-                        checked={toggle.value}
-                        onChange={(e) => toggle.setter(e.target.checked)}
-                        className="h-4 w-4 accent-primary-600"
+                        checked={enableMemory}
+                        onChange={(e) => setEnableMemory(e.target.checked)}
+                        className="peer sr-only"
                       />
-                      <span className="text-sm text-text-primary">{toggle.label}</span>
-                    </label>
-                  ))}
+                      <div className="h-6 w-11 rounded-full bg-surface-border peer-checked:bg-primary-600 transition-colors" />
+                      <div className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5" />
+                    </div>
+                  </label>
                 </div>
               </Card>
 

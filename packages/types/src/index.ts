@@ -8,6 +8,7 @@ export type {
   Observation,
   ProviderChainUpdate,
   ProviderChainView,
+  RegisteredTool,
   Repository,
   RepositorySettings,
   Review,

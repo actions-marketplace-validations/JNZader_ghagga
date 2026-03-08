@@ -121,9 +121,19 @@ export interface InstallationSettings {
   enableMemory: boolean;
   customRules: string;
   ignorePatterns: string[];
+  enabledTools?: string[];
+  disabledTools?: string[];
 }
 
 // ─── Settings ───────────────────────────────────────────────────
+
+/** Registered tool info returned by GET /api/settings */
+export interface RegisteredTool {
+  name: string;
+  displayName: string;
+  category: string;
+  tier: 'always-on' | 'auto-detect';
+}
 
 export interface RepositorySettings {
   repoId: number;
@@ -138,6 +148,9 @@ export interface RepositorySettings {
   enableMemory: boolean;
   customRules: string;
   ignorePatterns: string[];
+  enabledTools: string[];
+  disabledTools: string[];
+  registeredTools: RegisteredTool[];
   globalSettings?: InstallationSettings;
 }
 

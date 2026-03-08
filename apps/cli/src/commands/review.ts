@@ -18,12 +18,15 @@ import type {
   ReviewResult,
   ReviewSettings,
   ReviewStatus,
+  ToolDefinition,
 } from 'ghagga-core';
 import {
   DEFAULT_SETTINGS,
   EngramMemoryStorage,
+  initializeDefaultTools,
   reviewPipeline,
   SqliteMemoryStorage,
+  toolRegistry,
 } from 'ghagga-core';
 import { getConfigDir } from '../lib/config.js';
 import { getStagedDiff, resolveProjectId } from '../lib/git.js';
@@ -53,6 +56,13 @@ export interface ReviewOptions {
   commitMsg?: string;
   exitOnIssues?: boolean;
   quick?: boolean;
+  // Extensible tool system flags (Phase 7)
+  /** Tools to force-disable (repeatable --disable-tool) */
+  disableTools: string[];
+  /** Tools to force-enable (repeatable --enable-tool) */
+  enableTools: string[];
+  /** Print all available tools and exit */
+  listTools?: boolean;
 }
 
 interface GhaggaConfig {
@@ -65,6 +75,9 @@ interface GhaggaConfig {
   customRules?: string[];
   ignorePatterns?: string[];
   reviewLevel?: string;
+  // Extensible tool system (Phase 7)
+  disabledTools?: string[];
+  enabledTools?: string[];
 }
 
 // ─── Main Command ───────────────────────────────────────────────
@@ -75,6 +88,22 @@ export async function reviewCommand(targetPath: string, options: ReviewOptions):
   let memoryStorage: MemoryStorage | undefined;
 
   try {
+    // ── Ensure tool registry is initialized ──────────────────
+    initializeDefaultTools();
+
+    // ── Handle --list-tools (exit early, no repo needed) ─────
+    if (options.listTools) {
+      printToolList(options.format);
+      process.exit(0);
+    }
+
+    // ── Emit deprecation warnings for old flags ──────────────
+    emitDeprecationWarnings(options);
+
+    // ── Validate tool names in --disable-tool / --enable-tool ─
+    validateToolNames(options.disableTools, '--disable-tool');
+    validateToolNames(options.enableTools, '--enable-tool');
+
     // ── Mutual exclusivity check: --staged and --commit-msg ──
     if (options.staged && options.commitMsg) {
       tui.log.error('❌ --staged and --commit-msg are mutually exclusive. Use one or the other.');
@@ -316,8 +345,50 @@ function loadConfigFile(repoPath: string, configPath?: string): GhaggaConfig {
 /**
  * Merge CLI options, config file, and defaults.
  * Priority: CLI options > config file > defaults.
+ *
+ * For tool lists: CLI --disable-tool/--enable-tool flags are merged with
+ * config file disabledTools/enabledTools (CLI takes precedence via union).
+ * Deprecated --no-semgrep/--no-trivy/--no-cpd flags are translated into
+ * disabledTools entries.
  */
 function mergeSettings(options: ReviewOptions, fileConfig: GhaggaConfig): ReviewSettings {
+  // Collect disabledTools from: deprecated flags + CLI --disable-tool + config file
+  const disabledTools = new Set<string>(DEFAULT_SETTINGS.disabledTools ?? []);
+
+  // Translate deprecated boolean flags into disabledTools
+  if (options.semgrep === false) disabledTools.add('semgrep');
+  if (options.trivy === false) disabledTools.add('trivy');
+  if (options.cpd === false) disabledTools.add('cpd');
+
+  // Add config file disabledTools
+  if (fileConfig.disabledTools) {
+    for (const tool of fileConfig.disabledTools) disabledTools.add(tool);
+  }
+
+  // Translate deprecated config file boolean flags
+  if (fileConfig.enableSemgrep === false) disabledTools.add('semgrep');
+  if (fileConfig.enableTrivy === false) disabledTools.add('trivy');
+  if (fileConfig.enableCpd === false) disabledTools.add('cpd');
+
+  // CLI --disable-tool takes highest priority (additive)
+  for (const tool of options.disableTools ?? []) disabledTools.add(tool);
+
+  // Collect enabledTools from: CLI --enable-tool + config file
+  const enabledTools = new Set<string>(DEFAULT_SETTINGS.enabledTools ?? []);
+
+  // Config file enabledTools
+  if (fileConfig.enabledTools) {
+    for (const tool of fileConfig.enabledTools) enabledTools.add(tool);
+  }
+
+  // CLI --enable-tool (additive)
+  for (const tool of options.enableTools ?? []) enabledTools.add(tool);
+
+  // --disable-tool takes precedence over --enable-tool for same tool
+  for (const tool of disabledTools) {
+    enabledTools.delete(tool);
+  }
+
   return {
     enableSemgrep: options.semgrep ?? fileConfig.enableSemgrep ?? DEFAULT_SETTINGS.enableSemgrep,
     enableTrivy: options.trivy ?? fileConfig.enableTrivy ?? DEFAULT_SETTINGS.enableTrivy,
@@ -327,7 +398,97 @@ function mergeSettings(options: ReviewOptions, fileConfig: GhaggaConfig): Review
     ignorePatterns: fileConfig.ignorePatterns ?? DEFAULT_SETTINGS.ignorePatterns,
     reviewLevel:
       (fileConfig.reviewLevel as ReviewSettings['reviewLevel']) ?? DEFAULT_SETTINGS.reviewLevel,
+    disabledTools: Array.from(disabledTools),
+    enabledTools: Array.from(enabledTools),
   };
+}
+
+// ─── Tool List ──────────────────────────────────────────────────
+
+/**
+ * Print all registered tools grouped by tier.
+ * When format is 'json', outputs a JSON array.
+ * Otherwise outputs a formatted table.
+ */
+function printToolList(format: 'markdown' | 'json'): void {
+  initializeDefaultTools();
+  const allTools = toolRegistry.getAll();
+
+  if (format === 'json') {
+    const json = allTools.map((t) => ({
+      name: t.name,
+      displayName: t.displayName,
+      category: t.category,
+      tier: t.tier,
+      version: t.version,
+    }));
+    console.log(JSON.stringify(json, null, 2));
+    return;
+  }
+
+  const alwaysOn = allTools.filter((t) => t.tier === 'always-on');
+  const autoDetect = allTools.filter((t) => t.tier === 'auto-detect');
+
+  const lines: string[] = [];
+  lines.push('Available static analysis tools:');
+  lines.push('');
+  lines.push('ALWAYS-ON:');
+  for (const t of alwaysOn) {
+    lines.push(`  ${t.name.padEnd(18)}${t.displayName}`);
+  }
+  lines.push('');
+  lines.push('AUTO-DETECT:');
+  for (const t of autoDetect) {
+    lines.push(`  ${t.name.padEnd(18)}${t.displayName}`);
+  }
+
+  tui.log.message(lines.join('\n'));
+}
+
+// ─── Deprecation Warnings ───────────────────────────────────────
+
+/** Deprecated flag name → new tool name mapping */
+const DEPRECATED_FLAGS: Record<string, string> = {
+  semgrep: 'semgrep',
+  trivy: 'trivy',
+  cpd: 'cpd',
+};
+
+/**
+ * Emit deprecation warnings for old --no-semgrep/--no-trivy/--no-cpd flags.
+ * Returns the list of tools disabled via deprecated flags (for merging).
+ */
+function emitDeprecationWarnings(options: ReviewOptions): string[] {
+  const disabled: string[] = [];
+
+  for (const [flagName, toolName] of Object.entries(DEPRECATED_FLAGS)) {
+    // Commander negated options: --no-semgrep sets options.semgrep = false
+    const value = options[flagName as keyof ReviewOptions];
+    if (value === false) {
+      tui.log.warn(`⚠ --no-${flagName} is deprecated, use --disable-tool ${toolName} instead`);
+      disabled.push(toolName);
+    }
+  }
+
+  return disabled;
+}
+
+// ─── Tool Name Validation ───────────────────────────────────────
+
+/**
+ * Validate that tool names in --disable-tool / --enable-tool are known.
+ * Prints a warning for unknown tools but does NOT block execution.
+ */
+function validateToolNames(toolNames: string[] | undefined, _flagName: string): void {
+  if (!toolNames?.length) return;
+
+  const knownTools = toolRegistry.getAll().map((t) => t.name);
+
+  for (const name of toolNames) {
+    if (!knownTools.includes(name as ToolDefinition['name'])) {
+      tui.log.warn(`Warning: Unknown tool "${name}". Known tools: ${knownTools.join(', ')}`);
+    }
+  }
 }
 
 // ─── Verbose Progress ───────────────────────────────────────────
