@@ -19,6 +19,7 @@ vi.mock('node:os', () => ({
 
 // We need to mock promisify to return our mock execFile
 vi.mock('node:util', () => ({
+  // biome-ignore lint/suspicious/noExplicitAny: mock cast
   promisify: vi.fn((fn: any) => fn),
 }));
 
@@ -33,6 +34,7 @@ const mockWriteFile = vi.mocked(writeFile);
 const mockMkdtemp = vi.mocked(mkdtemp);
 const mockRm = vi.mocked(rm);
 
+// biome-ignore lint/suspicious/noExplicitAny: mock helper
 function makeSemgrepOutput(results: any[] = []) {
   return JSON.stringify({
     results,
@@ -67,8 +69,11 @@ function makeSemgrepResult(
 describe('runSemgrep', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     mockMkdtemp.mockResolvedValue('/tmp/ghagga-semgrep-abc123' as any);
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     mockWriteFile.mockResolvedValue(undefined as any);
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     mockRm.mockResolvedValue(undefined as any);
   });
 
@@ -101,6 +106,7 @@ describe('runSemgrep', () => {
   it('returns success with parsed findings', async () => {
     // First call: version check
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '1.0.0', stderr: '' } as any)
       // Second call: actual scan
       .mockResolvedValueOnce({
@@ -113,6 +119,7 @@ describe('runSemgrep', () => {
           }),
         ]),
         stderr: '',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const files = new Map([['src/auth.ts', 'const query = "SELECT * FROM users WHERE id=" + id;']]);
@@ -134,10 +141,12 @@ describe('runSemgrep', () => {
 
   it('returns success with empty findings when no issues found', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '1.0.0', stderr: '' } as any)
       .mockResolvedValueOnce({
         stdout: makeSemgrepOutput([]),
         stderr: '',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const result = await runSemgrep(new Map([['file.ts', 'clean code']]));
@@ -148,6 +157,7 @@ describe('runSemgrep', () => {
 
   it('parses multiple findings', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '1.0.0', stderr: '' } as any)
       .mockResolvedValueOnce({
         stdout: makeSemgrepOutput([
@@ -168,6 +178,7 @@ describe('runSemgrep', () => {
           }),
         ]),
         stderr: '',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const files = new Map([
@@ -187,7 +198,9 @@ describe('runSemgrep', () => {
 
   it('writes all files to temp directory', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '1.0.0', stderr: '' } as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: makeSemgrepOutput([]), stderr: '' } as any);
 
     const files = new Map([
@@ -206,12 +219,15 @@ describe('runSemgrep', () => {
 
   it('includes custom rules path when provided', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '1.0.0', stderr: '' } as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: makeSemgrepOutput([]), stderr: '' } as any);
 
     await runSemgrep(new Map([['file.ts', 'code']]), '/path/to/custom-rules.yml');
 
     // The second execFile call (scan) should include custom rules
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExecFile.mock.calls[1]!;
     const args = scanCall[1] as string[];
     expect(args).toContain('--config');
@@ -222,7 +238,9 @@ describe('runSemgrep', () => {
 
   it('cleans up temp directory after successful run', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '1.0.0', stderr: '' } as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: makeSemgrepOutput([]), stderr: '' } as any);
 
     await runSemgrep(new Map([['file.ts', 'code']]));
@@ -235,6 +253,7 @@ describe('runSemgrep', () => {
 
   it('cleans up temp directory even on scan error', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '1.0.0', stderr: '' } as any)
       .mockRejectedValueOnce(new Error('Scan failed'));
 
@@ -250,6 +269,7 @@ describe('runSemgrep', () => {
 
   it('returns error status when scan fails', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '1.0.0', stderr: '' } as any)
       .mockRejectedValueOnce(new Error('Process timeout'));
 
@@ -263,7 +283,9 @@ describe('runSemgrep', () => {
 
   it('includes executionTimeMs in all results', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '1.0.0', stderr: '' } as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: makeSemgrepOutput([]), stderr: '' } as any);
 
     const result = await runSemgrep(new Map([['file.ts', 'code']]));
@@ -274,6 +296,7 @@ describe('runSemgrep', () => {
 
   it('strips temp dir prefix from finding file paths', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '1.0.0', stderr: '' } as any)
       .mockResolvedValueOnce({
         stdout: makeSemgrepOutput([
@@ -282,6 +305,7 @@ describe('runSemgrep', () => {
           }),
         ]),
         stderr: '',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const result = await runSemgrep(new Map([['src/deep/nested/file.ts', 'code']]));

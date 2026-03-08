@@ -132,8 +132,9 @@ export async function runWorkflowReview(input: WorkflowReviewInput): Promise<Rev
   const specialistOutputs: string[] = [];
 
   for (let i = 0; i < results.length; i++) {
-    const result = results[i]!;
-    const spec = SPECIALISTS[i]!;
+    const result = results[i];
+    const spec = SPECIALISTS[i];
+    if (!result || !spec) continue;
 
     if (result.status === 'fulfilled') {
       totalTokens += result.value.tokensUsed;

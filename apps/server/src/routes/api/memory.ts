@@ -33,7 +33,10 @@ export function createMemoryRouter(db: Database) {
     const project = c.req.query('project');
 
     if (!project) {
-      return c.json({ error: 'Missing required query parameter: project' }, 400);
+      return c.json(
+        { error: 'VALIDATION_ERROR', message: 'Missing required query parameter: project' },
+        400,
+      );
     }
 
     // Verify user has access to this project's installation
@@ -41,11 +44,11 @@ export function createMemoryRouter(db: Database) {
     const repo = await getRepoByFullName(db, project);
 
     if (!repo) {
-      return c.json({ error: 'Repository not found' }, 404);
+      return c.json({ error: 'NOT_FOUND', message: 'Repository not found' }, 404);
     }
 
     if (!user.installationIds.includes(repo.installationId)) {
-      return c.json({ error: 'Forbidden' }, 403);
+      return c.json({ error: 'FORBIDDEN', message: 'Forbidden' }, 403);
     }
 
     const sessions = await getSessionsByProject(db, project);
@@ -59,20 +62,20 @@ export function createMemoryRouter(db: Database) {
     const sessionId = parseInt(c.req.param('id'), 10);
 
     if (Number.isNaN(sessionId)) {
-      return c.json({ error: 'Invalid session ID' }, 400);
+      return c.json({ error: 'VALIDATION_ERROR', message: 'Invalid session ID' }, 400);
     }
 
     // Authorization: verify the session's project belongs to the user's installations
     const session = await getSessionById(db, sessionId);
 
     if (!session) {
-      return c.json({ error: 'Session not found' }, 404);
+      return c.json({ error: 'NOT_FOUND', message: 'Session not found' }, 404);
     }
 
     const repo = await getRepoByFullName(db, session.project);
 
     if (!repo || !user.installationIds.includes(repo.installationId)) {
-      return c.json({ error: 'Forbidden' }, 403);
+      return c.json({ error: 'FORBIDDEN', message: 'Forbidden' }, 403);
     }
 
     const observations = await getObservationsBySession(db, sessionId);
@@ -93,7 +96,10 @@ export function createMemoryRouter(db: Database) {
       return c.json({ data: { cleared: totalCleared } });
     } catch (err) {
       logger.error({ err, user: user.githubLogin }, 'Failed to purge all memory observations');
-      return c.json({ error: 'Failed to purge all memory observations' }, 500);
+      return c.json(
+        { error: 'DELETE_FAILED', message: 'Failed to purge all memory observations' },
+        500,
+      );
     }
   });
 
@@ -103,7 +109,7 @@ export function createMemoryRouter(db: Database) {
     const id = parseInt(c.req.param('id'), 10);
 
     if (Number.isNaN(id)) {
-      return c.json({ error: 'Invalid observation ID' }, 400);
+      return c.json({ error: 'VALIDATION_ERROR', message: 'Invalid observation ID' }, 400);
     }
 
     try {
@@ -113,10 +119,13 @@ export function createMemoryRouter(db: Database) {
           return c.json({ data: { deleted: true } });
         }
       }
-      return c.json({ error: 'Observation not found' }, 404);
+      return c.json({ error: 'NOT_FOUND', message: 'Observation not found' }, 404);
     } catch (err) {
       logger.error({ err, user: user.githubLogin }, 'Failed to delete memory observation');
-      return c.json({ error: 'Failed to delete memory observation' }, 500);
+      return c.json(
+        { error: 'DELETE_FAILED', message: 'Failed to delete memory observation' },
+        500,
+      );
     }
   });
 
@@ -128,18 +137,21 @@ export function createMemoryRouter(db: Database) {
     try {
       const repo = await getRepoByFullName(db, project);
       if (!repo) {
-        return c.json({ error: 'Repository not found' }, 404);
+        return c.json({ error: 'NOT_FOUND', message: 'Repository not found' }, 404);
       }
 
       if (!user.installationIds.includes(repo.installationId)) {
-        return c.json({ error: 'Forbidden' }, 403);
+        return c.json({ error: 'FORBIDDEN', message: 'Forbidden' }, 403);
       }
 
       const cleared = await clearMemoryObservationsByProject(db, repo.installationId, project);
       return c.json({ data: { cleared } });
     } catch (err) {
       logger.error({ err, user: user.githubLogin }, 'Failed to clear project memory observations');
-      return c.json({ error: 'Failed to clear project memory observations' }, 500);
+      return c.json(
+        { error: 'DELETE_FAILED', message: 'Failed to clear project memory observations' },
+        500,
+      );
     }
   });
 
@@ -158,7 +170,10 @@ export function createMemoryRouter(db: Database) {
       return c.json({ data: { deletedCount: totalDeleted } });
     } catch (err) {
       logger.error({ err, user: user.githubLogin }, 'Failed to cleanup empty memory sessions');
-      return c.json({ error: 'Failed to cleanup empty memory sessions' }, 500);
+      return c.json(
+        { error: 'DELETE_FAILED', message: 'Failed to cleanup empty memory sessions' },
+        500,
+      );
     }
   });
 
@@ -168,7 +183,7 @@ export function createMemoryRouter(db: Database) {
     const id = parseInt(c.req.param('id'), 10);
 
     if (Number.isNaN(id)) {
-      return c.json({ error: 'Invalid session ID' }, 400);
+      return c.json({ error: 'VALIDATION_ERROR', message: 'Invalid session ID' }, 400);
     }
 
     try {
@@ -178,10 +193,10 @@ export function createMemoryRouter(db: Database) {
           return c.json({ data: { deleted: true } });
         }
       }
-      return c.json({ error: 'Session not found' }, 404);
+      return c.json({ error: 'NOT_FOUND', message: 'Session not found' }, 404);
     } catch (err) {
       logger.error({ err, user: user.githubLogin }, 'Failed to delete memory session');
-      return c.json({ error: 'Failed to delete memory session' }, 500);
+      return c.json({ error: 'DELETE_FAILED', message: 'Failed to delete memory session' }, 500);
     }
   });
 

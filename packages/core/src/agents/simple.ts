@@ -110,8 +110,8 @@ function parseFindingsBlock(text: string): ReviewFinding[] {
   const findingPattern =
     /- SEVERITY:\s*(\S+)\s*\n\s*CATEGORY:\s*(\S+)\s*\n\s*FILE:\s*(.+?)\s*\n\s*LINE:\s*(.+?)\s*\n\s*MESSAGE:\s*(.+?)\s*\n\s*SUGGESTION:\s*(.+?)(?=\n\s*- SEVERITY:|\n*$)/gis;
 
-  let match;
-  while ((match = findingPattern.exec(text)) !== null) {
+  let match = findingPattern.exec(text);
+  while (match !== null) {
     const rawSeverity = match[1]?.toLowerCase() as FindingSeverity;
     const severity: FindingSeverity = VALID_SEVERITIES.has(rawSeverity) ? rawSeverity : 'info';
 
@@ -127,6 +127,7 @@ function parseFindingsBlock(text: string): ReviewFinding[] {
       suggestion: match[6]?.trim(),
       source: 'ai' as FindingSource,
     });
+    match = findingPattern.exec(text);
   }
 
   return findings;

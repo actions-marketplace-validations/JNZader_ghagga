@@ -7,6 +7,7 @@ vi.mock('node:child_process', () => ({
 }));
 
 vi.mock('node:util', () => ({
+  // biome-ignore lint/suspicious/noExplicitAny: mock cast
   promisify: vi.fn((fn: any) => fn),
 }));
 
@@ -79,13 +80,16 @@ describe('runCpd', () => {
   it('uses standalone cpd when available', async () => {
     mockExecFile
       // cpd --help succeeds
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: 'cpd version', stderr: '' } as any)
       // cpd scan
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: makeCpdXml([]), stderr: '' } as any);
 
     await runCpd('/project');
 
     // The scan call should use 'cpd' (not 'pmd')
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExecFile.mock.calls[1]!;
     expect(scanCall[0]).toBe('cpd');
     expect(scanCall[1]).not.toContain('cpd'); // no 'cpd' in args (it's the command itself)
@@ -98,12 +102,15 @@ describe('runCpd', () => {
       // /usr/local/bin/cpd --help fails
       .mockRejectedValueOnce(new Error('not found'))
       // pmd cpd --help succeeds
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: 'pmd version', stderr: '' } as any)
       // pmd cpd scan
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: makeCpdXml([]), stderr: '' } as any);
 
     await runCpd('/project');
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExecFile.mock.calls[3]!;
     expect(scanCall[0]).toBe('pmd');
     expect((scanCall[1] as string[])[0]).toBe('cpd');
@@ -124,7 +131,9 @@ describe('runCpd', () => {
     ]);
 
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: 'cpd version', stderr: '' } as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: xml, stderr: '' } as any);
 
     const result = await runCpd('/project');
@@ -138,7 +147,9 @@ describe('runCpd', () => {
 
   it('returns success with empty findings when no duplications', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: 'cpd version', stderr: '' } as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: makeCpdXml([]), stderr: '' } as any);
 
     const result = await runCpd('/project');
@@ -151,11 +162,14 @@ describe('runCpd', () => {
 
   it('uses default minimum tokens of 100', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: 'cpd version', stderr: '' } as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: makeCpdXml([]), stderr: '' } as any);
 
     await runCpd('/project');
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExecFile.mock.calls[1]!;
     const args = scanCall[1] as string[];
     const tokenIdx = args.indexOf('--minimum-tokens');
@@ -164,11 +178,14 @@ describe('runCpd', () => {
 
   it('uses custom minimum tokens when provided', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: 'cpd version', stderr: '' } as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: makeCpdXml([]), stderr: '' } as any);
 
     await runCpd('/project', { minimumTokens: 50 });
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExecFile.mock.calls[1]!;
     const args = scanCall[1] as string[];
     const tokenIdx = args.indexOf('--minimum-tokens');
@@ -190,12 +207,14 @@ describe('runCpd', () => {
     ]);
 
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: 'cpd version', stderr: '' } as any)
       // CPD exit code 4: error object with stdout containing results
       .mockRejectedValueOnce({
         message: 'Process exited with code 4',
         stdout: xml,
         stderr: '',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const result = await runCpd('/project');
@@ -214,7 +233,9 @@ describe('runCpd', () => {
     ]);
 
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: 'cpd version', stderr: '' } as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockRejectedValueOnce({ stdout: xmlWithDup } as any);
 
     const result = await runCpd('/project');
@@ -227,6 +248,7 @@ describe('runCpd', () => {
 
   it('returns error when scan fails without stdout', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: 'cpd version', stderr: '' } as any)
       .mockRejectedValueOnce(new Error('Out of memory'));
 
@@ -240,10 +262,12 @@ describe('runCpd', () => {
 
   it('returns error when error object has stdout without pmd-cpd tag', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: 'cpd version', stderr: '' } as any)
       .mockRejectedValueOnce({
         message: 'Exit code 1',
         stdout: 'some non-XML garbage',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const result = await runCpd('/project');
@@ -253,10 +277,12 @@ describe('runCpd', () => {
 
   it('returns error when error has empty stdout', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: 'cpd version', stderr: '' } as any)
       .mockRejectedValueOnce({
         message: 'Failed',
         stdout: '',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const result = await runCpd('/project');
@@ -277,11 +303,14 @@ describe('runCpd', () => {
 
   it('passes correct arguments to cpd', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: 'cpd version', stderr: '' } as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: makeCpdXml([]), stderr: '' } as any);
 
     await runCpd('/my/project', { minimumTokens: 75 });
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExecFile.mock.calls[1]!;
     const args = scanCall[1] as string[];
     expect(args).toContain('--format');

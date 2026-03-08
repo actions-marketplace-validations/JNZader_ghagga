@@ -84,7 +84,7 @@ export function fromEngramContent(content: string): {
   // Extract [severity:xxx] from the first line
   const severityMatch = body.match(/^\[severity:(\w+)\]\n?/);
   if (severityMatch) {
-    severity = severityMatch[1]!;
+    severity = severityMatch[1] ?? null;
     body = body.slice(severityMatch[0].length);
   }
 

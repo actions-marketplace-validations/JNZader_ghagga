@@ -88,7 +88,7 @@ export function parseVote(
 
   // Extract CONFIDENCE
   const confidenceMatch = /CONFIDENCE:\s*([\d.]+)/i.exec(text);
-  let confidence = confidenceMatch ? parseFloat(confidenceMatch[1]!) : 0.5;
+  let confidence = confidenceMatch ? parseFloat(confidenceMatch[1] ?? '0.5') : 0.5;
   confidence = Math.max(0, Math.min(1, confidence)); // Clamp to [0, 1]
 
   // Extract REASONING (everything after REASONING:)
@@ -239,8 +239,9 @@ export async function runConsensusReview(input: ConsensusReviewInput): Promise<R
   let totalTokens = 0;
 
   for (let i = 0; i < results.length; i++) {
-    const result = results[i]!;
-    const config = models[i]!;
+    const result = results[i];
+    const config = models[i];
+    if (!result || !config) continue;
 
     if (result.status === 'fulfilled') {
       votes.push(result.value.vote);

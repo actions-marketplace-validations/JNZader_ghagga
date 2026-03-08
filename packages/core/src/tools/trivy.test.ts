@@ -7,6 +7,7 @@ vi.mock('node:child_process', () => ({
 }));
 
 vi.mock('node:util', () => ({
+  // biome-ignore lint/suspicious/noExplicitAny: mock cast
   promisify: vi.fn((fn: any) => fn),
 }));
 
@@ -17,6 +18,7 @@ import { mapSeverity, runTrivy } from './trivy.js';
 
 const mockExecFile = vi.mocked(execFile);
 
+// biome-ignore lint/suspicious/noExplicitAny: mock helper
 function makeTrivyOutput(results: any[] = []) {
   return JSON.stringify({ Results: results });
 }
@@ -83,6 +85,7 @@ describe('runTrivy', () => {
 
   it('returns success with parsed vulnerability findings', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: 'Version: 0.50.0', stderr: '' } as any)
       .mockResolvedValueOnce({
         stdout: makeTrivyOutput([
@@ -98,6 +101,7 @@ describe('runTrivy', () => {
           ]),
         ]),
         stderr: '',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const result = await runTrivy('/project');
@@ -121,6 +125,7 @@ describe('runTrivy', () => {
 
   it('handles no fix available', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '0.50.0', stderr: '' } as any)
       .mockResolvedValueOnce({
         stdout: makeTrivyOutput([
@@ -136,6 +141,7 @@ describe('runTrivy', () => {
           ]),
         ]),
         stderr: '',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const result = await runTrivy('/project');
@@ -146,6 +152,7 @@ describe('runTrivy', () => {
 
   it('uses Description when Title is not available', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '0.50.0', stderr: '' } as any)
       .mockResolvedValueOnce({
         stdout: makeTrivyOutput([
@@ -162,6 +169,7 @@ describe('runTrivy', () => {
           ]),
         ]),
         stderr: '',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const result = await runTrivy('/project');
@@ -171,6 +179,7 @@ describe('runTrivy', () => {
 
   it('uses "Known vulnerability" when neither Title nor Description available', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '0.50.0', stderr: '' } as any)
       .mockResolvedValueOnce({
         stdout: makeTrivyOutput([
@@ -187,6 +196,7 @@ describe('runTrivy', () => {
           ]),
         ]),
         stderr: '',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const result = await runTrivy('/project');
@@ -196,12 +206,14 @@ describe('runTrivy', () => {
 
   it('returns empty findings when no vulnerabilities found', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '0.50.0', stderr: '' } as any)
       .mockResolvedValueOnce({
         stdout: makeTrivyOutput([
           { Target: 'package-lock.json', Type: 'npm', Vulnerabilities: null },
         ]),
         stderr: '',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const result = await runTrivy('/project');
@@ -212,10 +224,12 @@ describe('runTrivy', () => {
 
   it('returns empty findings when Results is empty', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '0.50.0', stderr: '' } as any)
       .mockResolvedValueOnce({
         stdout: makeTrivyOutput([]),
         stderr: '',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const result = await runTrivy('/project');
@@ -226,10 +240,12 @@ describe('runTrivy', () => {
 
   it('handles missing Results field', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '0.50.0', stderr: '' } as any)
       .mockResolvedValueOnce({
         stdout: JSON.stringify({}),
         stderr: '',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const result = await runTrivy('/project');
@@ -240,6 +256,7 @@ describe('runTrivy', () => {
 
   it('parses multiple targets with multiple vulnerabilities', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '0.50.0', stderr: '' } as any)
       .mockResolvedValueOnce({
         stdout: makeTrivyOutput([
@@ -270,6 +287,7 @@ describe('runTrivy', () => {
           ]),
         ]),
         stderr: '',
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any);
 
     const result = await runTrivy('/project');
@@ -283,11 +301,14 @@ describe('runTrivy', () => {
 
   it('calls trivy with correct arguments', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '0.50.0', stderr: '' } as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: makeTrivyOutput([]), stderr: '' } as any);
 
     await runTrivy('/my/project');
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExecFile.mock.calls[1]!;
     expect(scanCall[0]).toBe('trivy');
     expect(scanCall[1]).toEqual([
@@ -305,6 +326,7 @@ describe('runTrivy', () => {
 
   it('returns error status when scan fails', async () => {
     mockExecFile
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce({ stdout: '0.50.0', stderr: '' } as any)
       .mockRejectedValueOnce(new Error('Timeout'));
 

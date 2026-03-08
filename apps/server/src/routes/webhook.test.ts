@@ -115,6 +115,7 @@ beforeEach(() => {
   process.env.GITHUB_WEBHOOK_SECRET = WEBHOOK_SECRET;
   process.env.GITHUB_APP_ID = '12345';
   process.env.GITHUB_PRIVATE_KEY = 'fake-private-key';
+  // biome-ignore lint/suspicious/noExplicitAny: mock cast
   router = createWebhookRouter({} as any); // db is mocked at module level
 
   // Default mock returns

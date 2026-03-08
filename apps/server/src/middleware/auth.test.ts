@@ -40,6 +40,7 @@ vi.mock('../lib/logger.js', () => ({
 // ─── Helpers ────────────────────────────────────────────────────
 
 const mockFetch = vi.fn();
+// biome-ignore lint/suspicious/noExplicitAny: mock cast
 const mockDb = {} as any;
 
 function createApp() {

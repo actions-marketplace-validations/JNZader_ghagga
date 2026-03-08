@@ -105,6 +105,7 @@ vi.mock('../github/runner.js', () => ({
 
 // ─── Helpers ────────────────────────────────────────────────────
 
+// biome-ignore lint/suspicious/noExplicitAny: mock cast
 const mockDb = {} as any;
 
 const DEFAULT_USER = {
@@ -220,7 +221,8 @@ describe('GET /api/reviews', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain('Missing required query parameter: repo');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toContain('Missing required query parameter: repo');
   });
 
   it('returns 404 when repo is not found', async () => {
@@ -231,7 +233,8 @@ describe('GET /api/reviews', () => {
 
     expect(res.status).toBe(404);
     const json = await res.json();
-    expect(json.error).toBe('Repository not found');
+    expect(json.error).toBe('NOT_FOUND');
+    expect(json.message).toBe('Repository not found');
   });
 
   it('returns 403 when user does not have access to repo installation', async () => {
@@ -245,7 +248,8 @@ describe('GET /api/reviews', () => {
 
     expect(res.status).toBe(403);
     const json = await res.json();
-    expect(json.error).toBe('Forbidden');
+    expect(json.error).toBe('FORBIDDEN');
+    expect(json.message).toBe('Forbidden');
   });
 
   it('returns 500 on DB error', async () => {
@@ -256,7 +260,8 @@ describe('GET /api/reviews', () => {
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toBe('Failed to fetch reviews');
+    expect(json.error).toBe('FETCH_FAILED');
+    expect(json.message).toBe('Failed to fetch reviews');
   });
 });
 
@@ -412,7 +417,8 @@ describe('GET /api/stats', () => {
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toBe('Failed to fetch stats');
+    expect(json.error).toBe('FETCH_FAILED');
+    expect(json.message).toBe('Failed to fetch stats');
   });
 });
 
@@ -459,7 +465,8 @@ describe('GET /api/repositories', () => {
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toBe('Failed to fetch repositories');
+    expect(json.error).toBe('FETCH_FAILED');
+    expect(json.message).toBe('Failed to fetch repositories');
   });
 });
 
@@ -506,7 +513,8 @@ describe('GET /api/installations', () => {
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toBe('Failed to fetch installations');
+    expect(json.error).toBe('FETCH_FAILED');
+    expect(json.message).toBe('Failed to fetch installations');
   });
 });
 
@@ -593,7 +601,8 @@ describe('GET /api/installation-settings', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain('Missing or invalid installation_id');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toContain('Missing or invalid installation_id');
   });
 
   it('returns 400 when installation_id is not a number', async () => {
@@ -609,7 +618,8 @@ describe('GET /api/installation-settings', () => {
 
     expect(res.status).toBe(403);
     const json = await res.json();
-    expect(json.error).toBe('Forbidden');
+    expect(json.error).toBe('FORBIDDEN');
+    expect(json.message).toBe('Forbidden');
   });
 
   it('returns 500 on DB error', async () => {
@@ -620,7 +630,8 @@ describe('GET /api/installation-settings', () => {
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toBe('Failed to fetch installation settings');
+    expect(json.error).toBe('FETCH_FAILED');
+    expect(json.message).toBe('Failed to fetch installation settings');
   });
 });
 
@@ -741,7 +752,8 @@ describe('PUT /api/installation-settings', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toBe('Invalid JSON body');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toBe('Invalid JSON body');
   });
 
   it('returns 400 when installationId is missing', async () => {
@@ -754,7 +766,8 @@ describe('PUT /api/installation-settings', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain('Missing or invalid installationId');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toContain('Missing or invalid installationId');
   });
 
   it('returns 400 when installationId is not a number', async () => {
@@ -792,7 +805,8 @@ describe('PUT /api/installation-settings', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain("Provider 'ollama' is not available");
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toContain("Provider 'ollama' is not available");
   });
 
   it('returns 500 on DB error', async () => {
@@ -812,7 +826,8 @@ describe('PUT /api/installation-settings', () => {
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toBe('Failed to update installation settings');
+    expect(json.error).toBe('UPDATE_FAILED');
+    expect(json.message).toBe('Failed to update installation settings');
   });
 });
 
@@ -1070,7 +1085,8 @@ describe('PUT /api/settings', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toBe('Invalid JSON body');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toBe('Invalid JSON body');
   });
 
   it('returns 400 when repoFullName is missing', async () => {
@@ -1083,7 +1099,8 @@ describe('PUT /api/settings', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toBe('Missing repoFullName');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toBe('Missing repoFullName');
   });
 
   it('returns 404 when repo not found', async () => {
@@ -1130,7 +1147,8 @@ describe('PUT /api/settings', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain("Provider 'ollama' is not available");
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toContain("Provider 'ollama' is not available");
   });
 
   it('handles empty providerChain', async () => {
@@ -1187,7 +1205,8 @@ describe('PUT /api/settings', () => {
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toBe('Failed to update settings');
+    expect(json.error).toBe('UPDATE_FAILED');
+    expect(json.message).toBe('Failed to update settings');
   });
 });
 
@@ -1266,7 +1285,8 @@ describe('POST /api/providers/validate', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toBe('Invalid JSON body');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toBe('Invalid JSON body');
   });
 
   it('returns 400 when provider is missing', async () => {
@@ -1279,7 +1299,8 @@ describe('POST /api/providers/validate', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toBe('Missing provider field');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toBe('Missing provider field');
   });
 
   it('returns 400 for ollama provider', async () => {
@@ -1292,7 +1313,8 @@ describe('POST /api/providers/validate', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain('Ollama is not available');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toContain('Ollama is not available');
   });
 
   it('returns 400 for unknown provider', async () => {
@@ -1305,7 +1327,8 @@ describe('POST /api/providers/validate', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain('Unknown provider');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toContain('Unknown provider');
   });
 
   it('returns 400 when apiKey missing for non-GitHub provider', async () => {
@@ -1318,7 +1341,8 @@ describe('POST /api/providers/validate', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toBe('Missing apiKey for non-GitHub provider');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toBe('Missing apiKey for non-GitHub provider');
   });
 
   it('returns error result when validateProviderKey throws', async () => {
@@ -1366,7 +1390,8 @@ describe('GET /api/memory/sessions', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain('Missing required query parameter: project');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toContain('Missing required query parameter: project');
   });
 
   it('returns 404 when project repo not found', async () => {
@@ -1429,7 +1454,8 @@ describe('GET /api/memory/sessions/:id/observations', () => {
 
     expect(res.status).toBe(403);
     const json = await res.json();
-    expect(json.error).toBe('Forbidden');
+    expect(json.error).toBe('FORBIDDEN');
+    expect(json.message).toBe('Forbidden');
     expect(mockGetObservationsBySession).not.toHaveBeenCalled();
   });
 
@@ -1441,7 +1467,8 @@ describe('GET /api/memory/sessions/:id/observations', () => {
 
     expect(res.status).toBe(404);
     const json = await res.json();
-    expect(json.error).toBe('Session not found');
+    expect(json.error).toBe('NOT_FOUND');
+    expect(json.message).toBe('Session not found');
     expect(mockGetObservationsBySession).not.toHaveBeenCalled();
   });
 
@@ -1451,7 +1478,8 @@ describe('GET /api/memory/sessions/:id/observations', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toBe('Invalid session ID');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toBe('Invalid session ID');
   });
 
   it('returns 403 when session project has no matching repo', async () => {
@@ -1463,7 +1491,8 @@ describe('GET /api/memory/sessions/:id/observations', () => {
 
     expect(res.status).toBe(403);
     const json = await res.json();
-    expect(json.error).toBe('Forbidden');
+    expect(json.error).toBe('FORBIDDEN');
+    expect(json.message).toBe('Forbidden');
     expect(mockGetObservationsBySession).not.toHaveBeenCalled();
   });
 
@@ -1614,7 +1643,8 @@ describe('GET /api/runner/status', () => {
 
     expect(res.status).toBe(502);
     const json = await res.json();
-    expect(json.error).toBe('github_unavailable');
+    expect(json.error).toBe('RUNNER_ERROR');
+    expect(json.message).toBe('Could not check runner status. Please try again.');
   });
 
   it('extracts token from Authorization header', async () => {
@@ -1715,7 +1745,7 @@ describe('POST /api/runner/create', () => {
 
     expect(res.status).toBe(409);
     const json = await res.json();
-    expect(json.error).toBe('already_exists');
+    expect(json.error).toBe('RUNNER_ERROR');
     expect(json.repoFullName).toBe('testuser/ghagga-runner');
   });
 
@@ -1732,7 +1762,7 @@ describe('POST /api/runner/create', () => {
 
     expect(res.status).toBe(403);
     const json = await res.json();
-    expect(json.error).toBe('insufficient_scope');
+    expect(json.error).toBe('RUNNER_ERROR');
   });
 
   it('returns 429 for rate_limited error with retryAfter', async () => {
@@ -1748,7 +1778,7 @@ describe('POST /api/runner/create', () => {
 
     expect(res.status).toBe(429);
     const json = await res.json();
-    expect(json.error).toBe('rate_limited');
+    expect(json.error).toBe('RUNNER_ERROR');
     expect(json.retryAfter).toBe(120);
   });
 
@@ -1765,7 +1795,7 @@ describe('POST /api/runner/create', () => {
 
     expect(res.status).toBe(502);
     const json = await res.json();
-    expect(json.error).toBe('template_unavailable');
+    expect(json.error).toBe('RUNNER_ERROR');
   });
 
   it('returns 403 for org_permission_denied error', async () => {
@@ -1781,7 +1811,7 @@ describe('POST /api/runner/create', () => {
 
     expect(res.status).toBe(403);
     const json = await res.json();
-    expect(json.error).toBe('org_permission_denied');
+    expect(json.error).toBe('RUNNER_ERROR');
   });
 
   it('returns 502 for creation_timeout error', async () => {
@@ -1797,7 +1827,7 @@ describe('POST /api/runner/create', () => {
 
     expect(res.status).toBe(502);
     const json = await res.json();
-    expect(json.error).toBe('github_error');
+    expect(json.error).toBe('RUNNER_ERROR');
     expect(json.message).toContain('timed out');
   });
 
@@ -1835,7 +1865,7 @@ describe('POST /api/runner/create', () => {
 
     expect(res.status).toBe(502);
     const json = await res.json();
-    expect(json.error).toBe('github_error');
+    expect(json.error).toBe('RUNNER_ERROR');
   });
 });
 
@@ -1868,7 +1898,8 @@ describe('DELETE /api/memory/observations/:id', () => {
 
     expect(res.status).toBe(404);
     const json = await res.json();
-    expect(json.error).toBe('Observation not found');
+    expect(json.error).toBe('NOT_FOUND');
+    expect(json.message).toBe('Observation not found');
   });
 
   it('returns 400 for invalid observation ID (S12)', async () => {
@@ -1879,7 +1910,8 @@ describe('DELETE /api/memory/observations/:id', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toBe('Invalid observation ID');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toBe('Invalid observation ID');
   });
 
   it('tries each installationId until observation is found', async () => {
@@ -1916,7 +1948,8 @@ describe('DELETE /api/memory/observations/:id', () => {
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toBe('Failed to delete memory observation');
+    expect(json.error).toBe('DELETE_FAILED');
+    expect(json.message).toBe('Failed to delete memory observation');
   });
 });
 
@@ -1950,7 +1983,8 @@ describe('DELETE /api/memory/projects/:project/observations', () => {
 
     expect(res.status).toBe(404);
     const json = await res.json();
-    expect(json.error).toBe('Repository not found');
+    expect(json.error).toBe('NOT_FOUND');
+    expect(json.message).toBe('Repository not found');
   });
 
   it('returns 403 when user does not own the installation (S16)', async () => {
@@ -1964,7 +1998,8 @@ describe('DELETE /api/memory/projects/:project/observations', () => {
 
     expect(res.status).toBe(403);
     const json = await res.json();
-    expect(json.error).toBe('Forbidden');
+    expect(json.error).toBe('FORBIDDEN');
+    expect(json.message).toBe('Forbidden');
   });
 
   it('returns 200 with cleared:0 when no observations exist (S17)', async () => {
@@ -2003,7 +2038,8 @@ describe('DELETE /api/memory/projects/:project/observations', () => {
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toBe('Failed to clear project memory observations');
+    expect(json.error).toBe('DELETE_FAILED');
+    expect(json.message).toBe('Failed to clear project memory observations');
   });
 });
 
@@ -2073,7 +2109,8 @@ describe('DELETE /api/memory/observations (purge-all)', () => {
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toBe('Failed to purge all memory observations');
+    expect(json.error).toBe('DELETE_FAILED');
+    expect(json.message).toBe('Failed to purge all memory observations');
   });
 });
 
@@ -2155,7 +2192,8 @@ describe('DELETE /api/memory/sessions/empty', () => {
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toBe('Failed to cleanup empty memory sessions');
+    expect(json.error).toBe('DELETE_FAILED');
+    expect(json.message).toBe('Failed to cleanup empty memory sessions');
   });
 });
 
@@ -2188,7 +2226,8 @@ describe('DELETE /api/memory/sessions/:id', () => {
 
     expect(res.status).toBe(404);
     const json = await res.json();
-    expect(json.error).toBe('Session not found');
+    expect(json.error).toBe('NOT_FOUND');
+    expect(json.message).toBe('Session not found');
   });
 
   it('returns 400 for invalid session ID', async () => {
@@ -2199,7 +2238,8 @@ describe('DELETE /api/memory/sessions/:id', () => {
 
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toBe('Invalid session ID');
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toBe('Invalid session ID');
   });
 
   it('tries each installationId until session is found', async () => {
@@ -2236,7 +2276,8 @@ describe('DELETE /api/memory/sessions/:id', () => {
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toBe('Failed to delete memory session');
+    expect(json.error).toBe('DELETE_FAILED');
+    expect(json.message).toBe('Failed to delete memory session');
   });
 });
 
@@ -2295,7 +2336,8 @@ describe('POST /api/runner/configure-secret', () => {
 
     expect(res.status).toBe(404);
     const json = await res.json();
-    expect(json.error).toBe('runner_not_found');
+    expect(json.error).toBe('NOT_FOUND');
+    expect(json.message).toBe('Runner repo not found. Create it first.');
   });
 
   it('returns 502 when secret set fails', async () => {
@@ -2314,7 +2356,8 @@ describe('POST /api/runner/configure-secret', () => {
 
     expect(res.status).toBe(502);
     const json = await res.json();
-    expect(json.error).toBe('github_error');
+    expect(json.error).toBe('RUNNER_ERROR');
+    expect(json.message).toBe('Failed to configure runner secret.');
   });
 
   it('returns 502 when discoverRunnerRepo throws', async () => {
@@ -2328,6 +2371,7 @@ describe('POST /api/runner/configure-secret', () => {
 
     expect(res.status).toBe(502);
     const json = await res.json();
-    expect(json.error).toBe('github_error');
+    expect(json.error).toBe('RUNNER_ERROR');
+    expect(json.message).toBe('Failed to configure runner secret.');
   });
 });

@@ -91,6 +91,7 @@ describe('runWorkflowReview', () => {
     vi.clearAllMocks();
 
     // Default: all generateText calls succeed
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     mockGenerateText.mockResolvedValue(makeSpecialistResult('Specialist output') as any);
 
     // Default: parseReviewResponse returns a valid result
@@ -125,6 +126,7 @@ describe('runWorkflowReview', () => {
 
     // First 5 calls are specialists
     for (let i = 0; i < 5; i++) {
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       const call = mockGenerateText.mock.calls[i]?.[0] as any;
       expect(call.temperature).toBe(0.3);
       expect(call.prompt).toContain('my-diff-content');
@@ -139,6 +141,7 @@ describe('runWorkflowReview', () => {
     await runWorkflowReview(input);
 
     // Check the first specialist call
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     const call = mockGenerateText.mock.calls[0]?.[0] as any;
     expect(call.system).toContain('STATIC_CONTEXT_DATA');
     expect(call.system).toContain('STACK_HINTS_DATA');
@@ -148,6 +151,7 @@ describe('runWorkflowReview', () => {
     const input = makeInput({ memoryContext: 'past-review-data' });
     await runWorkflowReview(input);
 
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     const call = mockGenerateText.mock.calls[0]?.[0] as any;
     expect(call.system).toContain('MEMORY:past-review-data');
   });
@@ -157,6 +161,7 @@ describe('runWorkflowReview', () => {
   it('passes SYNTHESIS_SYSTEM with review-level and calibration in system prompt for the 6th call', async () => {
     await runWorkflowReview(makeInput());
 
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
     expect(synthesisCall.system).toContain('SYNTHESIS_SYSTEM');
     expect(synthesisCall.system).toContain('REVIEW_LEVEL:normal');
@@ -167,15 +172,22 @@ describe('runWorkflowReview', () => {
   it('includes all specialist outputs in the synthesis prompt', async () => {
     // Make each specialist return different text
     mockGenerateText
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Scope output') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Standards output') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Errors output') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Security output') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Performance output') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Synthesis final') as any);
 
     await runWorkflowReview(makeInput());
 
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
     expect(synthesisCall.prompt).toContain('Scope output');
     expect(synthesisCall.prompt).toContain('Standards output');
@@ -188,15 +200,21 @@ describe('runWorkflowReview', () => {
 
   it('includes [FAILED] marker in synthesis prompt when a specialist fails', async () => {
     mockGenerateText
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Scope output') as any)
       .mockRejectedValueOnce(new Error('Standards LLM timeout'))
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Errors output') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Security output') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Performance output') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Synthesis final') as any);
 
     await runWorkflowReview(makeInput());
 
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
     expect(synthesisCall.prompt).toContain('[FAILED]');
     expect(synthesisCall.prompt).toContain('Standards LLM timeout');
@@ -206,9 +224,13 @@ describe('runWorkflowReview', () => {
     mockGenerateText
       .mockRejectedValueOnce(new Error('Fail 1'))
       .mockRejectedValueOnce(new Error('Fail 2'))
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Errors output') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Security output') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Performance output') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Synthesis final') as any);
 
     const result = await runWorkflowReview(makeInput());
@@ -221,11 +243,17 @@ describe('runWorkflowReview', () => {
 
   it('aggregates tokens from all successful specialists and synthesis', async () => {
     mockGenerateText
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s1', 100, 50) as any) // 150
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s2', 200, 100) as any) // 300
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s3', 150, 75) as any) // 225
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s4', 180, 90) as any) // 270
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s5', 120, 60) as any) // 180
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('syn', 300, 200) as any); // 500
 
     await runWorkflowReview(makeInput());
@@ -243,11 +271,16 @@ describe('runWorkflowReview', () => {
 
   it('does not count tokens from failed specialists', async () => {
     mockGenerateText
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s1', 100, 50) as any) // 150
       .mockRejectedValueOnce(new Error('fail')) // 0
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s3', 100, 50) as any) // 150
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s4', 100, 50) as any) // 150
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s5', 100, 50) as any) // 150
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('syn', 100, 50) as any); // 150
 
     await runWorkflowReview(makeInput());
@@ -267,6 +300,7 @@ describe('runWorkflowReview', () => {
     mockGenerateText.mockResolvedValue({
       text: 'output',
       usage: undefined,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     await runWorkflowReview(makeInput());
@@ -286,11 +320,17 @@ describe('runWorkflowReview', () => {
 
   it('calls parseReviewResponse with synthesis text output', async () => {
     mockGenerateText
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s1') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s2') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s3') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s4') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s5') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('Final synthesis text') as any);
 
     await runWorkflowReview(makeInput());
@@ -357,17 +397,24 @@ describe('runWorkflowReview', () => {
   it('calls onProgress for each successful specialist with token count', async () => {
     const onProgress = vi.fn();
     mockGenerateText
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('scope', 50, 50) as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('standards', 50, 50) as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('errors', 50, 50) as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('security', 50, 50) as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('perf', 50, 50) as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('synthesis') as any);
 
     await runWorkflowReview(makeInput({ onProgress }));
 
     // Should have specialist progress events with ✓
     const specialistCalls = onProgress.mock.calls.filter(
+      // biome-ignore lint/suspicious/noExplicitAny: mock callback type
       ([event]: [any]) => event.step.startsWith('specialist-') && event.message.includes('✓'),
     );
     expect(specialistCalls).toHaveLength(5);
@@ -377,15 +424,21 @@ describe('runWorkflowReview', () => {
     const onProgress = vi.fn();
     mockGenerateText
       .mockRejectedValueOnce(new Error('boom'))
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s2') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s3') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s4') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('s5') as any)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       .mockResolvedValueOnce(makeSpecialistResult('syn') as any);
 
     await runWorkflowReview(makeInput({ onProgress }));
 
     const failedCalls = onProgress.mock.calls.filter(
+      // biome-ignore lint/suspicious/noExplicitAny: mock callback type
       ([event]: [any]) => event.step.startsWith('specialist-') && event.message.includes('✗'),
     );
     expect(failedCalls).toHaveLength(1);
@@ -415,6 +468,7 @@ describe('runWorkflowReview', () => {
 
     // All 5 specialist calls should contain the review level instruction
     for (let i = 0; i < 5; i++) {
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       const call = mockGenerateText.mock.calls[i]?.[0] as any;
       expect(call.system).toContain('REVIEW_LEVEL:soft');
     }
@@ -424,6 +478,7 @@ describe('runWorkflowReview', () => {
     await runWorkflowReview(makeInput());
 
     for (let i = 0; i < 5; i++) {
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       const call = mockGenerateText.mock.calls[i]?.[0] as any;
       expect(call.system).toContain('REVIEW_CALIBRATION_BLOCK');
     }
@@ -432,6 +487,7 @@ describe('runWorkflowReview', () => {
   it('includes review-level instruction in synthesis system prompt', async () => {
     await runWorkflowReview(makeInput({ reviewLevel: 'strict' }));
 
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
     expect(synthesisCall.system).toContain('REVIEW_LEVEL:strict');
   });
@@ -439,6 +495,7 @@ describe('runWorkflowReview', () => {
   it('includes REVIEW_CALIBRATION in synthesis system prompt', async () => {
     await runWorkflowReview(makeInput());
 
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
     expect(synthesisCall.system).toContain('REVIEW_CALIBRATION_BLOCK');
   });

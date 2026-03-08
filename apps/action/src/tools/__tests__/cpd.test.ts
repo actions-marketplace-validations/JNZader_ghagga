@@ -38,6 +38,7 @@ function simulateExec(exitCode: number, stdout = '', stderr = ''): ReturnType<ty
       options.listeners.stderr(Buffer.from(stderr));
     }
     return exitCode;
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
   }) as any;
 }
 
@@ -131,6 +132,7 @@ describe('installCpd', () => {
 
     await installCpd();
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const installCall = mockExec.mock.calls[0]!;
     const bashScript = (installCall[1] as string[])[1];
     expect(bashScript).toContain(TOOL_VERSIONS.pmd);
@@ -213,6 +215,7 @@ describe('executeCpd', () => {
 
     const result = await executeCpd('/workspace');
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const first = result.findings[0]!;
     expect(first.severity).toBe('medium');
     expect(first.category).toBe('duplication');
@@ -229,6 +232,7 @@ describe('executeCpd', () => {
 
     const result = await executeCpd('/workspace');
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const first = result.findings[0]!;
     expect(first.message).toContain('src/utils.ts:10');
     expect(first.message).toContain('src/helpers.ts:30');
@@ -240,6 +244,7 @@ describe('executeCpd', () => {
 
     const result = await executeCpd('/workspace');
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const second = result.findings[1]!;
     expect(second.message).toContain('src/api/handler.ts:50');
     expect(second.message).toContain('src/api/middleware.ts:20');
@@ -336,6 +341,7 @@ describe('executeCpd', () => {
 
     await executeCpd('/my/repo');
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExec.mock.calls[1]!;
     expect(scanCall[0]).toBe('/opt/pmd/bin/pmd');
     expect(scanCall[1]).toEqual([
@@ -424,6 +430,7 @@ describe('executeCpd', () => {
 
     const result = await executeCpd('/workspace');
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const first = result.findings[0]!;
     // The locations should be joined with ", " not ""
     expect(first.message).toContain('src/utils.ts:10, src/helpers.ts:30');
@@ -482,7 +489,9 @@ describe('executeCpd', () => {
 
     await installCpd();
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const installCall = mockExec.mock.calls[0]!;
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const bashScript = (installCall[1] as string[])[1]!;
     expect(bashScript).toContain('unzip -q /tmp/pmd.zip -d /opt');
     expect(bashScript).toContain(`mv /opt/pmd-bin-${TOOL_VERSIONS.pmd} /opt/pmd`);

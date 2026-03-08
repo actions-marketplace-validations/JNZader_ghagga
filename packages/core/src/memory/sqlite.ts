@@ -208,7 +208,8 @@ export class SqliteMemoryStorage implements MemoryStorage {
     );
 
     if (dedupRows.length > 0 && dedupRows[0]?.values.length > 0) {
-      const row = dedupRows[0]?.values[0]!;
+      const row = dedupRows[0]?.values[0];
+      if (!row) throw new Error('Unexpected empty row after dedup check');
       const existingId = row[0] as number;
 
       // If the existing observation is from a different session, reassign it
@@ -264,7 +265,8 @@ export class SqliteMemoryStorage implements MemoryStorage {
           [data.content, data.title, contentHash, filePathsJson, data.severity ?? null, existingId],
         );
 
-        const row = updated[0]?.values[0]!;
+        const row = updated[0]?.values[0];
+        if (!row) throw new Error('Unexpected empty row after topic upsert');
         return {
           id: row[0] as number,
           type: row[1] as string,
@@ -298,7 +300,8 @@ export class SqliteMemoryStorage implements MemoryStorage {
       ],
     );
 
-    const row = inserted[0]?.values[0]!;
+    const row = inserted[0]?.values[0];
+    if (!row) throw new Error('Unexpected empty row after insert');
     return {
       id: row[0] as number,
       type: row[1] as string,

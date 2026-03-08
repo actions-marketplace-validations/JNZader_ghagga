@@ -153,6 +153,7 @@ describe('reviewPipeline', () => {
     });
 
     it('throws on missing provider', async () => {
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       await expect(reviewPipeline(makeInput({ provider: '' as any }))).rejects.toThrow('provider');
     });
 
@@ -332,6 +333,7 @@ index 1234567..abcdefg 100644
           ignorePatterns: [],
           reviewLevel: 'normal',
         },
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
         memoryStorage: {} as any, // Fake memoryStorage to enable memory
       });
 
@@ -637,6 +639,7 @@ index 1234567..abcdefg 100644
             ignorePatterns: [],
             reviewLevel: 'normal',
           },
+          // biome-ignore lint/suspicious/noExplicitAny: mock cast
           memoryStorage: {} as any,
         }),
       );

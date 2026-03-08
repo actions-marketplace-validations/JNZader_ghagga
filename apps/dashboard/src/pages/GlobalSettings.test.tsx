@@ -438,6 +438,7 @@ describe('RunnerCard — needs_reauth state', () => {
     });
 
     const buttons = screen.getAllByText('Re-authenticate');
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known DOM structure
     fireEvent.click(buttons[0]!);
     expect(mockReAuthenticate).toHaveBeenCalledOnce();
   });

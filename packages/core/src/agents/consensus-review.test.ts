@@ -78,6 +78,7 @@ function makeVoteResponse(decision = 'approve', confidence = '0.8') {
 describe('runConsensusReview reviewLevel injection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     mockGenerateText.mockResolvedValue(makeVoteResponse() as any);
   });
 
@@ -86,6 +87,7 @@ describe('runConsensusReview reviewLevel injection', () => {
 
     expect(mockGenerateText).toHaveBeenCalledTimes(3);
     for (let i = 0; i < 3; i++) {
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       const call = mockGenerateText.mock.calls[i]?.[0] as any;
       expect(call.system).toContain('REVIEW_LEVEL:soft');
     }
@@ -96,6 +98,7 @@ describe('runConsensusReview reviewLevel injection', () => {
 
     expect(mockGenerateText).toHaveBeenCalledTimes(3);
     for (let i = 0; i < 3; i++) {
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       const call = mockGenerateText.mock.calls[i]?.[0] as any;
       expect(call.system).toContain('REVIEW_LEVEL:normal');
     }
@@ -106,6 +109,7 @@ describe('runConsensusReview reviewLevel injection', () => {
 
     expect(mockGenerateText).toHaveBeenCalledTimes(3);
     for (let i = 0; i < 3; i++) {
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       const call = mockGenerateText.mock.calls[i]?.[0] as any;
       expect(call.system).toContain('REVIEW_LEVEL:strict');
     }
@@ -115,6 +119,7 @@ describe('runConsensusReview reviewLevel injection', () => {
     await runConsensusReview(makeInput());
 
     for (let i = 0; i < 3; i++) {
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       const call = mockGenerateText.mock.calls[i]?.[0] as any;
       expect(call.system).toContain('REVIEW_CALIBRATION_BLOCK');
     }

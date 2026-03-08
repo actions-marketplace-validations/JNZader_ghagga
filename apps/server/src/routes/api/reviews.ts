@@ -20,18 +20,21 @@ export function createReviewsRouter(db: Database) {
     const offset = (page - 1) * limit;
 
     if (!repoFullName) {
-      return c.json({ error: 'Missing required query parameter: repo' }, 400);
+      return c.json(
+        { error: 'VALIDATION_ERROR', message: 'Missing required query parameter: repo' },
+        400,
+      );
     }
 
     try {
       const repo = await getRepoByFullName(db, repoFullName);
 
       if (!repo) {
-        return c.json({ error: 'Repository not found' }, 404);
+        return c.json({ error: 'NOT_FOUND', message: 'Repository not found' }, 404);
       }
 
       if (!user.installationIds.includes(repo.installationId)) {
-        return c.json({ error: 'Forbidden' }, 403);
+        return c.json({ error: 'FORBIDDEN', message: 'Forbidden' }, 403);
       }
 
       const reviews = await getReviewsByRepoId(db, repo.id, { limit, offset });
@@ -42,7 +45,7 @@ export function createReviewsRouter(db: Database) {
       });
     } catch (err) {
       logger.error({ err, repo: repoFullName, user: user.githubLogin }, 'Failed to fetch reviews');
-      return c.json({ error: 'Failed to fetch reviews' }, 500);
+      return c.json({ error: 'FETCH_FAILED', message: 'Failed to fetch reviews' }, 500);
     }
   });
 
@@ -52,18 +55,21 @@ export function createReviewsRouter(db: Database) {
     const repoFullName = c.req.query('repo');
 
     if (!repoFullName) {
-      return c.json({ error: 'Missing required query parameter: repo' }, 400);
+      return c.json(
+        { error: 'VALIDATION_ERROR', message: 'Missing required query parameter: repo' },
+        400,
+      );
     }
 
     try {
       const repo = await getRepoByFullName(db, repoFullName);
 
       if (!repo) {
-        return c.json({ error: 'Repository not found' }, 404);
+        return c.json({ error: 'NOT_FOUND', message: 'Repository not found' }, 404);
       }
 
       if (!user.installationIds.includes(repo.installationId)) {
-        return c.json({ error: 'Forbidden' }, 403);
+        return c.json({ error: 'FORBIDDEN', message: 'Forbidden' }, 403);
       }
 
       const [raw, reviewsByDay] = await Promise.all([
@@ -91,7 +97,7 @@ export function createReviewsRouter(db: Database) {
       });
     } catch (err) {
       logger.error({ err, repo: repoFullName, user: user.githubLogin }, 'Failed to fetch stats');
-      return c.json({ error: 'Failed to fetch stats' }, 500);
+      return c.json({ error: 'FETCH_FAILED', message: 'Failed to fetch stats' }, 500);
     }
   });
 

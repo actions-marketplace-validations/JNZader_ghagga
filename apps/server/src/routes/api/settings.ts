@@ -43,18 +43,21 @@ export function createSettingsRouter(db: Database) {
     const repoFullName = c.req.query('repo');
 
     if (!repoFullName) {
-      return c.json({ error: 'Missing required query parameter: repo' }, 400);
+      return c.json(
+        { error: 'VALIDATION_ERROR', message: 'Missing required query parameter: repo' },
+        400,
+      );
     }
 
     try {
       const repo = await getRepoByFullName(db, repoFullName);
 
       if (!repo) {
-        return c.json({ error: 'Repository not found' }, 404);
+        return c.json({ error: 'NOT_FOUND', message: 'Repository not found' }, 404);
       }
 
       if (!user.installationIds.includes(repo.installationId)) {
-        return c.json({ error: 'Forbidden' }, 403);
+        return c.json({ error: 'FORBIDDEN', message: 'Forbidden' }, 403);
       }
 
       const settings = repo.settings as RepoSettings;
@@ -101,7 +104,7 @@ export function createSettingsRouter(db: Database) {
       });
     } catch (err) {
       logger.error({ err, repo: repoFullName, user: user.githubLogin }, 'Failed to fetch settings');
-      return c.json({ error: 'Failed to fetch settings' }, 500);
+      return c.json({ error: 'FETCH_FAILED', message: 'Failed to fetch settings' }, 500);
     }
   });
 
@@ -113,12 +116,12 @@ export function createSettingsRouter(db: Database) {
     try {
       body = await c.req.json();
     } catch {
-      return c.json({ error: 'Invalid JSON body' }, 400);
+      return c.json({ error: 'VALIDATION_ERROR', message: 'Invalid JSON body' }, 400);
     }
 
     const repoFullName = body.repoFullName as string | undefined;
     if (!repoFullName) {
-      return c.json({ error: 'Missing repoFullName' }, 400);
+      return c.json({ error: 'VALIDATION_ERROR', message: 'Missing repoFullName' }, 400);
     }
 
     // Validate settings fields with Zod (if any settings-related fields are present)
@@ -144,7 +147,8 @@ export function createSettingsRouter(db: Database) {
       if (!parsed.success) {
         return c.json(
           {
-            error: 'Invalid settings',
+            error: 'VALIDATION_ERROR',
+            message: 'Invalid settings',
             details: parsed.error.issues.map((i) => ({
               path: i.path.join('.'),
               message: i.message,
@@ -158,11 +162,11 @@ export function createSettingsRouter(db: Database) {
     try {
       const repo = await getRepoByFullName(db, repoFullName);
       if (!repo) {
-        return c.json({ error: 'Repository not found' }, 404);
+        return c.json({ error: 'NOT_FOUND', message: 'Repository not found' }, 404);
       }
 
       if (!user.installationIds.includes(repo.installationId)) {
-        return c.json({ error: 'Forbidden' }, 403);
+        return c.json({ error: 'FORBIDDEN', message: 'Forbidden' }, 403);
       }
 
       // Validate no Ollama in the chain
@@ -176,7 +180,10 @@ export function createSettingsRouter(db: Database) {
       for (const entry of incomingChain) {
         if (!VALID_SAAS_PROVIDERS.includes(entry.provider)) {
           return c.json(
-            { error: `Provider '${entry.provider}' is not available in the SaaS dashboard` },
+            {
+              error: 'VALIDATION_ERROR',
+              message: `Provider '${entry.provider}' is not available in the SaaS dashboard`,
+            },
             400,
           );
         }
@@ -261,7 +268,7 @@ export function createSettingsRouter(db: Database) {
         { err, repo: repoFullName, user: user.githubLogin },
         'Failed to update settings',
       );
-      return c.json({ error: 'Failed to update settings' }, 500);
+      return c.json({ error: 'UPDATE_FAILED', message: 'Failed to update settings' }, 500);
     }
   });
 
@@ -273,24 +280,27 @@ export function createSettingsRouter(db: Database) {
     try {
       body = await c.req.json();
     } catch {
-      return c.json({ error: 'Invalid JSON body' }, 400);
+      return c.json({ error: 'VALIDATION_ERROR', message: 'Invalid JSON body' }, 400);
     }
 
     const provider = body.provider;
     if (!provider) {
-      return c.json({ error: 'Missing provider field' }, 400);
+      return c.json({ error: 'VALIDATION_ERROR', message: 'Missing provider field' }, 400);
     }
 
     if (provider === 'ollama') {
       return c.json(
-        { error: 'Ollama is not available in the SaaS dashboard. Use CLI or Action instead.' },
+        {
+          error: 'VALIDATION_ERROR',
+          message: 'Ollama is not available in the SaaS dashboard. Use CLI or Action instead.',
+        },
         400,
       );
     }
 
     const validProviders = ['anthropic', 'openai', 'google', 'github', 'qwen'];
     if (!validProviders.includes(provider)) {
-      return c.json({ error: `Unknown provider: ${provider}` }, 400);
+      return c.json({ error: 'VALIDATION_ERROR', message: `Unknown provider: ${provider}` }, 400);
     }
 
     // For GitHub Models, use the user's session token
@@ -299,11 +309,14 @@ export function createSettingsRouter(db: Database) {
       const authHeader = c.req.header('Authorization') ?? '';
       apiKey = authHeader.replace(/^Bearer\s+/i, '');
     } else if (!apiKey) {
-      return c.json({ error: 'Missing apiKey for non-GitHub provider' }, 400);
+      return c.json(
+        { error: 'VALIDATION_ERROR', message: 'Missing apiKey for non-GitHub provider' },
+        400,
+      );
     }
 
     try {
-      const result = await validateProviderKey(provider as SaaSProvider, apiKey!);
+      const result = await validateProviderKey(provider as SaaSProvider, apiKey ?? '');
       return c.json(result);
     } catch (err) {
       logger.error({ err, provider, user: user.githubLogin }, 'Provider validation error');

@@ -138,6 +138,7 @@ beforeEach(() => {
   process.env.GITHUB_APP_ID = '99999';
   process.env.GITHUB_PRIVATE_KEY = 'test-private-key';
 
+  // biome-ignore lint/suspicious/noExplicitAny: mock cast
   router = createWebhookRouter({} as any);
 
   // Default mock returns
@@ -196,6 +197,7 @@ describe('integration: webhook -> review dispatch', () => {
     expect(mockInngestSend).toHaveBeenCalledOnce();
 
     // Verify Inngest event data shape
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const event = mockInngestSend.mock.calls[0]![0];
     expect(event.name).toBe('ghagga/review.requested');
     expect(event.data).toMatchObject({
@@ -291,6 +293,7 @@ describe('integration: webhook -> review dispatch', () => {
 
     // Verify Inngest event includes comment metadata
     expect(mockInngestSend).toHaveBeenCalledOnce();
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const event = mockInngestSend.mock.calls[0]![0];
     expect(event.data.triggerCommentId).toBe(555);
     expect(event.data.headSha).toBe('abc123def');

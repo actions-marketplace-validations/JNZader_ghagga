@@ -363,6 +363,7 @@ describe('runLocalAnalysis', () => {
     // Extract the number — should be small (< 10s), not huge (Date.now() + start would be ~3 trillion)
     const match = (completeCall?.[0] as string).match(/([\d.]+)s/);
     expect(match).toBeDefined();
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const seconds = parseFloat(match?.[1]!);
     expect(seconds).toBeLessThan(10);
   });

@@ -34,6 +34,7 @@ function simulateExec(
       options.listeners.stderr(Buffer.from(stderr));
     }
     return exitCode;
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
   }) as any;
 }
 

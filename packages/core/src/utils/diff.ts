@@ -65,7 +65,7 @@ export function parseDiffFiles(diff: string): DiffFile[] {
       // Start of a new file — flush previous
       flushCurrent();
       currentFile = {
-        path: match[1]!,
+        path: match[1] ?? '',
         additions: 0,
         deletions: 0,
         content: '',

@@ -48,6 +48,7 @@ describe('SqliteMemoryStorage', () => {
   describe('create()', () => {
     it('initializes schema with required tables and FTS5', async () => {
       const storage = await SqliteMemoryStorage.create(dbPath);
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       const db = (storage as any).db;
 
       // Check memory_sessions table exists
@@ -128,6 +129,7 @@ describe('SqliteMemoryStorage', () => {
       const row = await storage.saveObservation(makeObservationData({ sessionId: session.id }));
 
       // Verify via raw SQL
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       const db = (storage as any).db;
       const result = db.exec(`SELECT session_id FROM memory_observations WHERE id = ${row.id}`);
       expect(result[0]?.values[0]?.[0]).toBe(session.id);
@@ -288,6 +290,7 @@ describe('SqliteMemoryStorage', () => {
       );
 
       // Query raw SQL to check revision_count
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       const db = (storage as any).db;
       const result = db.exec(
         `SELECT revision_count FROM memory_observations WHERE id = ${first.id}`,
@@ -471,6 +474,7 @@ describe('SqliteMemoryStorage', () => {
       const session = await storage.createSession({ project: 'owner/repo', prNumber: 1 });
       await storage.endSession(session.id, 'Review completed with 3 findings.');
 
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       const db = (storage as any).db;
       const result = db.exec(
         `SELECT ended_at, summary FROM memory_sessions WHERE id = ${session.id}`,
@@ -486,6 +490,7 @@ describe('SqliteMemoryStorage', () => {
 
       const session = await storage.createSession({ project: 'owner/repo' });
 
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       const db = (storage as any).db;
       const result = db.exec(`SELECT pr_number FROM memory_sessions WHERE id = ${session.id}`);
       expect(result[0]?.values[0]?.[0]).toBeNull();
@@ -556,6 +561,7 @@ describe('SqliteMemoryStorage', () => {
       );
 
       // Manually stagger created_at so ordering is deterministic
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       const db = (storage as any).db;
       db.run(
         "UPDATE memory_observations SET created_at = '2025-01-01 00:00:00' WHERE title = 'Oldest'",

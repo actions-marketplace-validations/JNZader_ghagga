@@ -95,6 +95,7 @@ describe('persistReviewObservations', () => {
 
   it('returns early when storage is null', async () => {
     const storage = createMockStorage();
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     await persistReviewObservations(null as any, 'owner/repo', 1, makeResult());
 
     expect(storage.createSession).not.toHaveBeenCalled();
@@ -103,11 +104,13 @@ describe('persistReviewObservations', () => {
   });
 
   it('returns early when storage is undefined', async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     await persistReviewObservations(undefined as any, 'owner/repo', 1, makeResult());
     // No mock to check — just verify it doesn't throw
   });
 
   it('returns early when storage is empty string (falsy)', async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     await persistReviewObservations('' as any, 'owner/repo', 1, makeResult());
     // No mock to check — just verify it doesn't throw
   });

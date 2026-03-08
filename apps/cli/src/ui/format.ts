@@ -18,6 +18,7 @@ export function formatTable(headers: string[], rows: string[][], widths: number[
   const lines: string[] = [];
 
   // Header row
+  // biome-ignore lint/style/noNonNullAssertion: widths array is parallel to headers
   lines.push(headers.map((h, i) => h.padEnd(widths[i]!)).join('  '));
 
   // Separator row
@@ -25,6 +26,7 @@ export function formatTable(headers: string[], rows: string[][], widths: number[
 
   // Data rows
   for (const row of rows) {
+    // biome-ignore lint/style/noNonNullAssertion: widths array is parallel to row
     lines.push(row.map((cell, i) => cell.padEnd(widths[i]!)).join('  '));
   }
 

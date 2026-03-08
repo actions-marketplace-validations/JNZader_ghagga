@@ -243,17 +243,18 @@ function makeReviewResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
 }
 
 describe('reviewCommand — functional tests', () => {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
   let logSpy: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
   let errorSpy: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
   let exitSpy: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
     mockExistsSync.mockReturnValue(false); // no .ghagga.json by default
   });

@@ -259,8 +259,11 @@ describe('inngest/review — dispatch-runner step', () => {
 
     const { step, calls } = createMockStep();
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     // dispatch-runner was called but it should NOT trigger discoverRunnerRepo
@@ -284,8 +287,11 @@ describe('inngest/review — dispatch-runner step', () => {
 
     const { step, calls } = createMockStep();
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     // discoverRunnerRepo was called (since semgrep is enabled)
@@ -332,8 +338,11 @@ describe('inngest/review — dispatch-runner step', () => {
     );
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     // Runner discovery and dispatch both called
@@ -385,8 +394,11 @@ describe('inngest/review — dispatch-runner step', () => {
     const { step } = createMockStep({}, { 'wait-for-runner': null });
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     // Dispatch happened
@@ -422,8 +434,11 @@ describe('inngest/review — dispatch-runner step', () => {
     const { step, calls } = createMockStep();
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     // dispatch was attempted
@@ -468,8 +483,11 @@ describe('inngest/review — dispatch-runner step', () => {
     });
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     // dispatch-runner sees missing credentials → returns dispatched: false
@@ -518,8 +536,11 @@ describe('inngest/review — full step orchestration', () => {
     const { step, calls } = createMockStep();
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     // Verify step execution order
@@ -547,8 +568,11 @@ describe('inngest/review — full step orchestration', () => {
     const { step, calls } = createMockStep();
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     const stepNames = calls.map((c) => c.name);
@@ -596,8 +620,11 @@ describe('inngest/review — full step orchestration', () => {
     );
 
     const result = await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     // Full flow: fetch-context, dispatch-runner, wait-for-runner,
@@ -643,8 +670,11 @@ describe('inngest/review — full step orchestration', () => {
     const { step } = createMockStep();
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     expect(mockSaveReview).toHaveBeenCalledWith(
@@ -672,8 +702,11 @@ describe('inngest/review — full step orchestration', () => {
     const { step } = createMockStep();
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     expect(mockPostComment).toHaveBeenCalledWith(
@@ -694,8 +727,11 @@ describe('inngest/review — full step orchestration', () => {
     const { step } = createMockStep();
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     expect(mockAddCommentReaction).toHaveBeenCalledWith(
@@ -744,8 +780,11 @@ describe('inngest/review — provider chain / API key handling', () => {
     const { step } = createMockStep();
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     expect(mockDecrypt).toHaveBeenCalledWith('enc-openai-key');
@@ -774,8 +813,11 @@ describe('inngest/review — provider chain / API key handling', () => {
     const { step } = createMockStep();
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     expect(mockReviewPipeline).toHaveBeenCalledWith(
@@ -801,8 +843,11 @@ describe('inngest/review — provider chain / API key handling', () => {
     const { step } = createMockStep();
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     expect(mockDecrypt).toHaveBeenCalledWith('enc-a');
@@ -832,8 +877,11 @@ describe('inngest/review — provider chain / API key handling', () => {
     const { step } = createMockStep();
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     // github entry filtered, anthropic kept
@@ -862,8 +910,11 @@ describe('inngest/review — provider chain / API key handling', () => {
     const { step } = createMockStep();
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     // All chain entries filtered → providerChain undefined → falls back to legacy
@@ -891,8 +942,11 @@ describe('inngest/review — provider chain / API key handling', () => {
     const { step } = createMockStep();
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     // Legacy github without key → AI disabled
@@ -935,8 +989,11 @@ describe('inngest/review — error handling', () => {
 
     await expect(
       mod.reviewFunction.fn({
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
         event: { data: eventData } as any,
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
         step: step as any,
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any),
     ).rejects.toThrow('GITHUB_APP_ID and GITHUB_PRIVATE_KEY must be set');
   });
@@ -950,8 +1007,11 @@ describe('inngest/review — error handling', () => {
 
     await expect(
       mod.reviewFunction.fn({
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
         event: { data: eventData } as any,
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
         step: step as any,
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any),
     ).rejects.toThrow('GITHUB_APP_ID and GITHUB_PRIVATE_KEY must be set');
   });
@@ -973,8 +1033,11 @@ describe('inngest/review — error handling', () => {
 
     await expect(
       mod.reviewFunction.fn({
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
         event: { data: eventData } as any,
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
         step: step as any,
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
       } as any),
     ).rejects.toThrow(/No API key configured for provider anthropic/);
   });
@@ -996,8 +1059,11 @@ describe('inngest/review — error handling', () => {
 
     // Should NOT throw — gracefully degrades
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     // reviewPipeline should have been called with memoryStorage: undefined
@@ -1069,8 +1135,11 @@ describe('inngest/review — formatReviewComment (via post-comment)', () => {
     const { step } = createMockStep();
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     const postedComment = mockPostComment.mock.calls[0]?.[3] as string;
@@ -1118,8 +1187,11 @@ describe('inngest/review — formatReviewComment (via post-comment)', () => {
     const { step } = createMockStep();
 
     await mod.reviewFunction.fn({
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       event: { data: eventData } as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
       step: step as any,
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     const postedComment = mockPostComment.mock.calls[0]?.[3] as string;

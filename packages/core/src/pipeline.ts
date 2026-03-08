@@ -320,14 +320,18 @@ function resolveAiEnabled(input: ReviewInput): boolean {
  */
 function resolvePrimaryProvider(input: ReviewInput): ProviderChainEntry {
   if (input.providerChain && input.providerChain.length > 0) {
-    return input.providerChain[0]!;
+    const first = input.providerChain[0];
+    if (first) return first;
   }
 
   // Backward compat: single provider from flat fields
+  if (!input.provider || !input.model || !input.apiKey) {
+    throw new Error('No provider chain and no single provider configured');
+  }
   return {
-    provider: input.provider! as ProviderChainEntry['provider'],
-    model: input.model!,
-    apiKey: input.apiKey!,
+    provider: input.provider as ProviderChainEntry['provider'],
+    model: input.model,
+    apiKey: input.apiKey,
   };
 }
 
@@ -336,7 +340,7 @@ function resolvePrimaryProvider(input: ReviewInput): ProviderChainEntry {
  */
 function resolvePrimaryModel(input: ReviewInput): string {
   if (input.providerChain && input.providerChain.length > 0) {
-    return input.providerChain[0]?.model;
+    return input.providerChain[0]?.model ?? 'gpt-4o-mini';
   }
   return input.model ?? 'gpt-4o-mini';
 }

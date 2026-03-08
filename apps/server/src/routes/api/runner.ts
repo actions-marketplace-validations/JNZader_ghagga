@@ -48,7 +48,7 @@ export function createRunnerRouter(_db: Database) {
       logger.error({ err, user: user.githubLogin }, 'Failed to check runner status');
       return c.json(
         {
-          error: 'github_unavailable',
+          error: 'RUNNER_ERROR',
           message: 'Could not check runner status. Please try again.',
         },
         502,
@@ -66,7 +66,7 @@ export function createRunnerRouter(_db: Database) {
       const result = await createRunnerRepo({
         ownerLogin: user.githubLogin,
         token,
-        callbackSecretValue: process.env.GHAGGA_WEBHOOK_SECRET!,
+        callbackSecretValue: process.env.GHAGGA_WEBHOOK_SECRET ?? '',
       });
 
       const response: Record<string, unknown> = {
@@ -100,27 +100,38 @@ export function createRunnerRouter(_db: Database) {
 
         switch (err.code) {
           case 'insufficient_scope':
-            return c.json(
-              { error: 'insufficient_scope', message: userMessages.insufficient_scope },
-              403,
-            );
+            return c.json({ error: 'RUNNER_ERROR', message: userMessages.insufficient_scope }, 403);
           case 'already_exists':
-            return c.json({ error: 'already_exists', repoFullName: err.repoFullName }, 409);
+            return c.json(
+              {
+                error: 'RUNNER_ERROR',
+                message: userMessages.already_exists,
+                repoFullName: err.repoFullName,
+              },
+              409,
+            );
           case 'rate_limited':
-            return c.json({ error: 'rate_limited', retryAfter: err.retryAfter }, 429);
+            return c.json(
+              {
+                error: 'RUNNER_ERROR',
+                message: userMessages.rate_limited,
+                retryAfter: err.retryAfter,
+              },
+              429,
+            );
           case 'template_unavailable':
             logger.error('Runner template repo JNZader/ghagga-runner-template is not accessible');
             return c.json(
-              { error: 'template_unavailable', message: userMessages.template_unavailable },
+              { error: 'RUNNER_ERROR', message: userMessages.template_unavailable },
               502,
             );
           case 'org_permission_denied':
             return c.json(
-              { error: 'org_permission_denied', message: userMessages.org_permission_denied },
+              { error: 'RUNNER_ERROR', message: userMessages.org_permission_denied },
               403,
             );
           case 'creation_timeout':
-            return c.json({ error: 'github_error', message: userMessages.creation_timeout }, 502);
+            return c.json({ error: 'RUNNER_ERROR', message: userMessages.creation_timeout }, 502);
           case 'secret_failed':
             return c.json(
               {
@@ -134,12 +145,12 @@ export function createRunnerRouter(_db: Database) {
               201,
             );
           default:
-            return c.json({ error: 'github_error', message: userMessages.github_error }, 502);
+            return c.json({ error: 'RUNNER_ERROR', message: userMessages.github_error }, 502);
         }
       }
 
       logger.error({ err, user: user.githubLogin }, 'Failed to create runner repo');
-      return c.json({ error: 'github_error', message: 'Failed to create runner repository.' }, 502);
+      return c.json({ error: 'RUNNER_ERROR', message: 'Failed to create runner repository.' }, 502);
     }
   });
 
@@ -155,7 +166,7 @@ export function createRunnerRouter(_db: Database) {
       const runner = await discoverRunnerRepo(user.githubLogin, token);
       if (!runner) {
         return c.json(
-          { error: 'runner_not_found', message: 'Runner repo not found. Create it first.' },
+          { error: 'NOT_FOUND', message: 'Runner repo not found. Create it first.' },
           404,
         );
       }
@@ -163,14 +174,14 @@ export function createRunnerRouter(_db: Database) {
       await setRunnerSecret(
         runnerRepo,
         'GHAGGA_CALLBACK_SECRET',
-        process.env.GHAGGA_WEBHOOK_SECRET!,
+        process.env.GHAGGA_WEBHOOK_SECRET ?? '',
         token,
       );
 
       return c.json({ data: { configured: true } });
     } catch (err) {
       logger.error({ err, user: user.githubLogin }, 'Failed to configure runner secret');
-      return c.json({ error: 'github_error', message: 'Failed to configure runner secret.' }, 502);
+      return c.json({ error: 'RUNNER_ERROR', message: 'Failed to configure runner secret.' }, 502);
     }
   });
 

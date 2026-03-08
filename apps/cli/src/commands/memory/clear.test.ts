@@ -93,11 +93,11 @@ async function runClearCommand(args: string[] = []): Promise<void> {
 
 // ─── Setup ──────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: mock spy type
 let logSpy: any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: mock spy type
 let errorSpy: any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: mock spy type
 let exitSpy: any;
 let originalIsTTY: boolean | undefined;
 

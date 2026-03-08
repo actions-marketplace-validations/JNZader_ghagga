@@ -352,6 +352,7 @@ describe('formatReviewComment', () => {
   it('groups findings with no source under AI Review', () => {
     const finding = makeFinding({ message: 'No source finding' });
     // Force source to be undefined to test the ?? 'ai' fallback
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     (finding as any).source = undefined;
 
     const result = makeResult({

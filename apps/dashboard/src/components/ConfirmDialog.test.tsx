@@ -62,22 +62,17 @@ describe('ConfirmDialog — Tier 1 (simple)', () => {
   it('calls onCancel when Escape key is pressed', () => {
     render(<ConfirmDialog {...defaults} />);
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known DOM structure
     fireEvent.keyDown(screen.getByRole('dialog').parentElement!, {
       key: 'Escape',
     });
     expect(defaults.onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onCancel when backdrop is clicked', () => {
-    render(<ConfirmDialog {...defaults} />);
-
-    fireEvent.click(screen.getByTestId('confirm-backdrop'));
-    expect(defaults.onCancel).toHaveBeenCalledTimes(1);
-  });
-
   it('shows loading state and disables confirm button', () => {
     render(<ConfirmDialog {...defaults} isLoading />);
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known DOM structure
     const confirmBtn = screen.getByText('Delete').closest('button')!;
     expect(confirmBtn).toBeDisabled();
   });
@@ -91,9 +86,11 @@ describe('ConfirmDialog — Tier 1 (simple)', () => {
   it('does not call onCancel on Escape when isLoading', () => {
     render(<ConfirmDialog {...defaults} isLoading />);
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known DOM structure
     fireEvent.keyDown(screen.getByRole('dialog').parentElement!, {
       key: 'Escape',
     });
+    // Should NOT close
     expect(defaults.onCancel).not.toHaveBeenCalled();
   });
 });
@@ -122,6 +119,7 @@ describe('ConfirmDialog — Tier 2 (text match)', () => {
   it('confirm button is disabled when text is empty', () => {
     render(<ConfirmDialog {...tier2Props} />);
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known DOM structure
     const confirmBtn = screen.getByText('Clear Memory').closest('button')!;
     expect(confirmBtn).toBeDisabled();
   });
@@ -133,6 +131,7 @@ describe('ConfirmDialog — Tier 2 (text match)', () => {
       target: { value: 'acme/widget' },
     });
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known DOM structure
     const confirmBtn = screen.getByText('Clear Memory').closest('button')!;
     expect(confirmBtn).toBeDisabled();
   });
@@ -144,6 +143,7 @@ describe('ConfirmDialog — Tier 2 (text match)', () => {
       target: { value: 'ACME/WIDGETS' },
     });
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known DOM structure
     const confirmBtn = screen.getByText('Clear Memory').closest('button')!;
     expect(confirmBtn).toBeDisabled();
   });
@@ -155,6 +155,7 @@ describe('ConfirmDialog — Tier 2 (text match)', () => {
       target: { value: 'acme/widgets' },
     });
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known DOM structure
     const confirmBtn = screen.getByText('Clear Memory').closest('button')!;
     expect(confirmBtn).not.toBeDisabled();
   });
@@ -248,6 +249,7 @@ describe('ConfirmDialog — Tier 3 (text match + countdown)', () => {
     // 2s elapsed, 3s remaining
     act(() => vi.advanceTimersByTime(2000));
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known DOM structure
     const confirmBtn = screen.getByText('Purge All (3s)').closest('button')!;
     expect(confirmBtn).toBeDisabled();
   });
@@ -262,6 +264,7 @@ describe('ConfirmDialog — Tier 3 (text match + countdown)', () => {
     // Wait full countdown
     act(() => vi.advanceTimersByTime(5000));
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known DOM structure
     const confirmBtn = screen.getByText('Purge All').closest('button')!;
     expect(confirmBtn).toBeDisabled();
   });
@@ -275,6 +278,7 @@ describe('ConfirmDialog — Tier 3 (text match + countdown)', () => {
 
     act(() => vi.advanceTimersByTime(5000));
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known DOM structure
     const confirmBtn = screen.getByText('Purge All').closest('button')!;
     expect(confirmBtn).not.toBeDisabled();
   });

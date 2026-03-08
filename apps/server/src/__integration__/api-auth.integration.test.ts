@@ -146,6 +146,7 @@ const FAKE_REPO = {
 
 // ─── Helpers ────────────────────────────────────────────────────
 
+// biome-ignore lint/suspicious/noExplicitAny: mock cast
 const mockDb = {} as any;
 let originalFetch: typeof globalThis.fetch;
 
@@ -300,6 +301,7 @@ describe('integration: API endpoints with auth', () => {
 
     expect(res.status).toBe(403);
     const json = await res.json();
-    expect(json.error).toBe('Forbidden');
+    expect(json.error).toBe('FORBIDDEN');
+    expect(json.message).toBe('Forbidden');
   });
 });

@@ -24,7 +24,7 @@ export function createRepositoriesRouter(db: Database) {
       return c.json({ data: allRepos });
     } catch (err) {
       logger.error({ err, user: user.githubLogin }, 'Failed to fetch repositories');
-      return c.json({ error: 'Failed to fetch repositories' }, 500);
+      return c.json({ error: 'FETCH_FAILED', message: 'Failed to fetch repositories' }, 500);
     }
   });
 

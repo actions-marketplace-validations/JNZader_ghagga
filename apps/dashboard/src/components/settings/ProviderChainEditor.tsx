@@ -29,14 +29,24 @@ export function ProviderChainEditor({ chain, onChange }: ProviderChainEditorProp
   const handleMoveUp = (index: number) => {
     if (index === 0) return;
     const updated = [...chain];
-    [updated[index - 1], updated[index]] = [updated[index]!, updated[index - 1]!];
+    const a = updated[index];
+    const b = updated[index - 1];
+    if (a !== undefined && b !== undefined) {
+      updated[index - 1] = a;
+      updated[index] = b;
+    }
     onChange(updated);
   };
 
   const handleMoveDown = (index: number) => {
     if (index === chain.length - 1) return;
     const updated = [...chain];
-    [updated[index], updated[index + 1]] = [updated[index + 1]!, updated[index]!];
+    const a = updated[index];
+    const b = updated[index + 1];
+    if (a !== undefined && b !== undefined) {
+      updated[index] = b;
+      updated[index + 1] = a;
+    }
     onChange(updated);
   };
 

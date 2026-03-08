@@ -4,6 +4,7 @@ import type { MemoryObservationRow, MemoryStorage } from '../types.js';
 // ─── Mocks ──────────────────────────────────────────────────────
 
 vi.mock('./context.js', () => ({
+  // biome-ignore lint/suspicious/noExplicitAny: mock cast
   formatMemoryContext: vi.fn((obs: any[]) => `Formatted: ${obs.length} observations`),
 }));
 
@@ -51,16 +52,19 @@ describe('searchMemoryForContext', () => {
   // ── Null returns for falsy storage ──
 
   it('returns null when storage is null', async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     const result = await searchMemoryForContext(null as any, 'owner/repo', ['src/auth.ts']);
     expect(result).toBeNull();
   });
 
   it('returns null when storage is undefined', async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     const result = await searchMemoryForContext(undefined as any, 'owner/repo', ['src/auth.ts']);
     expect(result).toBeNull();
   });
 
   it('returns null when storage is empty string (falsy)', async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     const result = await searchMemoryForContext('' as any, 'owner/repo', ['src/auth.ts']);
     expect(result).toBeNull();
   });
@@ -115,6 +119,7 @@ describe('searchMemoryForContext', () => {
       expect.stringContaining('auth'),
       { limit: 3 },
     );
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const call = vi.mocked(storage.searchObservations).mock.calls[0]!;
     const query = call[1];
     expect(query).toContain('login');
@@ -137,6 +142,7 @@ describe('searchMemoryForContext', () => {
       'build/output.js',
     ]);
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const call = vi.mocked(storage.searchObservations).mock.calls[0]!;
     const query = call[1];
     // Verify excluded dirs are not in query as standalone terms
@@ -159,6 +165,7 @@ describe('searchMemoryForContext', () => {
 
     await searchMemoryForContext(storage, 'project', ['src/services/payment.service.ts']);
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const call = vi.mocked(storage.searchObservations).mock.calls[0]!;
     const query = call[1];
     // 'payment.service.ts' → strips all extensions → 'payment'
@@ -177,6 +184,7 @@ describe('searchMemoryForContext', () => {
 
     await searchMemoryForContext(storage, 'project', ['src/auth/login.ts', 'src/auth/logout.ts']);
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const call = vi.mocked(storage.searchObservations).mock.calls[0]!;
     const query = call[1];
     // 'auth' should appear only once
@@ -195,6 +203,7 @@ describe('searchMemoryForContext', () => {
     const files = Array.from({ length: 15 }, (_, i) => `dir${i}/file${i}.ts`);
     await searchMemoryForContext(storage, 'project', files);
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const call = vi.mocked(storage.searchObservations).mock.calls[0]!;
     const query = call[1];
     const terms = query.split(' ');
@@ -230,6 +239,7 @@ describe('searchMemoryForContext', () => {
     const storage = createMockStorage({
       searchObservations: vi
         .fn<MemoryStorage['searchObservations']>()
+        // biome-ignore lint/suspicious/noExplicitAny: mock cast
         .mockResolvedValue(null as any),
     });
 

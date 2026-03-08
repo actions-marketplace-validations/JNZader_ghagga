@@ -36,6 +36,7 @@ function successResult(text = 'review result') {
   return {
     text,
     usage: { inputTokens: 100, outputTokens: 50 },
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
   } as any;
 }
 
@@ -159,6 +160,7 @@ describe('generateWithFallback', () => {
     mockGenerateText.mockResolvedValueOnce({
       text: 'result',
       usage: { inputTokens: 200, outputTokens: 100 },
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     const options = makeOptions();
@@ -171,6 +173,7 @@ describe('generateWithFallback', () => {
     mockGenerateText.mockResolvedValueOnce({
       text: 'result',
       usage: {},
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
     } as any);
 
     const options = makeOptions();

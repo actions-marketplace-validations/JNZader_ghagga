@@ -737,6 +737,7 @@ describe('dispatchWorkflow', () => {
     );
 
     // Timestamp portion should parse to a valid time
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const tsPart = callbackId.split('.').pop()!;
     const timestamp = parseInt(tsPart, 36);
     expect(timestamp).toBeGreaterThan(0);

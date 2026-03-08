@@ -74,7 +74,7 @@ export function normalizeRemoteUrl(url: string): string {
 
   // SSH format: git@host:owner/repo
   const sshMatch = cleaned.match(/^[\w-]+@[\w.-]+:(.+)$/);
-  if (sshMatch) return sshMatch[1]!;
+  if (sshMatch?.[1]) return sshMatch[1];
 
   // HTTPS / SSH protocol: extract path after host
   try {

@@ -67,7 +67,7 @@ function isRetryableError(error: unknown): boolean {
     // Check for HTTP status codes in error (provider SDKs often include them)
     const statusMatch = /status[:\s]*(\d{3})/i.exec(message);
     if (statusMatch) {
-      const status = parseInt(statusMatch[1]!, 10);
+      const status = parseInt(statusMatch[1] ?? '0', 10);
       return status >= 500;
     }
 

@@ -153,17 +153,24 @@ describe('CPD fixture parsing', () => {
     }> = [];
 
     let dupMatch: RegExpExecArray | null;
+    // biome-ignore lint/suspicious/noAssignInExpressions: standard regex iteration pattern
     while ((dupMatch = dupRegex.exec(raw)) !== null) {
+      // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
       const lines = parseInt(dupMatch[1]!, 10);
+      // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
       const tokens = parseInt(dupMatch[2]!, 10);
+      // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
       const inner = dupMatch[3]!;
 
       const files: Array<{ path: string; line: number }> = [];
       let fileMatch: RegExpExecArray | null;
       fileRegex.lastIndex = 0;
+      // biome-ignore lint/suspicious/noAssignInExpressions: standard regex iteration pattern
       while ((fileMatch = fileRegex.exec(inner)) !== null) {
         files.push({
+          // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
           path: fileMatch[1]!,
+          // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
           line: parseInt(fileMatch[2]!, 10),
         });
       }
@@ -177,14 +184,20 @@ describe('CPD fixture parsing', () => {
     const dupRegex = /<duplication lines="(\d+)" tokens="(\d+)">([\s\S]*?)<\/duplication>/g;
     const fileRegex = /<file\s+path="([^"]+)"\s+line="(\d+)"/g;
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
     const dupMatch = dupRegex.exec(raw)!;
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
     expect(parseInt(dupMatch[1]!, 10)).toBe(15);
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
     expect(parseInt(dupMatch[2]!, 10)).toBe(87);
 
     const files: string[] = [];
     let fileMatch: RegExpExecArray | null;
     fileRegex.lastIndex = 0;
+    // biome-ignore lint/suspicious/noAssignInExpressions: standard regex iteration pattern
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
     while ((fileMatch = fileRegex.exec(dupMatch[3]!)) !== null) {
+      // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
       files.push(fileMatch[1]!);
     }
     expect(files).toHaveLength(2);
@@ -198,12 +211,16 @@ describe('CPD fixture parsing', () => {
 
     // Skip first match
     dupRegex.exec(raw);
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
     const dupMatch = dupRegex.exec(raw)!;
 
     const files: string[] = [];
     let fileMatch: RegExpExecArray | null;
     fileRegex.lastIndex = 0;
+    // biome-ignore lint/suspicious/noAssignInExpressions: standard regex iteration pattern
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
     while ((fileMatch = fileRegex.exec(dupMatch[3]!)) !== null) {
+      // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
       files.push(fileMatch[1]!);
     }
     expect(files).toHaveLength(3);
@@ -217,17 +234,23 @@ describe('CPD fixture parsing', () => {
     const dupRegex = /<duplication lines="(\d+)" tokens="(\d+)">([\s\S]*?)<\/duplication>/g;
     const fileRegex = /<file\s+path="([^"]+)"\s+line="(\d+)"/g;
 
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
     const dupMatch = dupRegex.exec(raw)!;
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
     const lines = parseInt(dupMatch[1]!, 10);
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
     const tokens = parseInt(dupMatch[2]!, 10);
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
     const inner = dupMatch[3]!;
 
     const files: Array<{ path: string; line: number }> = [];
     let fileMatch: RegExpExecArray | null;
     fileRegex.lastIndex = 0;
+    // biome-ignore lint/suspicious/noAssignInExpressions: standard regex iteration pattern
     while ((fileMatch = fileRegex.exec(inner)) !== null) {
       files.push({
         path: fileMatch[1]?.replace(`${basePath}/`, ''),
+        // biome-ignore lint/style/noNonNullAssertion: test assertion on known fixture data
         line: parseInt(fileMatch[2]!, 10),
       });
     }

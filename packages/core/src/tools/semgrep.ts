@@ -68,17 +68,19 @@ export async function runSemgrep(
     // Check if semgrep is available
     const { stdout: semVer } = await execFileAsync(semgrepBin, ['--version'], { timeout: 10_000 });
     console.log(`[ghagga:semgrep] Version check OK (${semgrepBin}): ${semVer.trim()}`);
-  } catch (err: any) {
-    const stderr = err?.stderr ?? '';
-    const code = err?.code ?? '';
-    const signal = err?.signal ?? '';
+  } catch (err: unknown) {
+    const errObj = err as Record<string, unknown>;
+    const stderr = errObj?.stderr ?? '';
+    const code = errObj?.code ?? '';
+    const signal = errObj?.signal ?? '';
+    const message = err instanceof Error ? err.message : String(err);
     console.error(
-      `[ghagga:semgrep] Version check FAILED (${semgrepBin}): code=${code} signal=${signal} stderr=${stderr} message=${err?.message}`,
+      `[ghagga:semgrep] Version check FAILED (${semgrepBin}): code=${code} signal=${signal} stderr=${stderr} message=${message}`,
     );
     return {
       status: 'skipped',
       findings: [],
-      error: `Semgrep not available: ${err?.message}`,
+      error: `Semgrep not available: ${message}`,
       executionTimeMs: Date.now() - start,
     };
   }
@@ -130,11 +132,13 @@ export async function runSemgrep(
       findings,
       executionTimeMs: Date.now() - start,
     };
-  } catch (error: any) {
-    const stderr = error?.stderr ?? '';
-    const stdout = error?.stdout ?? '';
+  } catch (error: unknown) {
+    const errObj = error as Record<string, unknown>;
+    const stderr = String(errObj?.stderr ?? '');
+    const stdout = String(errObj?.stdout ?? '');
+    const message = error instanceof Error ? error.message : String(error);
     console.error(
-      `[ghagga:semgrep] Scan FAILED: ${error?.message}\n  stderr: ${stderr.substring(0, 500)}\n  stdout: ${stdout.substring(0, 500)}`,
+      `[ghagga:semgrep] Scan FAILED: ${message}\n  stderr: ${stderr.substring(0, 500)}\n  stdout: ${stdout.substring(0, 500)}`,
     );
     return {
       status: 'error',

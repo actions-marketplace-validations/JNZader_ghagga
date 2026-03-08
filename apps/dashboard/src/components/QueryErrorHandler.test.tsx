@@ -48,6 +48,7 @@ describe('Global React Query error handling', () => {
     });
 
     // Verify the first argument is the error with the correct message
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const errorArg = onError.mock.calls[0]![0] as Error;
     expect(errorArg).toBeInstanceOf(Error);
     expect(errorArg.message).toBe('Network failure');
@@ -87,6 +88,7 @@ describe('Global React Query error handling', () => {
     });
 
     // Verify the first argument is the error with the correct message
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const errorArg = onError.mock.calls[0]![0] as Error;
     expect(errorArg).toBeInstanceOf(Error);
     expect(errorArg.message).toBe('Mutation failed');

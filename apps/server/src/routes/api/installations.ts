@@ -39,7 +39,7 @@ export function createInstallationsRouter(db: Database) {
       return c.json({ data: results });
     } catch (err) {
       logger.error({ err, user: user.githubLogin }, 'Failed to fetch installations');
-      return c.json({ error: 'Failed to fetch installations' }, 500);
+      return c.json({ error: 'FETCH_FAILED', message: 'Failed to fetch installations' }, 500);
     }
   });
 
@@ -49,11 +49,14 @@ export function createInstallationsRouter(db: Database) {
     const installationId = parseInt(c.req.query('installation_id') ?? '', 10);
 
     if (Number.isNaN(installationId)) {
-      return c.json({ error: 'Missing or invalid installation_id parameter' }, 400);
+      return c.json(
+        { error: 'VALIDATION_ERROR', message: 'Missing or invalid installation_id parameter' },
+        400,
+      );
     }
 
     if (!user.installationIds.includes(installationId)) {
-      return c.json({ error: 'Forbidden' }, 403);
+      return c.json({ error: 'FORBIDDEN', message: 'Forbidden' }, 403);
     }
 
     try {
@@ -102,7 +105,10 @@ export function createInstallationsRouter(db: Database) {
         { err, installationId, user: user.githubLogin },
         'Failed to fetch installation settings',
       );
-      return c.json({ error: 'Failed to fetch installation settings' }, 500);
+      return c.json(
+        { error: 'FETCH_FAILED', message: 'Failed to fetch installation settings' },
+        500,
+      );
     }
   });
 
@@ -114,16 +120,19 @@ export function createInstallationsRouter(db: Database) {
     try {
       body = await c.req.json();
     } catch {
-      return c.json({ error: 'Invalid JSON body' }, 400);
+      return c.json({ error: 'VALIDATION_ERROR', message: 'Invalid JSON body' }, 400);
     }
 
     const installationId = body.installationId as number | undefined;
     if (!installationId || typeof installationId !== 'number') {
-      return c.json({ error: 'Missing or invalid installationId' }, 400);
+      return c.json(
+        { error: 'VALIDATION_ERROR', message: 'Missing or invalid installationId' },
+        400,
+      );
     }
 
     if (!user.installationIds.includes(installationId)) {
-      return c.json({ error: 'Forbidden' }, 403);
+      return c.json({ error: 'FORBIDDEN', message: 'Forbidden' }, 403);
     }
 
     try {
@@ -138,7 +147,10 @@ export function createInstallationsRouter(db: Database) {
       for (const entry of incomingChain) {
         if (!VALID_SAAS_PROVIDERS.includes(entry.provider)) {
           return c.json(
-            { error: `Provider '${entry.provider}' is not available in the SaaS dashboard` },
+            {
+              error: 'VALIDATION_ERROR',
+              message: `Provider '${entry.provider}' is not available in the SaaS dashboard`,
+            },
             400,
           );
         }
@@ -218,7 +230,10 @@ export function createInstallationsRouter(db: Database) {
         { err, installationId, user: user.githubLogin },
         'Failed to update installation settings',
       );
-      return c.json({ error: 'Failed to update installation settings' }, 500);
+      return c.json(
+        { error: 'UPDATE_FAILED', message: 'Failed to update installation settings' },
+        500,
+      );
     }
   });
 

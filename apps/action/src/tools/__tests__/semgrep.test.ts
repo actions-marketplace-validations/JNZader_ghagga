@@ -41,6 +41,7 @@ function simulateExec(exitCode: number, stdout = '', stderr = ''): ReturnType<ty
       options.listeners.stderr(Buffer.from(stderr));
     }
     return exitCode;
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
   }) as any;
 }
 
@@ -382,6 +383,7 @@ describe('executeSemgrep', () => {
     await executeSemgrep('/my/repo');
 
     // The second exec call is the scan
+    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExec.mock.calls[1]!;
     expect(scanCall[0]).toBe('semgrep');
     expect(scanCall[1]).toEqual(['--json', '--config', 'auto', '--quiet', '/my/repo']);

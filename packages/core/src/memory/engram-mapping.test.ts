@@ -288,6 +288,7 @@ describe('toMemoryObservationRow()', () => {
   });
 
   it('defaults type to "observation" when missing', () => {
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     const obs = makeEngramObservation({ type: undefined as any });
     const row = toMemoryObservationRow(obs);
 
@@ -295,6 +296,7 @@ describe('toMemoryObservationRow()', () => {
   });
 
   it('defaults title to empty string when missing', () => {
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
     const obs = makeEngramObservation({ title: undefined as any });
     const row = toMemoryObservationRow(obs);
 

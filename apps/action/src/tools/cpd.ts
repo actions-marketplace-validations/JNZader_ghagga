@@ -36,20 +36,21 @@ function parseCpdXml(xml: string, basePath: string): ReviewFinding[] {
   const dupRegex = /<duplication lines="(\d+)" tokens="(\d+)">([\s\S]*?)<\/duplication>/g;
   const fileRegex = /<file\s+path="([^"]+)"\s+line="(\d+)"/g;
 
-  let dupMatch: RegExpExecArray | null;
-  while ((dupMatch = dupRegex.exec(xml)) !== null) {
-    const lines = parseInt(dupMatch[1]!, 10);
-    const tokens = parseInt(dupMatch[2]!, 10);
-    const inner = dupMatch[3]!;
+  let dupMatch = dupRegex.exec(xml);
+  while (dupMatch !== null) {
+    const lines = parseInt(dupMatch[1] ?? '0', 10);
+    const tokens = parseInt(dupMatch[2] ?? '0', 10);
+    const inner = dupMatch[3] ?? '';
 
     const files: Array<{ path: string; line: number }> = [];
-    let fileMatch: RegExpExecArray | null;
     fileRegex.lastIndex = 0;
-    while ((fileMatch = fileRegex.exec(inner)) !== null) {
+    let fileMatch = fileRegex.exec(inner);
+    while (fileMatch !== null) {
       files.push({
         path: fileMatch[1]?.replace(`${basePath}/`, ''),
-        line: parseInt(fileMatch[2]!, 10),
+        line: parseInt(fileMatch[2] ?? '0', 10),
       });
+      fileMatch = fileRegex.exec(inner);
     }
 
     if (files.length >= 2) {
@@ -63,6 +64,7 @@ function parseCpdXml(xml: string, basePath: string): ReviewFinding[] {
         source: 'cpd' as const,
       });
     }
+    dupMatch = dupRegex.exec(xml);
   }
 
   return findings;

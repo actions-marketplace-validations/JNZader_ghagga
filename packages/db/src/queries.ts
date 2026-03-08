@@ -40,10 +40,12 @@ export async function upsertInstallation(
         updatedAt: new Date(),
       })
       .where(eq(installations.githubInstallationId, data.githubInstallationId));
+    // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
     return existing[0]!;
   }
 
   const [result] = await db.insert(installations).values(data).returning();
+  // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
   return result!;
 }
 
@@ -118,6 +120,7 @@ export async function upsertInstallationSettings(
       settings: updates.settings ?? DEFAULT_REPO_SETTINGS,
     })
     .returning();
+  // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
   return result!;
 }
 
@@ -207,6 +210,7 @@ export async function upsertRepository(
       .update(repositories)
       .set({ fullName: data.fullName, isActive: true, updatedAt: new Date() })
       .where(eq(repositories.githubRepoId, data.githubRepoId));
+    // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
     return existing[0]!;
   }
 
@@ -214,6 +218,7 @@ export async function upsertRepository(
     .insert(repositories)
     .values({ ...data, settings: DEFAULT_REPO_SETTINGS })
     .returning();
+  // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
   return result!;
 }
 
@@ -292,6 +297,7 @@ export async function saveReview(
   },
 ) {
   const [result] = await db.insert(reviews).values(data).returning();
+  // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
   return result!;
 }
 
@@ -320,6 +326,7 @@ export async function getReviewStats(db: Database, repositoryId: number) {
     })
     .from(reviews)
     .where(eq(reviews.repositoryId, repositoryId));
+  // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
   return result[0]!;
 }
 
@@ -349,6 +356,7 @@ export async function createMemorySession(
   data: { project: string; prNumber?: number },
 ) {
   const [session] = await db.insert(memorySessions).values(data).returning();
+  // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
   return session!;
 }
 
@@ -440,6 +448,7 @@ export async function saveObservation(
         .set({ sessionId: data.sessionId, updatedAt: new Date() })
         .where(eq(memoryObservations.id, existing.id))
         .returning();
+      // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
       return updated!;
     }
     return existing; // Skip duplicate
@@ -472,6 +481,7 @@ export async function saveObservation(
         })
         .where(eq(memoryObservations.id, existingByTopic.id))
         .returning();
+      // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
       return updated!;
     }
   }
@@ -485,6 +495,7 @@ export async function saveObservation(
       filePaths: data.filePaths ?? [],
     })
     .returning();
+  // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
   return result!;
 }
 
@@ -690,6 +701,7 @@ export async function listMemoryObservations(
     .limit(options?.limit ?? 100);
 
   if (options?.offset) {
+    // biome-ignore lint/suspicious/noExplicitAny: drizzle query builder type workaround
     return (query as any).offset(options.offset);
   }
 
@@ -793,10 +805,12 @@ export async function upsertUserMapping(
           eq(githubUserMappings.installationId, data.installationId),
         ),
       );
+    // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
     return existing[0]!;
   }
 
   const [result] = await db.insert(githubUserMappings).values(data).returning();
+  // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
   return result!;
 }
 
