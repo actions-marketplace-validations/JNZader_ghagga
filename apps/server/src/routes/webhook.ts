@@ -270,6 +270,8 @@ async function handlePullRequest(
         customRules: effective.settings.customRules,
         ignorePatterns: effective.settings.ignorePatterns,
         reviewLevel: effective.settings.reviewLevel,
+        enabledTools: effective.settings.enabledTools,
+        disabledTools: effective.settings.disabledTools,
       },
     },
   });
@@ -409,6 +411,8 @@ async function handleIssueComment(
         customRules: effective.settings.customRules,
         ignorePatterns: effective.settings.ignorePatterns,
         reviewLevel: effective.settings.reviewLevel,
+        enabledTools: effective.settings.enabledTools,
+        disabledTools: effective.settings.disabledTools,
       },
     },
   });

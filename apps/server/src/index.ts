@@ -9,6 +9,7 @@ import 'dotenv/config';
 
 import { randomUUID } from 'node:crypto';
 import { serve } from '@hono/node-server';
+import { initializeDefaultTools } from 'ghagga-core';
 import { createDatabaseFromEnv, sql } from 'ghagga-db';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
@@ -31,6 +32,12 @@ import { createWebhookRouter } from './routes/webhook.js';
 // ─── Validate required env vars (fail-fast) ────────────────────
 
 validateEnvironment();
+
+// ─── Tool Registry ─────────────────────────────────────────────
+// Populate the singleton registry so GET /api/settings returns
+// the full tool list and the dashboard renders ToolGrid instead
+// of the legacy 3-checkbox UI.
+initializeDefaultTools();
 
 // ─── Database ───────────────────────────────────────────────────
 
