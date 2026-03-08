@@ -6,6 +6,7 @@
  */
 
 import type { SaaSProvider } from 'ghagga-core';
+import { toolRegistry } from 'ghagga-core';
 import type { Database, DbProviderChainEntry, RepoSettings } from 'ghagga-db';
 import {
   DEFAULT_REPO_SETTINGS,
@@ -17,6 +18,15 @@ import {
 import { Hono } from 'hono';
 import type { AuthUser } from '../../middleware/auth.js';
 import { buildProviderChainView, generateErrorId, logger } from './utils.js';
+
+function getRegisteredToolsList() {
+  return toolRegistry.getAll().map((t) => ({
+    name: t.name,
+    displayName: t.displayName,
+    category: t.category,
+    tier: t.tier,
+  }));
+}
 
 export function createInstallationsRouter(db: Database) {
   const router = new Hono();
@@ -84,6 +94,9 @@ export function createInstallationsRouter(db: Database) {
             enableMemory: settings.enableMemory,
             customRules: (settings.customRules ?? []).join('\n'),
             ignorePatterns: settings.ignorePatterns ?? [],
+            enabledTools: settings.enabledTools ?? [],
+            disabledTools: settings.disabledTools ?? [],
+            registeredTools: getRegisteredToolsList(),
           },
         });
       }
@@ -102,6 +115,9 @@ export function createInstallationsRouter(db: Database) {
           enableMemory: true,
           customRules: '',
           ignorePatterns: DEFAULT_REPO_SETTINGS.ignorePatterns,
+          enabledTools: [],
+          disabledTools: [],
+          registeredTools: getRegisteredToolsList(),
         },
       });
     } catch (err) {
@@ -215,6 +231,12 @@ export function createInstallationsRouter(db: Database) {
           typeof body.reviewLevel === 'string'
             ? (body.reviewLevel as RepoSettings['reviewLevel'])
             : currentSettings.reviewLevel,
+        enabledTools: Array.isArray(body.enabledTools)
+          ? (body.enabledTools as string[])
+          : currentSettings.enabledTools,
+        disabledTools: Array.isArray(body.disabledTools)
+          ? (body.disabledTools as string[])
+          : currentSettings.disabledTools,
       };
 
       await upsertInstallationSettings(db, installationId, {

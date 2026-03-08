@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useState } from 'react';
 import { Card, CardHeader } from '@/components/Card';
 import { ProviderChainEditor } from '@/components/settings/ProviderChainEditor';
 import type { ProviderEntryState } from '@/components/settings/ProviderEntry';
+import { ToolGrid } from '@/components/settings/ToolGrid';
 import {
   ApiError,
   useConfigureRunnerSecret,
@@ -65,6 +66,10 @@ export function GlobalSettings() {
   const [reviewMode, setReviewMode] = useState<ReviewMode>('simple');
   const [customRules, setCustomRules] = useState('');
   const [ignorePatterns, setIgnorePatterns] = useState('');
+  const [disabledTools, setDisabledTools] = useState<string[]>([]);
+  const [registeredTools, setRegisteredTools] = useState<
+    Array<{ name: string; displayName: string; category: string; tier: string }>
+  >([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // ── Sync form with fetched settings ─────────────────────────
@@ -78,6 +83,8 @@ export function GlobalSettings() {
       setReviewMode(settings.reviewMode as ReviewMode);
       setCustomRules(settings.customRules);
       setIgnorePatterns(settings.ignorePatterns.join('\n'));
+      setDisabledTools(settings.disabledTools ?? []);
+      setRegisteredTools(settings.registeredTools ?? []);
 
       setProviderChain(
         settings.providerChain.map((entry: ProviderChainView) => ({
@@ -119,6 +126,7 @@ export function GlobalSettings() {
         .split('\n')
         .map((p) => p.trim())
         .filter(Boolean),
+      disabledTools,
     });
 
     setSaveSuccess(true);
@@ -299,34 +307,51 @@ export function GlobalSettings() {
               title="Static Analysis"
               description="Default static analysis tools for all repositories"
             />
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {[
-                {
-                  label: 'Semgrep (security + patterns)',
-                  value: enableSemgrep,
-                  setter: setEnableSemgrep,
-                },
-                { label: 'Trivy (vulnerabilities)', value: enableTrivy, setter: setEnableTrivy },
-                { label: 'PMD/CPD (code duplication)', value: enableCpd, setter: setEnableCpd },
-                {
-                  label: 'Memory (project knowledge)',
-                  value: enableMemory,
-                  setter: setEnableMemory,
-                },
-              ].map((toggle) => (
-                <label
-                  key={toggle.label}
-                  className="flex cursor-pointer items-center gap-3 rounded-lg border border-surface-border bg-surface-bg p-3 transition-colors hover:border-surface-border/80"
-                >
-                  <input
-                    type="checkbox"
-                    checked={toggle.value}
-                    onChange={(e) => toggle.setter(e.target.checked)}
-                    className="h-4 w-4 accent-primary-600"
-                  />
-                  <span className="text-sm text-text-primary">{toggle.label}</span>
-                </label>
-              ))}
+            {registeredTools.length > 0 ? (
+              <ToolGrid
+                tools={registeredTools}
+                disabledTools={disabledTools}
+                onToggle={(updatedDisabledTools) => {
+                  setDisabledTools(updatedDisabledTools);
+                }}
+              />
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {[
+                  {
+                    label: 'Semgrep (security + patterns)',
+                    value: enableSemgrep,
+                    setter: setEnableSemgrep,
+                  },
+                  { label: 'Trivy (vulnerabilities)', value: enableTrivy, setter: setEnableTrivy },
+                  { label: 'PMD/CPD (code duplication)', value: enableCpd, setter: setEnableCpd },
+                ].map((toggle) => (
+                  <label
+                    key={toggle.label}
+                    className="flex cursor-pointer items-center gap-3 rounded-lg border border-surface-border bg-surface-bg p-3 transition-colors hover:border-surface-border/80"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={toggle.value}
+                      onChange={(e) => toggle.setter(e.target.checked)}
+                      className="h-4 w-4 accent-primary-600"
+                    />
+                    <span className="text-sm text-text-primary">{toggle.label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+            {/* Memory toggle — always shown, separate from tool grid */}
+            <div className="mt-4 border-t border-surface-border pt-4">
+              <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-surface-border bg-surface-bg p-3 transition-colors hover:border-surface-border/80">
+                <input
+                  type="checkbox"
+                  checked={enableMemory}
+                  onChange={(e) => setEnableMemory(e.target.checked)}
+                  className="h-4 w-4 accent-primary-600"
+                />
+                <span className="text-sm text-text-primary">Memory (project knowledge)</span>
+              </label>
             </div>
           </Card>
 

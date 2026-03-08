@@ -43,6 +43,7 @@ export { createNodeExecutionContext } from './execution.js';
 
 export { initializeDefaultTools, resetInitialization } from './plugins/index.js';
 
-// ─── Runner (feature flag) ──────────────────────────────────────
+// ─── Runner ─────────────────────────────────────────────────────
 
+/** @deprecated Always returns true. Kept for backward compatibility. */
 export { isToolRegistryEnabled } from './runner.js';

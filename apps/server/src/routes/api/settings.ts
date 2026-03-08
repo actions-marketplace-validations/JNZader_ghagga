@@ -107,6 +107,8 @@ export function createSettingsRouter(db: Database) {
           enableMemory: gSettings.enableMemory,
           customRules: (gSettings.customRules ?? []).join('\n'),
           ignorePatterns: gSettings.ignorePatterns ?? [],
+          enabledTools: gSettings.enabledTools ?? [],
+          disabledTools: gSettings.disabledTools ?? [],
         };
       }
 
