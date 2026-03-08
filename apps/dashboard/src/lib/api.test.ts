@@ -10,12 +10,15 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestQueryClient, createWrapper } from '../test/test-utils';
 import {
+  useBatchDeleteObservations,
+  useBatchDeleteReviews,
   useCleanupEmptySessions,
   useClearRepoMemory,
   useConfigureRunnerSecret,
   useCreateRunner,
   useDeleteObservation,
   useDeleteRepoReviews,
+  useDeleteReview,
   useDeleteSession,
   useInstallationSettings,
   useInstallations,
@@ -237,16 +240,217 @@ describe('useCreateRunner', () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
   });
+});
 
-  it('reports error on generic server error', async () => {
-    mockFetch.mockResolvedValueOnce(new Response('Internal Server Error', { status: 500 }));
+// ═══════════════════════════════════════════════════════════════════
+// useDeleteReview
+// ═══════════════════════════════════════════════════════════════════
 
-    const { result } = renderHook(() => useCreateRunner(), {
+describe('useDeleteReview', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+  });
+
+  it('sends DELETE to /api/reviews/:reviewId', async () => {
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deleted: true } }));
+
+    const { result } = renderHook(() => useDeleteReview(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ reviewId: 42 });
+    });
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/reviews/42');
+    expect(options.method).toBe('DELETE');
+  });
+
+  it('invalidates reviews and stats cache on success', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deleted: true } }));
+
+    const { result } = renderHook(() => useDeleteReview(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ reviewId: 42 });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['reviews'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['stats'] });
+  });
+
+  it('reports error on API failure (404)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'NOT_FOUND' }), { status: 404 }),
+    );
+
+    const { result } = renderHook(() => useDeleteReview(), {
       wrapper: createWrapper(queryClient),
     });
 
     act(() => {
-      result.current.mutate();
+      result.current.mutate({ reviewId: 999 });
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useBatchDeleteReviews
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useBatchDeleteReviews', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+  });
+
+  it('sends DELETE to /api/reviews/batch with JSON body', async () => {
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deletedCount: 3 } }));
+
+    const { result } = renderHook(() => useBatchDeleteReviews(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ ids: [10, 20, 30] });
+    });
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/reviews/batch');
+    expect(options.method).toBe('DELETE');
+    expect(JSON.parse(options.body)).toEqual({ ids: [10, 20, 30] });
+  });
+
+  it('invalidates reviews and stats cache on success', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deletedCount: 2 } }));
+
+    const { result } = renderHook(() => useBatchDeleteReviews(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ ids: [10, 20] });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['reviews'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['stats'] });
+  });
+
+  it('returns the response data on success', async () => {
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deletedCount: 5 } }));
+
+    const { result } = renderHook(() => useBatchDeleteReviews(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => {
+      result.current.mutate({ ids: [1, 2, 3, 4, 5] });
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual({ deletedCount: 5 });
+  });
+
+  it('reports error on API failure (400)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'VALIDATION_ERROR' }), { status: 400 }),
+    );
+
+    const { result } = renderHook(() => useBatchDeleteReviews(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => {
+      result.current.mutate({ ids: [] });
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// useBatchDeleteObservations
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useBatchDeleteObservations', () => {
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = createTestQueryClient();
+  });
+
+  it('sends DELETE to /api/memory/observations/batch with JSON body', async () => {
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deletedCount: 3 } }));
+
+    const { result } = renderHook(() => useBatchDeleteObservations(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ ids: [5, 10, 15] });
+    });
+
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/memory/observations/batch');
+    expect(options.method).toBe('DELETE');
+    expect(JSON.parse(options.body)).toEqual({ ids: [5, 10, 15] });
+  });
+
+  it('invalidates observations and sessions cache on success', async () => {
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deletedCount: 2 } }));
+
+    const { result } = renderHook(() => useBatchDeleteObservations(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync({ ids: [5, 10] });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['memory', 'observations'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['memory', 'sessions'] });
+  });
+
+  it('returns the response data on success', async () => {
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { deletedCount: 4 } }));
+
+    const { result } = renderHook(() => useBatchDeleteObservations(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => {
+      result.current.mutate({ ids: [1, 2, 3, 4] });
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual({ deletedCount: 4 });
+  });
+
+  it('reports error on API failure (500)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'DELETE_FAILED' }), { status: 500 }),
+    );
+
+    const { result } = renderHook(() => useBatchDeleteObservations(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => {
+      result.current.mutate({ ids: [1, 2, 3] });
     });
 
     await waitFor(() => expect(result.current.isError).toBe(true));

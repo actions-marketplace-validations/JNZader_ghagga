@@ -310,6 +310,52 @@ export function useCleanupEmptySessions() {
   });
 }
 
+// ─── Granular & Batch Deletes ─────────────────────────────
+
+export function useDeleteReview() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ reviewId }: { reviewId: number }) =>
+      fetchData<{ deleted: boolean }>(`/api/reviews/${reviewId}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['reviews'] });
+      void queryClient.invalidateQueries({ queryKey: ['stats'] });
+    },
+  });
+}
+
+export function useBatchDeleteReviews() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids }: { ids: number[] }) =>
+      fetchData<{ deletedCount: number }>('/api/reviews/batch', {
+        method: 'DELETE',
+        body: JSON.stringify({ ids }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['reviews'] });
+      void queryClient.invalidateQueries({ queryKey: ['stats'] });
+    },
+  });
+}
+
+export function useBatchDeleteObservations() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids }: { ids: number[] }) =>
+      fetchData<{ deletedCount: number }>('/api/memory/observations/batch', {
+        method: 'DELETE',
+        body: JSON.stringify({ ids }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['memory', 'observations'] });
+      void queryClient.invalidateQueries({ queryKey: ['memory', 'sessions'] });
+    },
+  });
+}
+
 // ─── Runner ───────────────────────────────────────────────
 
 export function useRunnerStatus(ownerLogin?: string) {

@@ -15,6 +15,7 @@ import {
   clearEmptyMemorySessions,
   clearMemoryObservationsByProject,
   deleteMemoryObservation,
+  deleteMemoryObservationsByIds,
   deleteMemorySession,
   getObservationsBySession,
   getRepoByFullName,
@@ -22,6 +23,7 @@ import {
   getSessionsByProject,
 } from 'ghagga-db';
 import { Hono } from 'hono';
+import { z } from 'zod';
 import type { AuthUser } from '../../middleware/auth.js';
 import { generateErrorId, logger } from './utils.js';
 
@@ -102,6 +104,49 @@ export function createMemoryRouter(db: Database) {
       );
       return c.json(
         { error: 'DELETE_FAILED', message: 'Failed to purge all memory observations', errorId },
+        500,
+      );
+    }
+  });
+
+  // ── DELETE /api/memory/observations/batch ──────────────────────
+  // Registered AFTER purge-all and BEFORE :id to ensure literal match first.
+  const batchObservationsSchema = z.object({
+    ids: z.array(z.number().int().positive()).min(1).max(100),
+  });
+
+  router.delete('/api/memory/observations/batch', async (c) => {
+    const user = c.get('user') as AuthUser;
+
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'VALIDATION_ERROR', message: 'Invalid JSON body' }, 400);
+    }
+
+    const parsed = batchObservationsSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json(
+        { error: 'VALIDATION_ERROR', message: parsed.error.issues[0]?.message ?? 'Invalid input' },
+        400,
+      );
+    }
+
+    try {
+      let deletedCount = 0;
+      for (const installationId of user.installationIds) {
+        deletedCount += await deleteMemoryObservationsByIds(db, installationId, parsed.data.ids);
+      }
+      return c.json({ data: { deletedCount } });
+    } catch (err) {
+      const errorId = generateErrorId();
+      logger.error(
+        { err, errorId, user: user.githubLogin },
+        'Failed to batch delete memory observations',
+      );
+      return c.json(
+        { error: 'DELETE_FAILED', message: 'Failed to batch delete memory observations', errorId },
         500,
       );
     }

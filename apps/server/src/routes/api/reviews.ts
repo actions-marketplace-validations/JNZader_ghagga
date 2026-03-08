@@ -1,10 +1,16 @@
 /**
- * Review-related API routes: GET /api/reviews, GET /api/stats, DELETE /api/reviews/:repoFullName
+ * Review-related API routes:
+ *   GET  /api/reviews
+ *   GET  /api/stats
+ *   DELETE /api/reviews/batch
+ *   DELETE /api/reviews/:param  (numeric → single review by ID, non-numeric → by repo full name)
  */
 
 import type { Database } from 'ghagga-db';
 import {
   clearMemoryObservationsByProject,
+  deleteReviewById,
+  deleteReviewsByIds,
   deleteReviewsByRepoId,
   getRepoByFullName,
   getReviewStats,
@@ -12,6 +18,7 @@ import {
   getReviewsByRepoId,
 } from 'ghagga-db';
 import { Hono } from 'hono';
+import { z } from 'zod';
 import type { AuthUser } from '../../middleware/auth.js';
 import { generateErrorId, logger } from './utils.js';
 
@@ -116,10 +123,74 @@ export function createReviewsRouter(db: Database) {
     }
   });
 
-  // ── DELETE /api/reviews/:repoFullName ────────────────────────
-  router.delete('/api/reviews/:repoFullName', async (c) => {
+  // ── DELETE /api/reviews/batch ─────────────────────────────────
+  // Registered BEFORE :repoFullName to ensure literal match first.
+  const batchReviewsSchema = z.object({
+    ids: z.array(z.number().int().positive()).min(1).max(100),
+  });
+
+  router.delete('/api/reviews/batch', async (c) => {
     const user = c.get('user') as AuthUser;
-    const repoFullName = decodeURIComponent(c.req.param('repoFullName'));
+
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'VALIDATION_ERROR', message: 'Invalid JSON body' }, 400);
+    }
+
+    const parsed = batchReviewsSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json(
+        { error: 'VALIDATION_ERROR', message: parsed.error.issues[0]?.message ?? 'Invalid input' },
+        400,
+      );
+    }
+
+    try {
+      let deletedCount = 0;
+      for (const installationId of user.installationIds) {
+        deletedCount += await deleteReviewsByIds(db, installationId, parsed.data.ids);
+      }
+      return c.json({ data: { deletedCount } });
+    } catch (err) {
+      const errorId = generateErrorId();
+      logger.error({ err, errorId, user: user.githubLogin }, 'Failed to batch delete reviews');
+      return c.json(
+        { error: 'DELETE_FAILED', message: 'Failed to batch delete reviews', errorId },
+        500,
+      );
+    }
+  });
+
+  // ── DELETE /api/reviews/:param ────────────────────────────────
+  // Combined handler: numeric param → delete single review by ID,
+  // non-numeric param → delete reviews by repo full name (URL-encoded).
+  router.delete('/api/reviews/:param', async (c) => {
+    const user = c.get('user') as AuthUser;
+    const rawParam = c.req.param('param');
+
+    // ── Numeric → single review delete by ID ──
+    if (/^\d+$/.test(rawParam)) {
+      const reviewId = parseInt(rawParam, 10);
+
+      try {
+        for (const installationId of user.installationIds) {
+          const deleted = await deleteReviewById(db, installationId, reviewId);
+          if (deleted) {
+            return c.json({ data: { deleted: true } });
+          }
+        }
+        return c.json({ error: 'NOT_FOUND', message: 'Review not found' }, 404);
+      } catch (err) {
+        const errorId = generateErrorId();
+        logger.error({ err, errorId, user: user.githubLogin }, 'Failed to delete review');
+        return c.json({ error: 'DELETE_FAILED', message: 'Failed to delete review', errorId }, 500);
+      }
+    }
+
+    // ── Non-numeric → delete reviews by repo full name ──
+    const repoFullName = decodeURIComponent(rawParam);
     const includeMemory = c.req.query('includeMemory') === 'true';
 
     try {

@@ -27,8 +27,11 @@ const mockGetObservationsBySession = vi.fn();
 const mockEncrypt = vi.fn();
 const mockDecrypt = vi.fn();
 const mockDeleteMemoryObservation = vi.fn();
+const mockDeleteMemoryObservationsByIds = vi.fn();
 const mockClearMemoryObservationsByProject = vi.fn();
 const mockClearAllMemoryObservations = vi.fn();
+const mockDeleteReviewById = vi.fn();
+const mockDeleteReviewsByIds = vi.fn();
 const mockDeleteReviewsByRepoId = vi.fn();
 const mockDeleteMemorySession = vi.fn();
 const mockClearEmptyMemorySessions = vi.fn();
@@ -49,9 +52,12 @@ vi.mock('ghagga-db', () => ({
   encrypt: (...args: unknown[]) => mockEncrypt(...args),
   decrypt: (...args: unknown[]) => mockDecrypt(...args),
   deleteMemoryObservation: (...args: unknown[]) => mockDeleteMemoryObservation(...args),
+  deleteMemoryObservationsByIds: (...args: unknown[]) => mockDeleteMemoryObservationsByIds(...args),
   clearMemoryObservationsByProject: (...args: unknown[]) =>
     mockClearMemoryObservationsByProject(...args),
   clearAllMemoryObservations: (...args: unknown[]) => mockClearAllMemoryObservations(...args),
+  deleteReviewById: (...args: unknown[]) => mockDeleteReviewById(...args),
+  deleteReviewsByIds: (...args: unknown[]) => mockDeleteReviewsByIds(...args),
   deleteReviewsByRepoId: (...args: unknown[]) => mockDeleteReviewsByRepoId(...args),
   deleteMemorySession: (...args: unknown[]) => mockDeleteMemorySession(...args),
   clearEmptyMemorySessions: (...args: unknown[]) => mockClearEmptyMemorySessions(...args),
@@ -2671,5 +2677,371 @@ describe('POST /api/runner/configure-secret', () => {
     const json = await res.json();
     expect(json.error).toBe('RUNNER_ERROR');
     expect(json.message).toBe('Failed to configure runner secret.');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// DELETE /api/reviews/batch
+// ═══════════════════════════════════════════════════════════════════
+
+describe('DELETE /api/reviews/batch', () => {
+  it('returns 200 with deletedCount for valid batch', async () => {
+    mockDeleteReviewsByIds.mockResolvedValueOnce(3);
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [10, 20, 30] }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deletedCount: 3 });
+    expect(mockDeleteReviewsByIds).toHaveBeenCalledWith(mockDb, 100, [10, 20, 30]);
+  });
+
+  it('returns correct count when only some IDs are owned (partial ownership)', async () => {
+    mockDeleteReviewsByIds.mockResolvedValueOnce(2); // Only 2 of 3 owned
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [10, 20, 30] }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deletedCount: 2 });
+  });
+
+  it('sums counts across multiple installations', async () => {
+    mockDeleteReviewsByIds
+      .mockResolvedValueOnce(1) // installation 100
+      .mockResolvedValueOnce(2); // installation 200
+
+    const multiInstallUser = {
+      githubUserId: 1,
+      githubLogin: 'testuser',
+      installationIds: [100, 200],
+    };
+
+    const app = createApp(multiInstallUser);
+    const res = await app.request('/api/reviews/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [10, 20, 30] }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deletedCount: 3 });
+    expect(mockDeleteReviewsByIds).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns 400 for empty ids array', async () => {
+    const app = createApp();
+    const res = await app.request('/api/reviews/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [] }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+  });
+
+  it('returns 400 for more than 100 ids', async () => {
+    const ids = Array.from({ length: 101 }, (_, i) => i + 1);
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+  });
+
+  it('returns 400 for non-integer ids', async () => {
+    const app = createApp();
+    const res = await app.request('/api/reviews/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [1, 'abc', 3] }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+  });
+
+  it('returns 400 for missing ids field', async () => {
+    const app = createApp();
+    const res = await app.request('/api/reviews/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+  });
+
+  it('returns 500 with errorId on server error', async () => {
+    mockDeleteReviewsByIds.mockRejectedValueOnce(new Error('DB error'));
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [1, 2, 3] }),
+    });
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('DELETE_FAILED');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// DELETE /api/reviews/:reviewId (single review)
+// ═══════════════════════════════════════════════════════════════════
+
+describe('DELETE /api/reviews/:reviewId', () => {
+  it('returns 200 with deleted:true when review is deleted', async () => {
+    mockDeleteReviewById.mockResolvedValueOnce(true);
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/42', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deleted: true });
+    expect(mockDeleteReviewById).toHaveBeenCalledWith(mockDb, 100, 42);
+  });
+
+  it('returns 404 when review is not found', async () => {
+    mockDeleteReviewById.mockResolvedValueOnce(false);
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/9999', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toBe('NOT_FOUND');
+    expect(json.message).toBe('Review not found');
+  });
+
+  it('returns 404 when review belongs to another installation (unowned)', async () => {
+    mockDeleteReviewById.mockResolvedValueOnce(false);
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/42', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toBe('NOT_FOUND');
+  });
+
+  it('tries each installationId until review is found', async () => {
+    mockDeleteReviewById
+      .mockResolvedValueOnce(false) // installation 100 — not found
+      .mockResolvedValueOnce(true); // installation 200 — found
+
+    const multiInstallUser = {
+      githubUserId: 1,
+      githubLogin: 'testuser',
+      installationIds: [100, 200],
+    };
+
+    const app = createApp(multiInstallUser);
+    const res = await app.request('/api/reviews/42', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deleted: true });
+    expect(mockDeleteReviewById).toHaveBeenCalledTimes(2);
+    expect(mockDeleteReviewById).toHaveBeenCalledWith(mockDb, 100, 42);
+    expect(mockDeleteReviewById).toHaveBeenCalledWith(mockDb, 200, 42);
+  });
+
+  it('falls through to repoFullName handler for non-numeric param', async () => {
+    // Non-numeric param is handled by the :repoFullName branch, not the :reviewId branch
+    // 'abc' is treated as a repo full name; since it doesn't exist, returns 404
+    mockGetRepoByFullName.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/abc', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toBe('NOT_FOUND');
+    expect(json.message).toBe('Repository not found');
+  });
+
+  it('returns 500 with errorId on server error', async () => {
+    mockDeleteReviewById.mockRejectedValueOnce(new Error('DB error'));
+
+    const app = createApp();
+    const res = await app.request('/api/reviews/42', {
+      method: 'DELETE',
+    });
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('DELETE_FAILED');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// DELETE /api/memory/observations/batch
+// ═══════════════════════════════════════════════════════════════════
+
+describe('DELETE /api/memory/observations/batch', () => {
+  it('returns 200 with deletedCount for valid batch', async () => {
+    mockDeleteMemoryObservationsByIds.mockResolvedValueOnce(3);
+
+    const app = createApp();
+    const res = await app.request('/api/memory/observations/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [5, 10, 15] }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deletedCount: 3 });
+    expect(mockDeleteMemoryObservationsByIds).toHaveBeenCalledWith(mockDb, 100, [5, 10, 15]);
+  });
+
+  it('returns correct count for partial ownership', async () => {
+    mockDeleteMemoryObservationsByIds.mockResolvedValueOnce(2);
+
+    const app = createApp();
+    const res = await app.request('/api/memory/observations/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [5, 10, 15] }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deletedCount: 2 });
+  });
+
+  it('sums counts across multiple installations', async () => {
+    mockDeleteMemoryObservationsByIds
+      .mockResolvedValueOnce(1) // installation 100
+      .mockResolvedValueOnce(2); // installation 200
+
+    const multiInstallUser = {
+      githubUserId: 1,
+      githubLogin: 'testuser',
+      installationIds: [100, 200],
+    };
+
+    const app = createApp(multiInstallUser);
+    const res = await app.request('/api/memory/observations/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [5, 10, 15] }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ deletedCount: 3 });
+    expect(mockDeleteMemoryObservationsByIds).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns 400 for empty ids array', async () => {
+    const app = createApp();
+    const res = await app.request('/api/memory/observations/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [] }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+  });
+
+  it('returns 400 for more than 100 ids', async () => {
+    const ids = Array.from({ length: 101 }, (_, i) => i + 1);
+
+    const app = createApp();
+    const res = await app.request('/api/memory/observations/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+  });
+
+  it('returns 400 for non-integer ids', async () => {
+    const app = createApp();
+    const res = await app.request('/api/memory/observations/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [1, 'x'] }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+  });
+
+  it('returns 400 for missing ids field', async () => {
+    const app = createApp();
+    const res = await app.request('/api/memory/observations/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+  });
+
+  it('returns 500 with errorId on server error', async () => {
+    mockDeleteMemoryObservationsByIds.mockRejectedValueOnce(new Error('DB error'));
+
+    const app = createApp();
+    const res = await app.request('/api/memory/observations/batch', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [1, 2, 3] }),
+    });
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('DELETE_FAILED');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });

@@ -957,6 +957,96 @@ export async function deleteMemorySession(
  * Scoped to installation, with optional project filter.
  * Returns the count of deleted sessions.
  */
+/**
+ * Delete a single review by ID, scoped to installation.
+ * Uses subquery to verify the review's repository belongs to the given installation.
+ * Returns true if deleted, false if not found or not authorized.
+ */
+export async function deleteReviewById(
+  db: Database,
+  installationId: number,
+  reviewId: number,
+): Promise<boolean> {
+  const result = await db
+    .delete(reviews)
+    .where(
+      and(
+        eq(reviews.id, reviewId),
+        inArray(
+          reviews.repositoryId,
+          db
+            .select({ id: repositories.id })
+            .from(repositories)
+            .where(eq(repositories.installationId, installationId)),
+        ),
+      ),
+    )
+    .returning({ id: reviews.id });
+
+  return result.length > 0;
+}
+
+/**
+ * Delete multiple reviews by their IDs, scoped to installation.
+ * Returns the count of actually deleted rows. No-op if reviewIds is empty.
+ */
+export async function deleteReviewsByIds(
+  db: Database,
+  installationId: number,
+  reviewIds: number[],
+): Promise<number> {
+  if (reviewIds.length === 0) return 0;
+
+  const result = await db
+    .delete(reviews)
+    .where(
+      and(
+        inArray(reviews.id, reviewIds),
+        inArray(
+          reviews.repositoryId,
+          db
+            .select({ id: repositories.id })
+            .from(repositories)
+            .where(eq(repositories.installationId, installationId)),
+        ),
+      ),
+    )
+    .returning({ id: reviews.id });
+
+  return result.length;
+}
+
+/**
+ * Delete multiple memory observations by their IDs, scoped to installation.
+ * Uses the same installation-scoping pattern as deleteMemoryObservation.
+ * Returns the count of actually deleted rows. No-op if observationIds is empty.
+ */
+export async function deleteMemoryObservationsByIds(
+  db: Database,
+  installationId: number,
+  observationIds: number[],
+): Promise<number> {
+  if (observationIds.length === 0) return 0;
+
+  const result = await db
+    .delete(memoryObservations)
+    .where(
+      and(
+        inArray(memoryObservations.id, observationIds),
+        inArray(
+          memoryObservations.project,
+          db
+            .select({ fullName: repositories.fullName })
+            .from(repositories)
+            .where(eq(repositories.installationId, installationId)),
+        ),
+      ),
+    )
+    .returning({ id: memoryObservations.id });
+
+  return result.length;
+}
+
 export async function clearEmptyMemorySessions(
   db: Database,
   installationId: number,

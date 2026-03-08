@@ -54,7 +54,10 @@ import {
   deactivateInstallation,
   deleteMappingsByInstallationId,
   deleteMemoryObservation,
+  deleteMemoryObservationsByIds,
   deleteMemorySession,
+  deleteReviewById,
+  deleteReviewsByIds,
   deleteReviewsByRepoId,
   deleteStaleUserMappings,
   endMemorySession,
@@ -1418,6 +1421,140 @@ describe('clearAllMemoryObservations', () => {
 
     expect(result).toBe(0);
     expect(mockDelete).toHaveBeenCalled();
+  });
+});
+
+// ─── Granular & Batch Deletes (Reviews + Observations) ──────────
+
+describe('deleteReviewById', () => {
+  it('should return true when owned review is deleted', async () => {
+    const { db } = createDeleteMockDb([{ id: 42 }]);
+
+    const result = await deleteReviewById(db, 100, 42);
+
+    expect(result).toBe(true);
+  });
+
+  it('should return false when review is not found', async () => {
+    const { db } = createDeleteMockDb([]);
+
+    const result = await deleteReviewById(db, 100, 999);
+
+    expect(result).toBe(false);
+  });
+
+  it('should return false when review belongs to different installation — IDOR prevention', async () => {
+    const { db } = createDeleteMockDb([]);
+
+    const result = await deleteReviewById(db, 100, 42);
+
+    expect(result).toBe(false);
+  });
+
+  it('should call db.delete with the reviews table', async () => {
+    const { db, mockDelete } = createDeleteMockDb([]);
+
+    await deleteReviewById(db, 100, 42);
+
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
+  it('should call db.select for the installation subquery', async () => {
+    const { db, mockSelect } = createDeleteMockDb([]);
+
+    await deleteReviewById(db, 100, 42);
+
+    expect(mockSelect).toHaveBeenCalled();
+  });
+});
+
+describe('deleteReviewsByIds', () => {
+  it('should return count of deleted rows when reviews are owned', async () => {
+    const deletedRows = [{ id: 10 }, { id: 20 }];
+    const { db } = createDeleteMockDb(deletedRows);
+
+    const result = await deleteReviewsByIds(db, 100, [10, 20, 30]);
+
+    expect(result).toBe(2);
+  });
+
+  it('should return 0 for empty array without executing a query', async () => {
+    const mockDelete = vi.fn();
+    const db = { delete: mockDelete } as unknown as Database;
+
+    const result = await deleteReviewsByIds(db, 100, []);
+
+    expect(result).toBe(0);
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it('should return 0 when no reviews belong to the installation', async () => {
+    const { db } = createDeleteMockDb([]);
+
+    const result = await deleteReviewsByIds(db, 100, [10, 20]);
+
+    expect(result).toBe(0);
+  });
+
+  it('should call db.delete with the reviews table', async () => {
+    const { db, mockDelete } = createDeleteMockDb([{ id: 10 }]);
+
+    await deleteReviewsByIds(db, 100, [10]);
+
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
+  it('should call db.select for the installation subquery', async () => {
+    const { db, mockSelect } = createDeleteMockDb([{ id: 10 }]);
+
+    await deleteReviewsByIds(db, 100, [10]);
+
+    expect(mockSelect).toHaveBeenCalled();
+  });
+});
+
+describe('deleteMemoryObservationsByIds', () => {
+  it('should return count of deleted rows when observations are owned', async () => {
+    const deletedRows = [{ id: 5 }, { id: 10 }];
+    const { db } = createDeleteMockDb(deletedRows);
+
+    const result = await deleteMemoryObservationsByIds(db, 100, [5, 10, 15]);
+
+    expect(result).toBe(2);
+  });
+
+  it('should return 0 for empty array without executing a query', async () => {
+    const mockDelete = vi.fn();
+    const db = { delete: mockDelete } as unknown as Database;
+
+    const result = await deleteMemoryObservationsByIds(db, 100, []);
+
+    expect(result).toBe(0);
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+
+  it('should return 0 when no observations belong to the installation', async () => {
+    const { db } = createDeleteMockDb([]);
+
+    const result = await deleteMemoryObservationsByIds(db, 100, [5, 10]);
+
+    expect(result).toBe(0);
+  });
+
+  it('should call db.delete with the memoryObservations table', async () => {
+    const { db, mockDelete } = createDeleteMockDb([{ id: 5 }]);
+
+    await deleteMemoryObservationsByIds(db, 100, [5]);
+
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
+  it('should call db.select for the installation subquery', async () => {
+    const { db, mockSelect } = createDeleteMockDb([{ id: 5 }]);
+
+    await deleteMemoryObservationsByIds(db, 100, [5]);
+
+    expect(mockSelect).toHaveBeenCalled();
   });
 });
 
