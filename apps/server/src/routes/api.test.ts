@@ -1225,6 +1225,111 @@ describe('PUT /api/settings', () => {
     expect(json).toHaveProperty('errorId');
     expect(json.errorId).toHaveLength(8);
   });
+
+  // ── Negative Zod schema validation tests ────────────────────
+
+  it('returns 400 for invalid reviewLevel enum value', async () => {
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        reviewLevel: 'invalid',
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toBe('Invalid settings');
+    expect(json.details).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: 'reviewLevel' })]),
+    );
+  });
+
+  it('returns 400 when boolean field receives string "true"', async () => {
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        enableSemgrep: 'true',
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toBe('Invalid settings');
+    expect(json.details).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: 'enableSemgrep' })]),
+    );
+  });
+
+  it('returns 400 when ignorePatterns contains non-string items', async () => {
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        ignorePatterns: [123, true],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.message).toBe('Invalid settings');
+    expect(json.details).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: expect.stringContaining('ignorePatterns') }),
+      ]),
+    );
+  });
+
+  it('returns 400 when multiple boolean fields receive wrong types', async () => {
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        enableTrivy: 'false',
+        enableCpd: 1,
+        enableMemory: null,
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+    expect(json.details.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('ignores unknown top-level fields (not passed to Zod schema)', async () => {
+    // The endpoint extracts only known SETTINGS_KEYS before Zod validation,
+    // so unknown fields never reach .strict() and are silently ignored.
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockUpdateRepoSettings.mockResolvedValueOnce(undefined);
+
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        unknownField: 'test',
+        anotherUnknown: 42,
+      }),
+    });
+
+    // Unknown fields are filtered out before reaching the schema,
+    // so the request succeeds (no settings fields to validate).
+    expect(res.status).toBe(200);
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════

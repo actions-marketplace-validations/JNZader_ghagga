@@ -99,23 +99,12 @@ describe('SimpleCircuitBreaker', () => {
     // Advance past reset timeout
     vi.advanceTimersByTime(1_001);
 
-    // Half-open probe fails -> should re-open (failures back to threshold)
+    // Half-open probe fails -> should re-open
+    // failures was already at threshold (3) when breaker tripped, so onFailure()
+    // increments to 4 which is >= threshold -> state goes back to 'open'
     await expect(breaker.execute(fail)).rejects.toThrow('fail');
 
-    // With threshold=3 and failures reset to 1 after half-open fail,
-    // it needs to accumulate again. But the key is the breaker tracked the failure.
-    // After 3 total new failures from half-open, it opens.
-    // Actually after one failure in half-open, failures=1, which is < threshold.
-    // But state remains closed until threshold is hit again. Let's verify:
-    // The half-open probe fails -> onFailure() -> failures=1, state stays as-is
-    // because failures(1) < threshold(3). So state should still allow calls.
-    // Wait — the state was 'half-open' going into execute. The try/catch calls
-    // onFailure() which sets failures=1, lastFailure=now. Since 1 < 3, state
-    // doesn't change back to 'open'. But the state was 'half-open' and we never
-    // set it to 'closed' (that only happens in onSuccess). So getState() returns
-    // the current state which is still 'half-open'. Actually no — onFailure doesn't
-    // change state unless failures >= threshold. State stays 'half-open'.
-    // This is fine — subsequent calls are still allowed in half-open.
+    expect(breaker.getState()).toBe('open');
   });
 
   // ── Reset on success ─────────────────────────────────────────
