@@ -96,6 +96,7 @@ describe('getPRFileList — pagination', () => {
   const mockFetch = vi.fn();
 
   beforeEach(() => {
+    mockFetch.mockReset();
     vi.stubGlobal('fetch', mockFetch);
   });
 
@@ -194,6 +195,7 @@ describe('getPRCommitMessages — pagination', () => {
   const mockFetch = vi.fn();
 
   beforeEach(() => {
+    mockFetch.mockReset();
     vi.stubGlobal('fetch', mockFetch);
   });
 

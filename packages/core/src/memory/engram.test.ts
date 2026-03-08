@@ -13,7 +13,7 @@ const mockCreateSession = vi.fn<() => Promise<number | null>>();
 const mockEndSession = vi.fn<() => Promise<void>>();
 
 vi.mock('./engram-client.js', () => ({
-  EngramClient: vi.fn().mockImplementation(() => ({
+  EngramClient: vi.fn(() => ({
     healthCheck: mockHealthCheck,
     search: mockSearch,
     save: mockSave,
