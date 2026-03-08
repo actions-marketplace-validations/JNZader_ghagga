@@ -55,7 +55,7 @@ importers:
         specifier: ^0.38.4
         version: 0.38.4
       typescript:
-        specifier: ^5.7.0
+        specifier: ^5.9.0
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
@@ -67,14 +67,14 @@ importers:
         specifier: ^0.9.1
         version: 0.9.1
       chalk:
-        specifier: ^5.4.0
+        specifier: ^5.6.0
         version: 5.6.2
       commander:
         specifier: ^14.0.3
         version: 14.0.3
       dotenv:
-        specifier: ^16.4.0
-        version: 16.6.1
+        specifier: ^17.3.0
+        version: 17.3.1
       ghagga-core:
         specifier: workspace:^
         version: link:../../packages/core
@@ -86,7 +86,7 @@ importers:
         specifier: ^4.19.0
         version: 4.21.0
       typescript:
-        specifier: ^5.7.0
+        specifier: ^5.9.0
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
@@ -98,13 +98,13 @@ importers:
         specifier: workspace:*
         version: link:../../packages/types
       '@tanstack/react-query':
-        specifier: ^5.60.0
+        specifier: ^5.90.0
         version: 5.90.21(react@19.2.4)
       '@tanstack/react-virtual':
         specifier: ^3.13.21
         version: 3.13.21(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       clsx:
-        specifier: ^2.1.0
+        specifier: ^2.1.1
         version: 2.1.1
       focus-trap-react:
         specifier: ^12.0.0
@@ -116,7 +116,7 @@ importers:
         specifier: ^19.0.0
         version: 19.2.4(react@19.2.4)
       react-router-dom:
-        specifier: ^7.0.0
+        specifier: ^7.13.0
         version: 7.13.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       recharts:
         specifier: ^3.8.0
@@ -156,7 +156,7 @@ importers:
         specifier: ^3.4.0
         version: 3.4.19(tsx@4.21.0)(yaml@2.8.2)
       typescript:
-        specifier: ^5.7.0
+        specifier: ^5.9.0
         version: 5.9.3
       vite:
         specifier: ^7.3.1
@@ -177,8 +177,8 @@ importers:
         specifier: ^21.1.0
         version: 21.1.1
       dotenv:
-        specifier: ^16.4.0
-        version: 16.6.1
+        specifier: ^17.3.0
+        version: 17.3.1
       ghagga-core:
         specifier: workspace:*
         version: link:../../packages/core
@@ -201,7 +201,7 @@ importers:
         specifier: ^10.3.1
         version: 10.3.1
       zod:
-        specifier: ^4.1.8
+        specifier: ^4.3.0
         version: 4.3.6
     devDependencies:
       '@stryker-mutator/core':
@@ -220,7 +220,7 @@ importers:
         specifier: ^4.19.0
         version: 4.21.0
       typescript:
-        specifier: ^5.7.0
+        specifier: ^5.9.0
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
@@ -244,10 +244,10 @@ importers:
         specifier: ^1.0.2
         version: 1.0.2
       minimatch:
-        specifier: ^10.0.1
+        specifier: ^10.2.0
         version: 10.2.4
       zod:
-        specifier: ^4.1.8
+        specifier: ^4.3.0
         version: 4.3.6
     devDependencies:
       '@stryker-mutator/core':
@@ -260,7 +260,7 @@ importers:
         specifier: ^25.3.5
         version: 25.3.5
       typescript:
-        specifier: ^5.7.0
+        specifier: ^5.9.0
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
@@ -288,7 +288,7 @@ importers:
         specifier: ^4.19.0
         version: 4.21.0
       typescript:
-        specifier: ^5.7.0
+        specifier: ^5.9.0
         version: 5.9.3
       vitest:
         specifier: ^3.0.0
@@ -297,7 +297,7 @@ importers:
   packages/types:
     devDependencies:
       typescript:
-        specifier: ^5.7.0
+        specifier: ^5.9.0
         version: 5.9.3
 
 packages:
@@ -2763,8 +2763,8 @@ packages:
   dom-accessibility-api@0.6.3:
     resolution: {integrity: sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w==}
 
-  dotenv@16.6.1:
-    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
+  dotenv@17.3.1:
+    resolution: {integrity: sha512-IO8C/dzEb6O3F9/twg6ZLXz164a2fhTnEWb95H23Dm4OuN+92NmEAlTrupP9VW6Jm3sO26tQlqyvyi4CsnY9GA==}
     engines: {node: '>=12'}
 
   drizzle-kit@0.31.9:
@@ -6976,7 +6976,7 @@ snapshots:
 
   dom-accessibility-api@0.6.3: {}
 
-  dotenv@16.6.1: {}
+  dotenv@17.3.1: {}
 
   drizzle-kit@0.31.9:
     dependencies:
