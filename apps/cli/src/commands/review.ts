@@ -29,8 +29,15 @@ import {
   SqliteMemoryStorage,
   toolRegistry,
 } from 'ghagga-core';
-import { getConfigDir } from '../lib/config.js';
+import { getConfigDir, getStoredToken } from '../lib/config.js';
 import { getStagedDiff, resolveProjectId } from '../lib/git.js';
+import {
+  createComment,
+  createIssue,
+  ensureLabel,
+  formatIssueBody,
+  parseGitHubRemote,
+} from '../lib/github-api.js';
 import { formatBoxSummary, formatMarkdownResult } from '../ui/format.js';
 import { resolveStepIcon } from '../ui/theme.js';
 import * as tui from '../ui/tui.js';
@@ -62,6 +69,8 @@ export interface ReviewOptions {
   quick?: boolean;
   /** Enable AI enhance post-analysis. */
   enhance?: boolean;
+  /** Create/update a GitHub issue: "new" or an issue number. */
+  issue?: string;
   // Extensible tool system flags (Phase 7)
   /** Tools to force-disable (repeatable --disable-tool) */
   disableTools: string[];
@@ -285,6 +294,11 @@ export async function reviewCommand(targetPath: string, options: ReviewOptions):
     // Step 6: Output the result
     outputResult(result, options.outputFormat, options.version);
 
+    // Step 6.5: Create/update GitHub issue (if --issue is set)
+    if (options.issue) {
+      await handleIssueExport(result, options);
+    }
+
     // Step 7: Exit code — --exit-on-issues overrides default behavior
     const exitCode = resolveExitCode(result, options.exitOnIssues ?? false);
     if (!options.outputFormat) {
@@ -298,6 +312,87 @@ export async function reviewCommand(targetPath: string, options: ReviewOptions):
     const message = error instanceof Error ? error.message : String(error);
     tui.log.error(`\n❌ Review failed: ${message}`);
     process.exit(1);
+  }
+}
+
+// ─── Issue Export ───────────────────────────────────────────────
+
+/**
+ * Handle --issue flag: create a new issue or comment on an existing one.
+ * Failures are non-blocking — the review result is always preserved.
+ */
+async function handleIssueExport(result: ReviewResult, options: ReviewOptions): Promise<void> {
+  try {
+    // 1. Validate GitHub token
+    const token = getStoredToken();
+    if (!token) {
+      tui.log.warn('⚠️  No GitHub token found. Run `ghagga login` to authenticate.');
+      return;
+    }
+
+    // 2. Get git remote URL
+    const remoteUrl = execSync('git remote get-url origin', { encoding: 'utf-8' }).trim();
+
+    // 3. Parse owner/repo
+    const { owner, repo } = parseGitHubRemote(remoteUrl);
+
+    // 4. Get short SHA
+    const sha = execSync('git rev-parse --short HEAD', { encoding: 'utf-8' }).trim();
+
+    // 5. Ensure label exists
+    await ensureLabel({
+      token,
+      owner,
+      repo,
+      name: 'ghagga-review',
+      color: '0ea5e9',
+      description: 'Automated review by GHAGGA',
+    });
+
+    // 6. Format issue body
+    const body = formatIssueBody(result, options.version ?? '0.0.0');
+
+    // 7. Create issue or comment
+    if (options.issue === 'new') {
+      const { url } = await createIssue({
+        token,
+        owner,
+        repo,
+        title: `GHAGGA Review — ${sha}`,
+        body,
+        labels: ['ghagga-review'],
+      });
+      issueLog(options, `✅ Issue created: ${url}`);
+    } else {
+      const issueNumber = Number.parseInt(options.issue!, 10);
+      if (Number.isNaN(issueNumber) || issueNumber <= 0) {
+        tui.log.warn(`⚠️  Invalid issue number "${options.issue}". Use "new" or a valid number.`);
+        return;
+      }
+      const { url } = await createComment({
+        token,
+        owner,
+        repo,
+        issueNumber,
+        body,
+      });
+      issueLog(options, `✅ Comment added: ${url}`);
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    tui.log.warn(`⚠️  Issue export failed: ${msg}`);
+  }
+}
+
+/**
+ * Print issue URL to stderr when --output is set (stdout reserved for format),
+ * otherwise use tui.log.success().
+ */
+function issueLog(options: ReviewOptions, message: string): void {
+  if (options.outputFormat) {
+    console.error(message);
+  } else {
+    tui.log.success(message);
   }
 }
 

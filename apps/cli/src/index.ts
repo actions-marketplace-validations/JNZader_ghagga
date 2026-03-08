@@ -120,6 +120,10 @@ program
   .option('--quick', 'Static analysis only — skip LLM review')
   .option('--enhance', 'Enable AI-powered post-analysis enhancement')
   .option(
+    '--issue <target>',
+    'Create/update a GitHub issue with review results (use "new" or issue number)',
+  )
+  .option(
     '--memory-backend <type>',
     'Memory backend: sqlite (default) or engram (env: GHAGGA_MEMORY_BACKEND)',
     'sqlite',
@@ -229,6 +233,7 @@ program
       exitOnIssues: options.exitOnIssues ?? false,
       quick: options.quick ?? false,
       enhance: options.enhance ?? false,
+      issue: options.issue,
       disableTools: options.disableTool ?? [],
       enableTools: options.enableTool ?? [],
       listTools: options.listTools ?? false,
@@ -283,6 +288,8 @@ interface ReviewCommandOptions {
   exitOnIssues?: boolean;
   quick?: boolean;
   enhance?: boolean;
+  // Issue export (Phase 6)
+  issue?: string;
   // Extensible tool system flags (Phase 7)
   disableTool: string[];
   enableTool: string[];
