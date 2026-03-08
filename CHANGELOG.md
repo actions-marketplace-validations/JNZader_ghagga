@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [2.4.0] - 2026-03-08
 
 ### Added
 - **Extensible Static Analysis (3→15 tools)** — Replaced hardcoded Semgrep/Trivy/CPD integration with a plugin registry supporting 15 static analysis tools across 5 categories (security, SCA, duplication, lint, complexity). Enable via `GHAGGA_TOOL_REGISTRY=true` feature flag.
