@@ -621,7 +621,7 @@ describe('reviewCommand — functional tests', () => {
     expect(callArgs.onProgress).toBeTypeOf('function');
   });
 
-  it('should not pass progress handler when verbose is false', async () => {
+  it('should pass step-counter progress handler when verbose is false', async () => {
     mockExecSync.mockReturnValue('diff content' as never);
     mockReviewPipeline.mockResolvedValue(makeReviewResult());
 
@@ -629,7 +629,7 @@ describe('reviewCommand — functional tests', () => {
     await reviewCommand('.', defaultOptions({ verbose: false }));
 
     const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
-    expect(callArgs.onProgress).toBeUndefined();
+    expect(callArgs.onProgress).toBeTypeOf('function');
   });
 
   it('should print progress header with mode, provider, and model', async () => {

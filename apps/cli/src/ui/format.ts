@@ -71,6 +71,16 @@ export function formatKeyValue(label: string, value: string, indent: number = 3)
   return `${pad}${label.padEnd(12)}  ${value}`;
 }
 
+// ─── Tool Dividers ──────────────────────────────────────────────
+
+/**
+ * Format a tool section divider.
+ * Pure function — does not call tui.*.
+ */
+export function formatToolDivider(label: string): string {
+  return `\n─── ${label} ${'─'.repeat(Math.max(0, 50 - label.length))}`;
+}
+
 // ─── Review Result Formatting ───────────────────────────────────
 
 /**
@@ -118,7 +128,7 @@ export function formatMarkdownResult(result: ReviewResult): string {
       if (!findings || findings.length === 0) continue;
 
       const label = SOURCE_LABELS[src] ?? src;
-      lines.push(`### ${label} (${findings.length})`);
+      lines.push(formatToolDivider(`${label} (${findings.length})`));
       lines.push('');
 
       for (const finding of findings) {

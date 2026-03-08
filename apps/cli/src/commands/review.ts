@@ -31,7 +31,7 @@ import {
 } from 'ghagga-core';
 import { getConfigDir } from '../lib/config.js';
 import { getStagedDiff, resolveProjectId } from '../lib/git.js';
-import { formatMarkdownResult } from '../ui/format.js';
+import { formatBoxSummary, formatMarkdownResult } from '../ui/format.js';
 import { resolveStepIcon } from '../ui/theme.js';
 import * as tui from '../ui/tui.js';
 import { reviewCommitMessage } from './review-commit-msg.js';
@@ -228,10 +228,29 @@ export async function reviewCommand(targetPath: string, options: ReviewOptions):
       }
     }
 
-    // Step 5: Run the review pipeline
-    const onProgress: ProgressCallback | undefined = options.verbose
+    // Compute total steps for progress indicator
+    const FIXED_PIPELINE_STEPS = 5; // validate, parse-diff, detect-stacks, agent/quick, memory
+    const activeToolCount = Math.max(settings.enabledTools?.length ?? 3, 3);
+    const totalSteps = FIXED_PIPELINE_STEPS + activeToolCount;
+
+    // Step 5: Create progress handler
+    let stepIndex = 0;
+
+    let s: ReturnType<typeof tui.spinner> | undefined;
+    if (!options.outputFormat) {
+      s = tui.spinner();
+      tui.setActiveSpinner(s);
+      s.start('Starting review...');
+    }
+
+    const onProgress: ProgressCallback = options.verbose
       ? createProgressHandler()
-      : undefined;
+      : (event: ProgressEvent) => {
+          stepIndex++;
+          if (!options.outputFormat) {
+            tui.progress(stepIndex, totalSteps, event.message);
+          }
+        };
 
     const result = await reviewPipeline({
       diff,
@@ -254,6 +273,11 @@ export async function reviewCommand(targetPath: string, options: ReviewOptions):
 
     // Step 5.5: Persist memory to disk
     await memoryStorage?.close();
+
+    if (s) {
+      s.stop('Analysis complete');
+      tui.setActiveSpinner(null);
+    }
 
     // Step 6: Output the result
     outputResult(result, options.outputFormat, options.version);
@@ -533,9 +557,14 @@ function outputResult(
     case 'markdown':
       console.log(formatMarkdownResult(result));
       break;
-    default:
+    default: {
+      // Styled TUI output with severity colors and box summary
+      const boxLines = formatBoxSummary(result);
+      tui.log.message(tui.box('Review Summary', boxLines));
+      tui.log.message('');
       tui.log.message(formatMarkdownResult(result));
       break;
+    }
   }
 }
 
