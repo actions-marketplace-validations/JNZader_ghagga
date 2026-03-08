@@ -48,6 +48,7 @@ export const reviewFunction = inngest.createFunction(
   { event: 'ghagga/review.requested' },
   async ({ event, step }) => {
     const {
+      reviewId,
       installationId,
       repoFullName,
       prNumber,
@@ -66,6 +67,9 @@ export const reviewFunction = inngest.createFunction(
       encryptedApiKey,
       settings,
     } = event.data;
+
+    // Create a child logger with reviewId for correlation across all steps
+    const log = logger.child({ reviewId, repoFullName, prNumber });
 
     const [owner, repo] = repoFullName.split('/') as [string, string];
 
@@ -94,17 +98,14 @@ export const reviewFunction = inngest.createFunction(
       // Check if any static analysis tool is enabled
       const anyToolEnabled = settings.enableSemgrep || settings.enableTrivy || settings.enableCpd;
       if (!anyToolEnabled) {
-        logger.info(
-          { repoFullName, prNumber },
-          'No static analysis tools enabled — skipping runner',
-        );
+        log.info('No static analysis tools enabled — skipping runner');
         return { dispatched: false as const, callbackId: null };
       }
 
       const appId = process.env.GITHUB_APP_ID;
       const privateKey = process.env.GITHUB_PRIVATE_KEY;
       if (!appId || !privateKey) {
-        logger.warn({ repoFullName }, 'Missing app credentials — skipping runner dispatch');
+        log.warn('Missing app credentials — skipping runner dispatch');
         return { dispatched: false as const, callbackId: null };
       }
 
@@ -113,10 +114,7 @@ export const reviewFunction = inngest.createFunction(
       // Discover if the user has a ghagga-runner repo
       const runner = await discoverRunnerRepo(owner, token);
       if (!runner) {
-        logger.info(
-          { repoFullName, prNumber },
-          'No ghagga-runner repo found — static analysis will run locally on server',
-        );
+        log.info('No ghagga-runner repo found — static analysis will run locally on server');
         return { dispatched: false as const, callbackId: null };
       }
 
@@ -145,15 +143,15 @@ export const reviewFunction = inngest.createFunction(
           token,
         });
 
-        logger.info(
-          { repoFullName, prNumber, callbackId, runner: runner.fullName },
+        log.info(
+          { callbackId, runner: runner.fullName },
           'Runner workflow dispatched — waiting for callback',
         );
 
         return { dispatched: true as const, callbackId };
       } catch (error) {
-        logger.warn(
-          { repoFullName, prNumber, error: String(error) },
+        log.warn(
+          { error: String(error) },
           'Failed to dispatch runner workflow — static analysis will run locally on server',
         );
         return { dispatched: false as const, callbackId: null };
@@ -172,13 +170,13 @@ export const reviewFunction = inngest.createFunction(
 
       if (runnerEvent) {
         precomputedStaticAnalysis = (runnerEvent.data as RunnerCompletedData).staticAnalysis;
-        logger.info(
-          { repoFullName, prNumber, callbackId: runnerResult.callbackId },
+        log.info(
+          { callbackId: runnerResult.callbackId },
           'Received static analysis results from runner',
         );
       } else {
-        logger.warn(
-          { repoFullName, prNumber, callbackId: runnerResult.callbackId },
+        log.warn(
+          { callbackId: runnerResult.callbackId },
           'Runner callback timed out after 10 minutes — static analysis will run locally on server',
         );
       }
@@ -198,8 +196,8 @@ export const reviewFunction = inngest.createFunction(
         providerChain = dbChain
           .filter((entry) => {
             if (entry.provider === 'github' && !entry.encryptedApiKey) {
-              logger.warn(
-                { repoFullName, provider: 'github' },
+              log.warn(
+                { provider: 'github' },
                 'Skipping "github" provider in SaaS mode — installation tokens cannot access GitHub Models',
               );
               return false;
@@ -230,8 +228,8 @@ export const reviewFunction = inngest.createFunction(
 
         // GitHub Models cannot work in SaaS mode (installation tokens lack models:read)
         if (legacyProvider === 'github' && !encryptedApiKey) {
-          logger.warn(
-            { repoFullName, provider: 'github' },
+          log.warn(
+            { provider: 'github' },
             'Provider "github" (GitHub Models) not available in SaaS/webhook mode — disabling AI review',
           );
           // Disable AI review — will return static-only results
@@ -256,7 +254,7 @@ export const reviewFunction = inngest.createFunction(
         db = createDatabaseFromEnv();
       } catch {
         // Memory features degrade gracefully without DB
-        logger.warn({ repoFullName }, 'Database unavailable for memory features');
+        log.warn('Database unavailable for memory features');
       }
 
       const memoryStorage = db ? new PostgresMemoryStorage(db, installationId) : undefined;
@@ -321,7 +319,9 @@ export const reviewFunction = inngest.createFunction(
 
       // Get a fresh token (the previous one may have expired during review)
       const token = await getInstallationToken(installationId, appId, privateKey);
-      const commentBody = formatReviewComment(result);
+      let commentBody = formatReviewComment(result);
+      // Append reviewId to the comment footer for traceability
+      commentBody += `\n<!-- reviewId: ${reviewId} -->`;
       await postComment(owner, repo, prNumber, commentBody, token);
     });
 
@@ -338,14 +338,11 @@ export const reviewFunction = inngest.createFunction(
           await addCommentReaction(owner, repo, triggerCommentId, 'rocket', token);
         } catch (error) {
           // Non-critical — don't fail the review
-          logger.warn(
-            { repoFullName, prNumber, error: String(error) },
-            'Failed to add completion reaction',
-          );
+          log.warn({ error: String(error) }, 'Failed to add completion reaction');
         }
       });
     }
 
-    return { status: result.status, prNumber, repoFullName };
+    return { status: result.status, prNumber, repoFullName, reviewId };
   },
 );

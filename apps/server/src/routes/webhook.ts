@@ -8,6 +8,7 @@
  *   - installation_repositories: Track repo additions/removals
  */
 
+import { randomUUID } from 'node:crypto';
 import type { Database } from 'ghagga-db';
 import {
   deactivateInstallation,
@@ -147,8 +148,9 @@ export function createWebhookRouter(db: Database) {
     const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
 
     if (!webhookSecret) {
-      logger.error('GITHUB_WEBHOOK_SECRET is not set');
-      return c.json({ error: 'Server misconfiguration' }, 500);
+      const errorId = randomUUID().slice(0, 8);
+      logger.error({ errorId }, 'GITHUB_WEBHOOK_SECRET is not set');
+      return c.json({ error: 'INTERNAL_ERROR', message: 'Server misconfiguration', errorId }, 500);
     }
 
     // Read raw body for signature verification
@@ -196,8 +198,9 @@ export function createWebhookRouter(db: Database) {
           return c.json({ message: `Event ${eventType} ignored` }, 200);
       }
     } catch (error) {
-      logger.error({ eventType, error: String(error) }, 'Error handling webhook event');
-      return c.json({ error: 'Internal server error' }, 500);
+      const errorId = randomUUID().slice(0, 8);
+      logger.error({ eventType, errorId, error: String(error) }, 'Error handling webhook event');
+      return c.json({ error: 'INTERNAL_ERROR', message: 'Internal server error', errorId }, 500);
     }
   });
 
@@ -221,6 +224,9 @@ async function handlePullRequest(
     return c.json({ error: 'Missing installation ID' }, 400);
   }
 
+  // Generate correlation ID for end-to-end review tracing
+  const reviewId = randomUUID().slice(0, 8);
+
   // Look up the repository in our database
   const repo = await getRepoByGithubId(db, payload.repository.id);
 
@@ -241,6 +247,7 @@ async function handlePullRequest(
   await inngest.send({
     name: 'ghagga/review.requested',
     data: {
+      reviewId,
       installationId: payload.installation.id,
       repoFullName: payload.repository.full_name,
       prNumber: payload.number,
@@ -267,13 +274,17 @@ async function handlePullRequest(
     },
   });
 
-  logger.info({ repo: payload.repository.full_name, pr: payload.number }, 'Review dispatched');
+  logger.info(
+    { repo: payload.repository.full_name, pr: payload.number, reviewId },
+    'Review dispatched',
+  );
 
   return c.json(
     {
       message: 'Review dispatched',
       pr: payload.number,
       repo: payload.repository.full_name,
+      reviewId,
     },
     202,
   );
@@ -320,6 +331,9 @@ async function handleIssueComment(
   if (!payload.installation?.id) {
     return c.json({ error: 'Missing installation ID' }, 400);
   }
+
+  // Generate correlation ID for end-to-end review tracing
+  const reviewId = randomUUID().slice(0, 8);
 
   // Look up the repository
   const repo = await getRepoByGithubId(db, payload.repository.id);
@@ -373,6 +387,7 @@ async function handleIssueComment(
   await inngest.send({
     name: 'ghagga/review.requested',
     data: {
+      reviewId,
       installationId: payload.installation.id,
       repoFullName: payload.repository.full_name,
       prNumber,
@@ -399,7 +414,12 @@ async function handleIssueComment(
   });
 
   logger.info(
-    { repo: payload.repository.full_name, pr: prNumber, triggeredBy: payload.comment.user.login },
+    {
+      repo: payload.repository.full_name,
+      pr: prNumber,
+      triggeredBy: payload.comment.user.login,
+      reviewId,
+    },
     'Review re-triggered via comment',
   );
 
@@ -409,6 +429,7 @@ async function handleIssueComment(
       pr: prNumber,
       repo: payload.repository.full_name,
       triggeredBy: payload.comment.user.login,
+      reviewId,
     },
     202,
   );

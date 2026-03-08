@@ -183,14 +183,17 @@ describe('webhook signature verification', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 500 when GITHUB_WEBHOOK_SECRET is not set', async () => {
+  it('returns 500 with errorId when GITHUB_WEBHOOK_SECRET is not set', async () => {
     delete process.env.GITHUB_WEBHOOK_SECRET;
     const body = JSON.stringify({ action: 'opened' });
     const req = makeRequest(body, 'pull_request');
     const res = await router.fetch(req);
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json).toHaveProperty('error', 'Server misconfiguration');
+    expect(json).toHaveProperty('error', 'INTERNAL_ERROR');
+    expect(json).toHaveProperty('message', 'Server misconfiguration');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 
@@ -259,6 +262,9 @@ describe('pull_request event handling', () => {
     expect(json).toHaveProperty('message', 'Review dispatched');
     expect(json).toHaveProperty('pr', 42);
     expect(json).toHaveProperty('repo', 'owner/repo');
+    // Correlation ID: 8-char UUID prefix
+    expect(json).toHaveProperty('reviewId');
+    expect(json.reviewId).toHaveLength(8);
 
     expect(mockInngestSend).toHaveBeenCalledOnce();
     const sendArg = mockInngestSend.mock.calls[0]?.[0];
@@ -266,6 +272,8 @@ describe('pull_request event handling', () => {
     expect(sendArg.data.installationId).toBe(999);
     expect(sendArg.data.repoFullName).toBe('owner/repo');
     expect(sendArg.data.prNumber).toBe(42);
+    // reviewId propagated to Inngest event
+    expect(sendArg.data.reviewId).toBe(json.reviewId);
   });
 
   it('dispatches review for synchronize action', async () => {
@@ -473,6 +481,9 @@ describe('issue_comment event handling', () => {
     expect(json).toHaveProperty('message', 'Review dispatched (comment trigger)');
     expect(json).toHaveProperty('pr', 42);
     expect(json).toHaveProperty('triggeredBy', 'contributor-user');
+    // Correlation ID: 8-char UUID prefix
+    expect(json).toHaveProperty('reviewId');
+    expect(json.reviewId).toHaveLength(8);
 
     expect(mockInngestSend).toHaveBeenCalledOnce();
     const sendArg = mockInngestSend.mock.calls[0]?.[0];
@@ -481,6 +492,8 @@ describe('issue_comment event handling', () => {
     expect(sendArg.data.triggerCommentId).toBe(777);
     expect(sendArg.data.headSha).toBe('pr-head-sha-abc');
     expect(sendArg.data.baseBranch).toBe('main');
+    // reviewId propagated to Inngest event
+    expect(sendArg.data.reviewId).toBe(json.reviewId);
   });
 
   it('fetches PR details to include headSha and baseBranch', async () => {

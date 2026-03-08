@@ -16,7 +16,7 @@ import {
 } from 'ghagga-db';
 import { Hono } from 'hono';
 import type { AuthUser } from '../../middleware/auth.js';
-import { buildProviderChainView, logger } from './utils.js';
+import { buildProviderChainView, generateErrorId, logger } from './utils.js';
 
 export function createInstallationsRouter(db: Database) {
   const router = new Hono();
@@ -38,8 +38,12 @@ export function createInstallationsRouter(db: Database) {
         }));
       return c.json({ data: results });
     } catch (err) {
-      logger.error({ err, user: user.githubLogin }, 'Failed to fetch installations');
-      return c.json({ error: 'FETCH_FAILED', message: 'Failed to fetch installations' }, 500);
+      const errorId = generateErrorId();
+      logger.error({ err, errorId, user: user.githubLogin }, 'Failed to fetch installations');
+      return c.json(
+        { error: 'FETCH_FAILED', message: 'Failed to fetch installations', errorId },
+        500,
+      );
     }
   });
 
@@ -101,12 +105,13 @@ export function createInstallationsRouter(db: Database) {
         },
       });
     } catch (err) {
+      const errorId = generateErrorId();
       logger.error(
-        { err, installationId, user: user.githubLogin },
+        { err, errorId, installationId, user: user.githubLogin },
         'Failed to fetch installation settings',
       );
       return c.json(
-        { error: 'FETCH_FAILED', message: 'Failed to fetch installation settings' },
+        { error: 'FETCH_FAILED', message: 'Failed to fetch installation settings', errorId },
         500,
       );
     }
@@ -226,12 +231,13 @@ export function createInstallationsRouter(db: Database) {
       );
       return c.json({ message: 'Installation settings updated' });
     } catch (err) {
+      const errorId = generateErrorId();
       logger.error(
-        { err, installationId, user: user.githubLogin },
+        { err, errorId, installationId, user: user.githubLogin },
         'Failed to update installation settings',
       );
       return c.json(
-        { error: 'UPDATE_FAILED', message: 'Failed to update installation settings' },
+        { error: 'UPDATE_FAILED', message: 'Failed to update installation settings', errorId },
         500,
       );
     }

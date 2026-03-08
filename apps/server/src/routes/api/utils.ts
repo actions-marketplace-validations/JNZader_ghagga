@@ -2,11 +2,20 @@
  * Shared helpers for the dashboard API routes.
  */
 
+import { randomUUID } from 'node:crypto';
 import type { DbProviderChainEntry } from 'ghagga-db';
 import { decrypt } from 'ghagga-db';
 import { logger as rootLogger } from '../../lib/logger.js';
 
 export const logger = rootLogger.child({ module: 'api' });
+
+/**
+ * Generate a short error ID for support correlation.
+ * Used in 500 responses so users can report the ID to support.
+ */
+export function generateErrorId(): string {
+  return randomUUID().slice(0, 8);
+}
 
 /**
  * Mask an API key for safe display.

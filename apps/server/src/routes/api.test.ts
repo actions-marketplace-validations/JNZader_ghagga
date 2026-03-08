@@ -252,7 +252,7 @@ describe('GET /api/reviews', () => {
     expect(json.message).toBe('Forbidden');
   });
 
-  it('returns 500 on DB error', async () => {
+  it('returns 500 with errorId on DB error', async () => {
     mockGetRepoByFullName.mockRejectedValueOnce(new Error('DB error'));
 
     const app = createApp();
@@ -262,6 +262,8 @@ describe('GET /api/reviews', () => {
     const json = await res.json();
     expect(json.error).toBe('FETCH_FAILED');
     expect(json.message).toBe('Failed to fetch reviews');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 
@@ -409,7 +411,7 @@ describe('GET /api/stats', () => {
     expect(res.status).toBe(403);
   });
 
-  it('returns 500 on DB error', async () => {
+  it('returns 500 with errorId on DB error', async () => {
     mockGetRepoByFullName.mockRejectedValueOnce(new Error('DB error'));
 
     const app = createApp();
@@ -419,6 +421,8 @@ describe('GET /api/stats', () => {
     const json = await res.json();
     expect(json.error).toBe('FETCH_FAILED');
     expect(json.message).toBe('Failed to fetch stats');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 
@@ -457,7 +461,7 @@ describe('GET /api/repositories', () => {
     expect(json.data).toEqual([]);
   });
 
-  it('returns 500 on DB error', async () => {
+  it('returns 500 with errorId on DB error', async () => {
     mockGetReposByInstallationId.mockRejectedValueOnce(new Error('DB error'));
 
     const app = createApp();
@@ -467,6 +471,8 @@ describe('GET /api/repositories', () => {
     const json = await res.json();
     expect(json.error).toBe('FETCH_FAILED');
     expect(json.message).toBe('Failed to fetch repositories');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 
@@ -505,7 +511,7 @@ describe('GET /api/installations', () => {
     expect(json.data[0].id).toBe(100);
   });
 
-  it('returns 500 on DB error', async () => {
+  it('returns 500 with errorId on DB error', async () => {
     mockGetInstallationById.mockRejectedValueOnce(new Error('DB error'));
 
     const app = createApp();
@@ -515,6 +521,8 @@ describe('GET /api/installations', () => {
     const json = await res.json();
     expect(json.error).toBe('FETCH_FAILED');
     expect(json.message).toBe('Failed to fetch installations');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 
@@ -622,7 +630,7 @@ describe('GET /api/installation-settings', () => {
     expect(json.message).toBe('Forbidden');
   });
 
-  it('returns 500 on DB error', async () => {
+  it('returns 500 with errorId on DB error', async () => {
     mockGetInstallationById.mockRejectedValueOnce(new Error('DB error'));
 
     const app = createApp();
@@ -632,6 +640,8 @@ describe('GET /api/installation-settings', () => {
     const json = await res.json();
     expect(json.error).toBe('FETCH_FAILED');
     expect(json.message).toBe('Failed to fetch installation settings');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 
@@ -809,7 +819,7 @@ describe('PUT /api/installation-settings', () => {
     expect(json.message).toContain("Provider 'ollama' is not available");
   });
 
-  it('returns 500 on DB error', async () => {
+  it('returns 500 with errorId on DB error', async () => {
     mockGetInstallationSettings.mockRejectedValueOnce(new Error('DB error'));
 
     const app = createApp();
@@ -828,6 +838,8 @@ describe('PUT /api/installation-settings', () => {
     const json = await res.json();
     expect(json.error).toBe('UPDATE_FAILED');
     expect(json.message).toBe('Failed to update installation settings');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 
@@ -952,13 +964,16 @@ describe('GET /api/settings', () => {
     expect(res.status).toBe(403);
   });
 
-  it('returns 500 on DB error', async () => {
+  it('returns 500 with errorId on DB error', async () => {
     mockGetRepoByFullName.mockRejectedValueOnce(new Error('DB error'));
 
     const app = createApp();
     const res = await app.request('/api/settings?repo=owner/repo');
 
     expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 
@@ -1193,7 +1208,7 @@ describe('PUT /api/settings', () => {
     expect(updates.useGlobalSettings).toBeUndefined(); // Not passed
   });
 
-  it('returns 500 on DB error', async () => {
+  it('returns 500 with errorId on DB error', async () => {
     mockGetRepoByFullName.mockRejectedValueOnce(new Error('DB error'));
 
     const app = createApp();
@@ -1207,6 +1222,8 @@ describe('PUT /api/settings', () => {
     const json = await res.json();
     expect(json.error).toBe('UPDATE_FAILED');
     expect(json.message).toBe('Failed to update settings');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 
@@ -1938,7 +1955,7 @@ describe('DELETE /api/memory/observations/:id', () => {
     expect(mockDeleteMemoryObservation).toHaveBeenCalledWith(mockDb, 200, 42);
   });
 
-  it('returns 500 when an error occurs', async () => {
+  it('returns 500 with errorId when an error occurs', async () => {
     mockDeleteMemoryObservation.mockRejectedValueOnce(new Error('DB error'));
 
     const app = createApp();
@@ -1950,6 +1967,8 @@ describe('DELETE /api/memory/observations/:id', () => {
     const json = await res.json();
     expect(json.error).toBe('DELETE_FAILED');
     expect(json.message).toBe('Failed to delete memory observation');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 
@@ -2028,7 +2047,7 @@ describe('DELETE /api/memory/projects/:project/observations', () => {
     expect(mockGetRepoByFullName).toHaveBeenCalledWith(mockDb, 'owner/repo');
   });
 
-  it('returns 500 when an error occurs', async () => {
+  it('returns 500 with errorId when an error occurs', async () => {
     mockGetRepoByFullName.mockRejectedValueOnce(new Error('DB error'));
 
     const app = createApp();
@@ -2040,6 +2059,8 @@ describe('DELETE /api/memory/projects/:project/observations', () => {
     const json = await res.json();
     expect(json.error).toBe('DELETE_FAILED');
     expect(json.message).toBe('Failed to clear project memory observations');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 
@@ -2099,7 +2120,7 @@ describe('DELETE /api/memory/observations (purge-all)', () => {
     expect(mockClearAllMemoryObservations).toHaveBeenCalledWith(mockDb, 200);
   });
 
-  it('returns 500 when an error occurs', async () => {
+  it('returns 500 with errorId when an error occurs', async () => {
     mockClearAllMemoryObservations.mockRejectedValueOnce(new Error('DB error'));
 
     const app = createApp();
@@ -2111,6 +2132,8 @@ describe('DELETE /api/memory/observations (purge-all)', () => {
     const json = await res.json();
     expect(json.error).toBe('DELETE_FAILED');
     expect(json.message).toBe('Failed to purge all memory observations');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 
@@ -2182,7 +2205,7 @@ describe('DELETE /api/memory/sessions/empty', () => {
     expect(mockClearEmptyMemorySessions).toHaveBeenCalledTimes(2);
   });
 
-  it('returns 500 when an error occurs', async () => {
+  it('returns 500 with errorId when an error occurs', async () => {
     mockClearEmptyMemorySessions.mockRejectedValueOnce(new Error('DB error'));
 
     const app = createApp();
@@ -2194,6 +2217,8 @@ describe('DELETE /api/memory/sessions/empty', () => {
     const json = await res.json();
     expect(json.error).toBe('DELETE_FAILED');
     expect(json.message).toBe('Failed to cleanup empty memory sessions');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 
@@ -2266,7 +2291,7 @@ describe('DELETE /api/memory/sessions/:id', () => {
     expect(mockDeleteMemorySession).toHaveBeenCalledWith(mockDb, 200, 10);
   });
 
-  it('returns 500 when an error occurs', async () => {
+  it('returns 500 with errorId when an error occurs', async () => {
     mockDeleteMemorySession.mockRejectedValueOnce(new Error('DB error'));
 
     const app = createApp();
@@ -2278,6 +2303,8 @@ describe('DELETE /api/memory/sessions/:id', () => {
     const json = await res.json();
     expect(json.error).toBe('DELETE_FAILED');
     expect(json.message).toBe('Failed to delete memory session');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 

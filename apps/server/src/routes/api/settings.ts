@@ -17,7 +17,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { validateProviderKey } from '../../lib/provider-models.js';
 import type { AuthUser } from '../../middleware/auth.js';
-import { buildProviderChainView, logger } from './utils.js';
+import { buildProviderChainView, generateErrorId, logger } from './utils.js';
 
 // ─── Zod Schemas ────────────────────────────────────────────────
 
@@ -103,8 +103,12 @@ export function createSettingsRouter(db: Database) {
         },
       });
     } catch (err) {
-      logger.error({ err, repo: repoFullName, user: user.githubLogin }, 'Failed to fetch settings');
-      return c.json({ error: 'FETCH_FAILED', message: 'Failed to fetch settings' }, 500);
+      const errorId = generateErrorId();
+      logger.error(
+        { err, errorId, repo: repoFullName, user: user.githubLogin },
+        'Failed to fetch settings',
+      );
+      return c.json({ error: 'FETCH_FAILED', message: 'Failed to fetch settings', errorId }, 500);
     }
   });
 
@@ -264,11 +268,12 @@ export function createSettingsRouter(db: Database) {
       );
       return c.json({ message: 'Settings updated' });
     } catch (err) {
+      const errorId = generateErrorId();
       logger.error(
-        { err, repo: repoFullName, user: user.githubLogin },
+        { err, errorId, repo: repoFullName, user: user.githubLogin },
         'Failed to update settings',
       );
-      return c.json({ error: 'UPDATE_FAILED', message: 'Failed to update settings' }, 500);
+      return c.json({ error: 'UPDATE_FAILED', message: 'Failed to update settings', errorId }, 500);
     }
   });
 

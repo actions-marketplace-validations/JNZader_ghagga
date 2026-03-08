@@ -23,7 +23,7 @@ import {
 } from 'ghagga-db';
 import { Hono } from 'hono';
 import type { AuthUser } from '../../middleware/auth.js';
-import { logger } from './utils.js';
+import { generateErrorId, logger } from './utils.js';
 
 export function createMemoryRouter(db: Database) {
   const router = new Hono();
@@ -95,9 +95,13 @@ export function createMemoryRouter(db: Database) {
       }
       return c.json({ data: { cleared: totalCleared } });
     } catch (err) {
-      logger.error({ err, user: user.githubLogin }, 'Failed to purge all memory observations');
+      const errorId = generateErrorId();
+      logger.error(
+        { err, errorId, user: user.githubLogin },
+        'Failed to purge all memory observations',
+      );
       return c.json(
-        { error: 'DELETE_FAILED', message: 'Failed to purge all memory observations' },
+        { error: 'DELETE_FAILED', message: 'Failed to purge all memory observations', errorId },
         500,
       );
     }
@@ -121,9 +125,10 @@ export function createMemoryRouter(db: Database) {
       }
       return c.json({ error: 'NOT_FOUND', message: 'Observation not found' }, 404);
     } catch (err) {
-      logger.error({ err, user: user.githubLogin }, 'Failed to delete memory observation');
+      const errorId = generateErrorId();
+      logger.error({ err, errorId, user: user.githubLogin }, 'Failed to delete memory observation');
       return c.json(
-        { error: 'DELETE_FAILED', message: 'Failed to delete memory observation' },
+        { error: 'DELETE_FAILED', message: 'Failed to delete memory observation', errorId },
         500,
       );
     }
@@ -147,9 +152,13 @@ export function createMemoryRouter(db: Database) {
       const cleared = await clearMemoryObservationsByProject(db, repo.installationId, project);
       return c.json({ data: { cleared } });
     } catch (err) {
-      logger.error({ err, user: user.githubLogin }, 'Failed to clear project memory observations');
+      const errorId = generateErrorId();
+      logger.error(
+        { err, errorId, user: user.githubLogin },
+        'Failed to clear project memory observations',
+      );
       return c.json(
-        { error: 'DELETE_FAILED', message: 'Failed to clear project memory observations' },
+        { error: 'DELETE_FAILED', message: 'Failed to clear project memory observations', errorId },
         500,
       );
     }
@@ -169,9 +178,13 @@ export function createMemoryRouter(db: Database) {
       }
       return c.json({ data: { deletedCount: totalDeleted } });
     } catch (err) {
-      logger.error({ err, user: user.githubLogin }, 'Failed to cleanup empty memory sessions');
+      const errorId = generateErrorId();
+      logger.error(
+        { err, errorId, user: user.githubLogin },
+        'Failed to cleanup empty memory sessions',
+      );
       return c.json(
-        { error: 'DELETE_FAILED', message: 'Failed to cleanup empty memory sessions' },
+        { error: 'DELETE_FAILED', message: 'Failed to cleanup empty memory sessions', errorId },
         500,
       );
     }
@@ -195,8 +208,12 @@ export function createMemoryRouter(db: Database) {
       }
       return c.json({ error: 'NOT_FOUND', message: 'Session not found' }, 404);
     } catch (err) {
-      logger.error({ err, user: user.githubLogin }, 'Failed to delete memory session');
-      return c.json({ error: 'DELETE_FAILED', message: 'Failed to delete memory session' }, 500);
+      const errorId = generateErrorId();
+      logger.error({ err, errorId, user: user.githubLogin }, 'Failed to delete memory session');
+      return c.json(
+        { error: 'DELETE_FAILED', message: 'Failed to delete memory session', errorId },
+        500,
+      );
     }
   });
 

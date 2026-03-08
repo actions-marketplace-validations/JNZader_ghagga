@@ -11,6 +11,9 @@ import { EventSchemas, Inngest } from 'inngest';
 // ─── Event Types ────────────────────────────────────────────────
 
 export interface ReviewRequestedData {
+  /** Correlation ID for end-to-end review tracing (8-char UUID prefix) */
+  reviewId: string;
+
   /** GitHub installation ID for token exchange */
   installationId: number;
 

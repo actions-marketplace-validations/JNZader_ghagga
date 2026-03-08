@@ -16,7 +16,7 @@
  * the user is authenticated.
  */
 
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { logger as rootLogger } from '../lib/logger.js';
 
@@ -156,10 +156,13 @@ export function createOAuthRouter() {
   router.get('/auth/login', (c) => {
     const STATE_SECRET = process.env.STATE_SECRET;
     if (!STATE_SECRET) {
+      const errorId = randomUUID().slice(0, 8);
+      logger.error({ errorId }, 'STATE_SECRET is not configured');
       return c.json(
         {
-          error: 'server_configuration_error',
+          error: 'INTERNAL_ERROR',
           message: 'STATE_SECRET is not configured',
+          errorId,
         },
         500,
       );

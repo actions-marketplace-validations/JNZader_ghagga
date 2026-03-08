@@ -394,7 +394,7 @@ describe('GET /auth/login', () => {
     expect(result.valid).toBe(true);
   });
 
-  it('returns 500 when STATE_SECRET is not configured (S-R2.5)', async () => {
+  it('returns 500 with errorId when STATE_SECRET is not configured (S-R2.5)', async () => {
     // Remove STATE_SECRET
     delete process.env.STATE_SECRET;
 
@@ -403,8 +403,10 @@ describe('GET /auth/login', () => {
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toBe('server_configuration_error');
+    expect(json.error).toBe('INTERNAL_ERROR');
     expect(json.message).toContain('STATE_SECRET');
+    expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
   });
 });
 

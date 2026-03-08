@@ -7,6 +7,7 @@
 
 import 'dotenv/config';
 
+import { randomUUID } from 'node:crypto';
 import { serve } from '@hono/node-server';
 import { createDatabaseFromEnv, sql } from 'ghagga-db';
 import { Hono } from 'hono';
@@ -37,10 +38,15 @@ const app = new Hono();
 
 // ── Global error handler ────────────────────────────────────────
 // Catches any unhandled error in routes/middleware and logs it.
+// Includes an errorId for support correlation.
 app.onError((err, c) => {
-  logger.error({ err, method: c.req.method, path: new URL(c.req.url).pathname }, 'Unhandled error');
+  const errorId = randomUUID().slice(0, 8);
+  logger.error(
+    { err, errorId, method: c.req.method, path: new URL(c.req.url).pathname },
+    'Unhandled error',
+  );
 
-  return c.json({ error: 'Internal server error' }, 500);
+  return c.json({ error: 'INTERNAL_ERROR', message: 'Internal server error', errorId }, 500);
 });
 
 // ── Request logging middleware ───────────────────────────────────

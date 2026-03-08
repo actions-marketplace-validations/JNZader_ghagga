@@ -6,7 +6,7 @@ import type { Database } from 'ghagga-db';
 import { getRepoByFullName, getReviewStats, getReviewsByDay, getReviewsByRepoId } from 'ghagga-db';
 import { Hono } from 'hono';
 import type { AuthUser } from '../../middleware/auth.js';
-import { logger } from './utils.js';
+import { generateErrorId, logger } from './utils.js';
 
 export function createReviewsRouter(db: Database) {
   const router = new Hono();
@@ -44,8 +44,12 @@ export function createReviewsRouter(db: Database) {
         pagination: { page, limit, offset },
       });
     } catch (err) {
-      logger.error({ err, repo: repoFullName, user: user.githubLogin }, 'Failed to fetch reviews');
-      return c.json({ error: 'FETCH_FAILED', message: 'Failed to fetch reviews' }, 500);
+      const errorId = generateErrorId();
+      logger.error(
+        { err, errorId, repo: repoFullName, user: user.githubLogin },
+        'Failed to fetch reviews',
+      );
+      return c.json({ error: 'FETCH_FAILED', message: 'Failed to fetch reviews', errorId }, 500);
     }
   });
 
@@ -96,8 +100,12 @@ export function createReviewsRouter(db: Database) {
         },
       });
     } catch (err) {
-      logger.error({ err, repo: repoFullName, user: user.githubLogin }, 'Failed to fetch stats');
-      return c.json({ error: 'FETCH_FAILED', message: 'Failed to fetch stats' }, 500);
+      const errorId = generateErrorId();
+      logger.error(
+        { err, errorId, repo: repoFullName, user: user.githubLogin },
+        'Failed to fetch stats',
+      );
+      return c.json({ error: 'FETCH_FAILED', message: 'Failed to fetch stats', errorId }, 500);
     }
   });
 

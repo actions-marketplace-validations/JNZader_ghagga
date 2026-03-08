@@ -61,15 +61,20 @@ vi.mock('ghagga-db', () => ({
   decrypt: mockDecrypt,
 }));
 
-// Logger — provide a silent child logger
+// Logger — provide a silent child logger that supports nested .child() calls
+const mockChildLogger = {
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+  child: vi.fn(),
+};
+// .child() returns the same mock (supports nested child loggers)
+mockChildLogger.child.mockReturnValue(mockChildLogger);
+
 vi.mock('../lib/logger.js', () => ({
   logger: {
-    child: () => ({
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-      debug: vi.fn(),
-    }),
+    child: () => mockChildLogger,
   },
 }));
 
@@ -90,6 +95,7 @@ function makeSettings(overrides: Partial<Record<string, unknown>> = {}) {
 
 function makeEventData(overrides: Partial<Record<string, unknown>> = {}) {
   return {
+    reviewId: 'test1234',
     installationId: 12345,
     repoFullName: 'acme/widgets',
     prNumber: 42,
@@ -645,6 +651,7 @@ describe('inngest/review — full step orchestration', () => {
       status: 'PASSED',
       prNumber: 42,
       repoFullName: 'acme/widgets',
+      reviewId: 'test1234',
     });
   });
 
@@ -716,6 +723,10 @@ describe('inngest/review — full step orchestration', () => {
       expect.stringContaining('GHAGGA Code Review'),
       'ghs_test-token',
     );
+
+    // Verify reviewId is appended to the comment
+    const postedComment = mockPostComment.mock.calls[0]?.[3] as string;
+    expect(postedComment).toContain('<!-- reviewId: test1234 -->');
   });
 
   it('adds rocket reaction when comment-triggered', async () => {

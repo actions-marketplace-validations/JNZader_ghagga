@@ -6,7 +6,7 @@ import type { Database } from 'ghagga-db';
 import { getReposByInstallationId } from 'ghagga-db';
 import { Hono } from 'hono';
 import type { AuthUser } from '../../middleware/auth.js';
-import { logger } from './utils.js';
+import { generateErrorId, logger } from './utils.js';
 
 export function createRepositoriesRouter(db: Database) {
   const router = new Hono();
@@ -23,8 +23,12 @@ export function createRepositoriesRouter(db: Database) {
 
       return c.json({ data: allRepos });
     } catch (err) {
-      logger.error({ err, user: user.githubLogin }, 'Failed to fetch repositories');
-      return c.json({ error: 'FETCH_FAILED', message: 'Failed to fetch repositories' }, 500);
+      const errorId = generateErrorId();
+      logger.error({ err, errorId, user: user.githubLogin }, 'Failed to fetch repositories');
+      return c.json(
+        { error: 'FETCH_FAILED', message: 'Failed to fetch repositories', errorId },
+        500,
+      );
     }
   });
 
