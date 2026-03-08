@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.5.0] - 2026-03-08
+
+### Added
+- **TUI polish** — Colored severity indicators (red/yellow/cyan), box-drawing summary at end of review, step progress `[n/m]` with spinners, section dividers between tool groups.
+- **`--output json|sarif|markdown` flag** — Unified output format flag for the review command. SARIF v2.1.0 output integrates with GitHub Security tab and standard SAST tooling.
+- **`--enhance` flag** — AI-powered post-analysis enhancement (opt-in). Groups related findings, assigns AI priorities, suggests fixes, and filters noise. Non-blocking — failures fall back to unenhanced results.
+- **`ghagga health [path]` command** — Project health scoring (0-100) with letter grades (A-F), historical trend analysis, and actionable recommendations grouped by category. History stored locally per-project.
+- **`--issue new|<number>` flag** — Create or update GitHub issues with review results. Creates issues with `ghagga-review` label, supports adding comments to existing issues. Non-blocking — errors don't prevent review output.
+- **SARIF builder** — Pure `buildSarif()` function in `ghagga-core` for converting review findings to SARIF v2.1.0 format.
+- **Health scoring modules** — `computeHealthScore()`, `computeTrend()`, `generateRecommendations()` in `ghagga-core` with severity-weighted scoring and template-based recommendations.
+- **chalk adapter** — `ui/chalk.ts` wraps chalk v5 for styled terminal output. Commands access colors only through the TUI facade.
+
+### Fixed
+- **Dashboard ToolGrid invisible** — Server never called `initializeDefaultTools()`, so `toolRegistry.getAll()` returned `[]` and the dashboard fell back to the legacy 3-checkbox UI. Now initializes the 15-tool registry at server startup.
+- **Webhook tool config dropped** — `enabledTools`/`disabledTools` were omitted when the webhook handler dispatched Inngest events, so dashboard tool configuration had no effect on actual PR reviews. Both fields are now forwarded.
+
+### Deprecated
+- **`--format` flag** — Replaced by `--output`. Still works as an alias but shows no warning (silent deprecation).
+
 ## [2.4.2] - 2026-03-08
 
 ### Fixed
