@@ -9,8 +9,8 @@
 #   docker build -f apps/server/Dockerfile .
 
 # ── Stage 1: Install + Build ───────────────────────────────────
-# TODO(R2-#10): Pin to digest for reproducibility (e.g. node:22-slim@sha256:...)
-FROM node:22-slim AS builder
+# node:22-slim — pinned 2026-03-07
+FROM node:22-slim@sha256:9c2c405e3ff9b9afb2873232d24bb06367d649aa3e6259cbe314da59578e81e9 AS builder
 
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
@@ -39,8 +39,8 @@ RUN pnpm --filter ghagga-db build && \
 RUN pnpm prune --prod
 
 # ── Stage 2: Production Runtime ────────────────────────────────
-# TODO(R2-#10): Pin to digest for reproducibility (e.g. node:22-slim@sha256:...)
-FROM node:22-slim AS runner
+# node:22-slim — pinned 2026-03-07
+FROM node:22-slim@sha256:9c2c405e3ff9b9afb2873232d24bb06367d649aa3e6259cbe314da59578e81e9 AS runner
 
 # Minimal system deps (static analysis tools now run in GitHub Actions)
 RUN apt-get update && apt-get install -y --no-install-recommends \
