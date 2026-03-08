@@ -121,7 +121,7 @@ export async function runWorkflowReview(input: WorkflowReviewInput): Promise<Rev
       name: specialist.name,
       label: specialist.label,
       text: result.text,
-      tokensUsed: (result.usage?.promptTokens ?? 0) + (result.usage?.completionTokens ?? 0),
+      tokensUsed: (result.usage?.inputTokens ?? 0) + (result.usage?.outputTokens ?? 0),
     };
   });
 
@@ -183,7 +183,7 @@ export async function runWorkflowReview(input: WorkflowReviewInput): Promise<Rev
   });
 
   const synthesisTokens =
-    (synthesisResult.usage?.promptTokens ?? 0) + (synthesisResult.usage?.completionTokens ?? 0);
+    (synthesisResult.usage?.inputTokens ?? 0) + (synthesisResult.usage?.outputTokens ?? 0);
   totalTokens += synthesisTokens;
 
   const executionTimeMs = Date.now() - startTime;

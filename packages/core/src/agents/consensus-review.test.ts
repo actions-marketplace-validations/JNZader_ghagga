@@ -69,7 +69,7 @@ function makeInput(overrides: Partial<ConsensusReviewInput> = {}): ConsensusRevi
 function makeVoteResponse(decision = 'approve', confidence = '0.8') {
   return {
     text: `DECISION: ${decision}\nCONFIDENCE: ${confidence}\nREASONING: Looks good.`,
-    usage: { promptTokens: 100, completionTokens: 50 },
+    usage: { inputTokens: 100, outputTokens: 50 },
   };
 }
 

@@ -35,7 +35,7 @@ function makeOptions(overrides: Partial<FallbackOptions> = {}): FallbackOptions 
 function successResult(text = 'review result') {
   return {
     text,
-    usage: { promptTokens: 100, completionTokens: 50 },
+    usage: { inputTokens: 100, outputTokens: 50 },
   } as any;
 }
 
@@ -158,7 +158,7 @@ describe('generateWithFallback', () => {
   it('calculates tokensUsed from usage', async () => {
     mockGenerateText.mockResolvedValueOnce({
       text: 'result',
-      usage: { promptTokens: 200, completionTokens: 100 },
+      usage: { inputTokens: 200, outputTokens: 100 },
     } as any);
 
     const options = makeOptions();

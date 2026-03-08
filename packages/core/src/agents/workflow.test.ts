@@ -53,10 +53,10 @@ function makeInput(overrides: Partial<WorkflowReviewInput> = {}): WorkflowReview
   };
 }
 
-function makeSpecialistResult(text: string, promptTokens = 100, completionTokens = 50) {
+function makeSpecialistResult(text: string, inputTokens = 100, outputTokens = 50) {
   return {
     text,
-    usage: { promptTokens, completionTokens },
+    usage: { inputTokens, outputTokens },
   };
 }
 

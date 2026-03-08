@@ -114,7 +114,7 @@ export async function generateWithFallback(options: FallbackOptions): Promise<Fa
       });
 
       // Calculate tokens used from the response
-      const tokensUsed = (result.usage?.promptTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+      const tokensUsed = (result.usage?.inputTokens ?? 0) + (result.usage?.outputTokens ?? 0);
 
       return {
         text: result.text,

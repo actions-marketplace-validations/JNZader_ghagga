@@ -224,7 +224,7 @@ export async function runConsensusReview(input: ConsensusReviewInput): Promise<R
       temperature: 0.3,
     });
 
-    const tokensUsed = (result.usage?.promptTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+    const tokensUsed = (result.usage?.inputTokens ?? 0) + (result.usage?.outputTokens ?? 0);
 
     return {
       vote: parseVote(result.text, config.provider, config.model, config.stance),

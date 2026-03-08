@@ -180,7 +180,7 @@ export async function runSimpleReview(input: SimpleReviewInput): Promise<ReviewR
   });
 
   const executionTimeMs = Date.now() - startTime;
-  const tokensUsed = (result.usage?.promptTokens ?? 0) + (result.usage?.completionTokens ?? 0);
+  const tokensUsed = (result.usage?.inputTokens ?? 0) + (result.usage?.outputTokens ?? 0);
 
   emit({
     step: 'simple-done',
