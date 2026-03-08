@@ -10,7 +10,7 @@ import { DEFAULT_MODELS, DEFAULT_SETTINGS } from './types.js';
 // ─── DEFAULT_SETTINGS ───────────────────────────────────────────
 
 describe('DEFAULT_SETTINGS', () => {
-  it('should have all 7 expected keys with correct defaults', () => {
+  it('should have all expected keys with correct defaults', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       enableSemgrep: true,
       enableTrivy: true,
@@ -19,6 +19,8 @@ describe('DEFAULT_SETTINGS', () => {
       customRules: [],
       ignorePatterns: expect.any(Array),
       reviewLevel: 'normal',
+      enabledTools: [],
+      disabledTools: [],
     });
   });
 

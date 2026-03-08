@@ -76,3 +76,28 @@ export { SqliteMemoryStorage, type SqliteMemoryStorageOptions } from './memory/s
 // ─── Formatting ─────────────────────────────────────────────────
 
 export { formatReviewComment, SEVERITY_EMOJI, STATUS_EMOJI } from './format.js';
+
+// ─── Extensible Tool System ─────────────────────────────────────
+
+export type {
+  ActivatedTool,
+  ExecOptions,
+  ExecutionContext,
+  RawToolOutput,
+  TimeBudget,
+  ToolActivationInput,
+  ToolCategory,
+  ToolDefinition,
+  ToolName,
+  ToolTier,
+} from './tools/index.js';
+
+export {
+  allocateTimeBudget,
+  createNodeExecutionContext,
+  getEffectiveBudget,
+  resolveActivatedTools,
+  runTools,
+  ToolRegistry,
+  toolRegistry,
+} from './tools/index.js';

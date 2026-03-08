@@ -116,6 +116,10 @@ export interface ReviewSettings {
   customRules: string[];
   ignorePatterns: string[];
   reviewLevel: ReviewLevel;
+  /** Force-enable specific tools (overrides auto-detect) */
+  enabledTools?: string[];
+  /** Force-disable specific tools (overrides always-on and auto-detect) */
+  disabledTools?: string[];
 }
 
 export interface ReviewContext {
@@ -136,7 +140,7 @@ export interface ReviewContext {
 
 export type ReviewStatus = 'PASSED' | 'FAILED' | 'NEEDS_HUMAN_REVIEW' | 'SKIPPED';
 export type FindingSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
-export type FindingSource = 'ai' | 'semgrep' | 'trivy' | 'cpd';
+export type FindingSource = 'ai' | 'semgrep' | 'trivy' | 'cpd' | (string & {});
 
 export interface ReviewResult {
   /** Overall review status */
@@ -206,7 +210,7 @@ export interface ReviewMetadata {
 
 // ─── Static Analysis ────────────────────────────────────────────
 
-export type ToolStatus = 'success' | 'skipped' | 'error';
+export type ToolStatus = 'success' | 'skipped' | 'error' | 'timeout';
 
 export interface ToolResult {
   /** Whether the tool ran successfully */
@@ -222,11 +226,19 @@ export interface ToolResult {
   executionTimeMs: number;
 }
 
-export interface StaticAnalysisResult {
+/** Legacy keys that are always guaranteed present */
+interface LegacyStaticAnalysisResult {
   semgrep: ToolResult;
   trivy: ToolResult;
   cpd: ToolResult;
 }
+
+/**
+ * Extensible static analysis result.
+ * Legacy keys (semgrep, trivy, cpd) are always present for backward compat.
+ * Additional tool keys are present when those tools ran.
+ */
+export type StaticAnalysisResult = LegacyStaticAnalysisResult & Record<string, ToolResult>;
 
 // ─── Agent Types ────────────────────────────────────────────────
 
@@ -404,6 +416,8 @@ export const DEFAULT_SETTINGS: ReviewSettings = {
   customRules: [],
   ignorePatterns: ['*.md', '*.txt', '.gitignore', 'LICENSE', '*.lock'],
   reviewLevel: 'normal',
+  enabledTools: [],
+  disabledTools: [],
 };
 
 export const DEFAULT_MODELS: Record<LLMProvider, string> = {
