@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import type { LLMProvider, ReviewMode } from 'ghagga-core';
 import { DEFAULT_MODELS } from 'ghagga-core';
+import { healthCommand } from './commands/health.js';
 import { hooksCommand } from './commands/hooks/index.js';
 import { loginCommand } from './commands/login.js';
 import { logoutCommand } from './commands/logout.js';
@@ -231,6 +232,22 @@ program
       disableTools: options.disableTool ?? [],
       enableTools: options.enableTool ?? [],
       listTools: options.listTools ?? false,
+    });
+  });
+
+// ─── Health ─────────────────────────────────────────────────────
+
+program
+  .command('health')
+  .description('Quick project health check with scoring and trends')
+  .argument('[path]', 'Path to the repository', '.')
+  .option('--top <n>', 'Number of top issues to show', '5')
+  .action(async (path: string, options: { top: string }) => {
+    const globalOpts = program.optsWithGlobals() as { output?: string; plain?: boolean };
+    await healthCommand(path, {
+      output: globalOpts.output,
+      plain: globalOpts.plain,
+      top: Number.parseInt(options.top, 10) || 5,
     });
   });
 
