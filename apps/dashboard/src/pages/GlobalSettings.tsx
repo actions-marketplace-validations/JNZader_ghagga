@@ -13,7 +13,12 @@ import {
   useUpdateInstallationSettings,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import type { ProviderChainUpdate, ProviderChainView, ReviewMode } from '@/lib/types';
+import type {
+  ProviderChainUpdate,
+  ProviderChainView,
+  RegisteredTool,
+  ReviewMode,
+} from '@/lib/types';
 
 export function GlobalSettings() {
   const { data: installations, isLoading: instLoading } = useInstallations();
@@ -67,9 +72,7 @@ export function GlobalSettings() {
   const [customRules, setCustomRules] = useState('');
   const [ignorePatterns, setIgnorePatterns] = useState('');
   const [disabledTools, setDisabledTools] = useState<string[]>([]);
-  const [registeredTools, setRegisteredTools] = useState<
-    Array<{ name: string; displayName: string; category: string; tier: string }>
-  >([]);
+  const [registeredTools, setRegisteredTools] = useState<RegisteredTool[]>([]);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   // ── Sync form with fetched settings ─────────────────────────

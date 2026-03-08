@@ -123,6 +123,7 @@ export interface InstallationSettings {
   ignorePatterns: string[];
   enabledTools?: string[];
   disabledTools?: string[];
+  registeredTools?: RegisteredTool[];
 }
 
 // ─── Settings ───────────────────────────────────────────────────
