@@ -39,7 +39,7 @@ pnpm build
 pnpm test
 ```
 
-If all ~2,800 tests pass, you're ready to develop.
+If all ~2,778 tests pass, you're ready to develop.
 
 ## Project Structure
 
@@ -163,7 +163,7 @@ pnpm build
 - **Framework**: [Vitest](https://vitest.dev/) 3 across all packages
 - **Mutation testing**: [Stryker](https://stryker-mutator.io/) for `@ghagga/core` and `@ghagga/server`
 - **Dashboard testing**: Testing Library + vitest-axe for accessibility
-- **Total**: ~2,800+ tests
+- **Total**: ~2,778 tests
 
 ```bash
 # Mutation testing (core only — takes ~10-30 min)

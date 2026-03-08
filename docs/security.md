@@ -13,6 +13,12 @@
 | **Installation scoping** | API routes are scoped by GitHub installation ID — users can only access their own repos |
 | **Runner HMAC** | Per-dispatch HMAC-SHA256 verification for runner callbacks. Unique secret per dispatch with 11-minute TTL. |
 | **OAuth Device Flow** | GitHub OAuth Device Flow for dashboard and CLI authentication. No client secret stored — uses public client ID with device code verification. |
+| **HTTP timeouts** | All `fetch()` calls use `AbortSignal.timeout()` (10s for API calls, 15s for diff fetching, 5s for keepalive) to prevent resource exhaustion |
+| **Env validation (fail-fast)** | Server validates all required environment variables at startup, exiting immediately with a clear error if any are missing |
+| **Error IDs** | All 500 responses include an `errorId` (8-char UUID) for support ticket correlation with server logs |
+| **Correlation IDs** | Each review generates a `reviewId` propagated through webhook → Inngest → pipeline → PR comment for end-to-end tracing |
+| **FK cascade delete** | All foreign keys use `ON DELETE CASCADE` to prevent orphaned data when installations are removed |
+| **Idempotent migrations** | All SQL migrations use `IF NOT EXISTS` guards for safe re-execution |
 
 ## AES-256-GCM Encryption
 

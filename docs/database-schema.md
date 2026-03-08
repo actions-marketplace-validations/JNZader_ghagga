@@ -25,7 +25,7 @@ Global settings for an installation (1:1 with `installations`). Each installatio
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | serial PK | Internal ID |
-| `installation_id` | integer FK UNIQUE | References `installations.id` (one-to-one) |
+| `installation_id` | integer FK UNIQUE | References `installations.id` (one-to-one, ON DELETE CASCADE) |
 | `provider_chain` | jsonb | Array of `DbProviderChainEntry` — ordered provider/model chain (default `[]`) |
 | `ai_review_enabled` | boolean | Whether AI review is enabled globally (default `true`) |
 | `review_mode` | varchar(20) | `simple`, `workflow`, or `consensus` (default `simple`) |
@@ -41,7 +41,7 @@ Repository configurations.
 |--------|------|-------------|
 | `id` | serial PK | Internal ID |
 | `github_repo_id` | integer UNIQUE | GitHub's repository ID |
-| `installation_id` | integer FK | References `installations.id` |
+| `installation_id` | integer FK | References `installations.id` (ON DELETE CASCADE) |
 | `full_name` | varchar(255) | `owner/repo` format |
 | `is_active` | boolean | Whether reviews are enabled (default `true`) |
 | `settings` | jsonb | `RepoSettings` — tool toggles, ignore patterns, review level |
@@ -68,7 +68,7 @@ Review history.
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | serial PK | Internal ID |
-| `repository_id` | integer FK | References `repositories.id` |
+| `repository_id` | integer FK | References `repositories.id` (ON DELETE CASCADE) |
 | `pr_number` | integer | Pull request number |
 | `status` | varchar(30) | `PASSED`, `FAILED`, `NEEDS_HUMAN_REVIEW`, `SKIPPED` |
 | `mode` | varchar(20) | Review mode used |
@@ -105,7 +105,7 @@ Individual observations extracted from reviews.
 | Column | Type | Description |
 |--------|------|-------------|
 | `id` | serial PK | Internal ID |
-| `session_id` | integer FK | References `memory_sessions.id` |
+| `session_id` | integer FK | References `memory_sessions.id` (ON DELETE CASCADE) |
 | `project` | varchar(255) | `owner/repo` format |
 | `type` | varchar(30) | Observation type (see below) |
 | `title` | varchar(500) | Short description |
@@ -126,6 +126,8 @@ Individual observations extracted from reviews.
 
 A `tsvector` column and GIN index are added via raw SQL migration (`migrations/0001_add_tsvector.sql`) for full-text search.
 
+> **Idempotent migrations**: All custom SQL migrations use `IF NOT EXISTS` / `DROP ... IF EXISTS` guards, making them safe to re-execute without errors.
+
 ### github_user_mappings
 
 Maps GitHub users to installations. Used by auth middleware to auto-discover which installation a user belongs to.
@@ -135,7 +137,7 @@ Maps GitHub users to installations. Used by auth middleware to auto-discover whi
 | `id` | serial PK | Internal ID |
 | `github_user_id` | integer UNIQUE | GitHub user ID |
 | `github_login` | varchar(255) | GitHub username |
-| `installation_id` | integer FK | References `installations.id` |
+| `installation_id` | integer FK | References `installations.id` (ON DELETE CASCADE) |
 | `created_at` | timestamp | Creation timestamp |
 
 **Indexes**: `idx_user_mappings_github_user` on `github_user_id`

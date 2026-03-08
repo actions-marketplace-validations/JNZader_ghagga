@@ -251,7 +251,7 @@ docker compose up -d
 
 This starts:
 - **PostgreSQL 16** on port 5432 (with health checks and persistent volume)
-- **GHAGGA Server** on port 3000 (with Semgrep, Trivy, and PMD/CPD pre-installed)
+- **GHAGGA Server** on port 3000 (with Semgrep, Trivy, and PMD/CPD pre-installed, Docker `HEALTHCHECK` enabled)
 
 #### 4A.4 Verify it's running
 
@@ -378,11 +378,14 @@ The runner setup is per-user — each GitHub user/org that installs GHAGGA can h
 
 ### Server won't start
 
+The server validates all required environment variables (`DATABASE_URL`, `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `ENCRYPTION_KEY`) at startup. If any are missing, it exits immediately with a clear error message listing the missing vars.
+
 ```bash
 # Check logs
 docker compose logs server
 
 # Common issues:
+# - Missing required env vars → server exits with "Missing required env vars: ..." message
 # - DATABASE_URL is wrong → check PostgreSQL is running first
 # - GITHUB_PRIVATE_KEY is not base64-encoded → re-encode it
 # - ENCRYPTION_KEY is not 64 hex characters → regenerate with openssl

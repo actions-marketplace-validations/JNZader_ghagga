@@ -12,11 +12,14 @@
 | `GITHUB_APP_ID` | Yes | GitHub App ID |
 | `GITHUB_PRIVATE_KEY` | Yes | Base64-encoded `.pem` file content |
 | `GITHUB_WEBHOOK_SECRET` | Yes | Secret configured in GitHub App webhook settings |
-| `INNGEST_EVENT_KEY` | Yes | Inngest event ingestion key |
-| `INNGEST_SIGNING_KEY` | Yes | Inngest webhook signing key |
+| `INNGEST_EVENT_KEY` | No | Inngest event ingestion key (falls back to sync execution without it) |
+| `INNGEST_SIGNING_KEY` | No | Inngest webhook signing key |
 | `ENCRYPTION_KEY` | Yes | 64-character hex string for AES-256-GCM encryption |
+| `CALLBACK_TTL_MINUTES` | No | Runner callback secret TTL in minutes (default: `11`) |
 | `PORT` | No | Server port (default: `3000`) |
 | `NODE_ENV` | No | `development` or `production` |
+
+> **Fail-fast validation**: The server validates all required environment variables (`DATABASE_URL`, `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, `ENCRYPTION_KEY`) at startup. Missing variables cause an immediate exit with a clear error message listing which vars are missing.
 
 ### CLI Mode
 
@@ -25,6 +28,9 @@
 | `GHAGGA_API_KEY` | No | LLM provider API key (not needed for GitHub Models — use `ghagga login` instead) |
 | `GHAGGA_PROVIDER` | No | Provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen` (default: `github`) |
 | `GHAGGA_MODEL` | No | Model identifier (auto-selects best per provider) |
+| `GHAGGA_MEMORY_BACKEND` | No | Memory backend: `sqlite` (default) or `engram` |
+| `GHAGGA_ENGRAM_HOST` | No | Engram server URL (default: `http://localhost:7437`) |
+| `GHAGGA_ENGRAM_TIMEOUT` | No | Engram connection timeout in seconds (default: `5`) |
 
 ### GitHub Action Mode
 

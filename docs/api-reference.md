@@ -32,7 +32,7 @@ The `pagination` field is only present on paginated endpoints. Non-paginated GET
 ### Success (PUT/POST mutations)
 
 ```json
-{ "message": "Settings updated" }
+{ "data": { "message": "Settings updated" } }
 ```
 
 ### Errors
@@ -47,9 +47,13 @@ The `pagination` field is only present on paginated endpoints. Non-paginated GET
 | `401` | Unauthorized — missing, invalid, or expired token |
 | `403` | Forbidden — user doesn't have access to this installation/repo |
 | `404` | Not found — repository or resource doesn't exist |
-| `500` | Internal server error |
+| `500` | Internal server error — includes `errorId` for support correlation |
 
-In non-production environments, `500` responses also include `detail` and `stack` fields.
+All `500` responses include an `errorId` (8-char UUID) that is also logged server-side, enabling support ticket correlation:
+
+```json
+{ "error": "FETCH_FAILED", "message": "Internal server error", "errorId": "a1b2c3d4" }
+```
 
 ---
 
@@ -101,6 +105,7 @@ Receives GitHub webhook events. No bearer auth — validated via HMAC-SHA256 sig
 ```json
 {
   "message": "Review dispatched",
+  "reviewId": "a1b2c3d4",
   "pr": 42,
   "repo": "owner/repo"
 }
@@ -480,7 +485,7 @@ Updates configuration for a repository. Supports partial updates — only includ
 **Response** `200`:
 
 ```json
-{ "message": "Settings updated" }
+{ "data": { "message": "Settings updated" } }
 ```
 
 ### Get Installation Settings (Global)
@@ -556,7 +561,7 @@ Updates the global settings for an installation. These settings apply to all rep
 **Response** `200`:
 
 ```json
-{ "message": "Installation settings updated" }
+{ "data": { "message": "Installation settings updated" } }
 ```
 
 ### Validate Provider API Key

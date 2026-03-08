@@ -104,10 +104,11 @@ The on-demand trigger uses the same pipeline and settings as automatic reviews. 
 
 ## SaaS Mode (Inngest)
 
-In server mode, the pipeline runs inside an Inngest durable function with step-based checkpointing:
+In server mode, the pipeline runs inside an Inngest durable function with step-based checkpointing. Each review generates a **correlation ID** (`reviewId`) that is propagated through all steps and included in the PR comment for end-to-end tracing.
 
 ```typescript
 // Each step is checkpointed — retries resume from the last successful step
+// All steps carry the reviewId for correlation
 Step 1: Fetch PR diff from GitHub API
 Step 2: Discover runner repo ({owner}/ghagga-runner)
 Step 3: Dispatch to runner + wait for callback (or skip if no runner)
@@ -116,6 +117,8 @@ Step 5: AI Review (Layer 2)
 Step 6: Save Memory (Layer 3)
 Step 7: Post PR Comment + React to trigger
 ```
+
+All GitHub API calls use **HTTP timeouts** (`AbortSignal.timeout()`) to prevent resource exhaustion: 10s for standard API calls, 15s for diff fetching, 5s for keepalive pings.
 
 If an LLM call fails and retries, static analysis doesn't re-run. If memory search fails, the pipeline continues without it.
 

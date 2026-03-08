@@ -8,7 +8,7 @@
 | **Language** | TypeScript 5.7 (strict mode) | Type safety across all packages |
 | **Backend** | Hono 4 | Fastest TS framework, 14KB, runs anywhere |
 | **Database** | PostgreSQL 16 + Drizzle ORM, sql.js (CLI/Action), [Engram](https://github.com/Gentleman-Programming/engram) (optional CLI) | Zero-overhead SQL, tsvector FTS, plain TS migrations; WASM SQLite with FTS5 for CLI/Action; Engram HTTP API for cross-tool memory sharing |
-| **AI** | Vercel AI SDK 4 | Multi-provider (6 providers), streaming, structured output, fallback chains |
+| **AI** | Vercel AI SDK 5 | Multi-provider (6 providers), streaming, structured output, fallback chains |
 | **Async** | Inngest 3 | Zero-infra durable functions, step checkpointing, automatic retries |
 | **Frontend** | React 19 + Vite + Tailwind 3 | Lazy-loaded routes, vendor splitting, dark theme |
 | **Data Fetching** | TanStack Query 5 | Caching, background refetching, optimistic updates |
@@ -42,13 +42,15 @@ Zero infrastructure — no Redis. 50k events/month free. Step-based checkpointin
 
 ## Test Suite
 
-1,940 tests across 6 packages. All passing.
+~2,778 tests across 8 packages. All passing. 4 audit rounds completed (62 improvements).
 
 | Package | Tests | What's Covered |
 |---------|------:|----------------|
-| `@ghagga/core` | 675 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), tools (semgrep, trivy, cpd), parsers, security audit, Engram memory adapter |
-| `@ghagga/db` | 118 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto |
-| `@ghagga/server` | 413 | API routes, webhooks, auth middleware, provider validation, Inngest review function, GitHub client, runner dispatch, callback verification |
+| `@ghagga/core` | 1,328 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), tools (semgrep, trivy, cpd), parsers, security audit, review calibration, Engram memory adapter, circuit breaker |
+| `@ghagga/db` | 118 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto (roundtrip, tamper, edge cases), index verification |
+| `@ghagga/server` | 523 | API routes (6 domain modules), webhook handlers, auth middleware + token cache, provider validation, Inngest review function, GitHub client, runner dispatch, callback verification, graceful shutdown, health checks, correlation IDs, error IDs, HTTP timeouts, env validation, Zod negative tests |
 | `ghagga` (CLI) | 272 | Config resolution, review command — input validation, output formatting, exit codes, git hooks (install, uninstall, status) |
 | `@ghagga/action` | 195 | Input parsing, output setting, comment formatting, error handling, tool installation, cache management |
-| `@ghagga/dashboard` | 267 | Component rendering |
+| `@ghagga/dashboard` | 342 | Component rendering, ErrorBoundary, a11y (7 axe tests), focus trap, virtual scrolling |
+| `@ghagga/types` | 24 | Shared API type exports and contract validation |
+| E2E | 14 | Webhook→pipeline→comment, CLI review flow, Action review flow |

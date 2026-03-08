@@ -41,12 +41,44 @@
 - **7 axe a11y tests** — Automated accessibility tests with `jest-axe` across dashboard pages and modal components.
 
 ### Testing
-- **~2,640 total tests** — Up from 1,940 in v2.2.0 (+700 tests). Per-package: db:136, core:782, cli:310, server:524, action:228, dashboard:374, types:24, e2e:14, security:14+.
+- **~2,778 total tests** — Up from 1,940 in v2.2.0 (+838 tests). Per-package: db:118, core:1328, cli:272, server:523, action:195, dashboard:342, types:24, e2e:14, security:14+.
 - **E2E integration tests** — 3 suites, 14 tests covering webhook→pipeline→comment, CLI review flow, and Action review flow.
 - **CI hardening** — Security scanning (CodeQL), coverage reporting, and mutation testing integrated into CI pipeline.
 - **Stryker expanded 17→23 files** — Mutation testing coverage extended to include `workflow.ts`, `consensus-review.ts`, `format.ts`, `search.ts`, `sqlite.ts`, and `providers/index.ts`.
 - **Dedup window fix** — Corrected deduplication window boundary condition that could miss duplicate observations at exact 15-minute marks.
 - **Search query improvements** — Better file name extraction and configurable ignore list in memory search query builder.
+- **Zod negative tests** — Added tests verifying Zod `.strict()` rejects invalid enum values, wrong types, and unknown fields in settings schema.
+- **Circuit breaker assertion** — Added missing `expect(breaker.getState()).toBe('open')` assertion after half-open→re-open transition.
+
+### Audit R4 — Production Readiness (16 improvements)
+
+#### Critical
+- **HTTP timeouts on all fetch() calls** — Added `AbortSignal.timeout()` to all GitHub API calls (10s for API calls, 15s for diff fetching, 5s for keepalive). Prevents resource exhaustion when GitHub is slow.
+- **Environment validation at startup (fail-fast)** — Server validates `DATABASE_URL`, `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, and `ENCRYPTION_KEY` at startup via `validate-env.ts`. Missing vars cause immediate exit with clear error message.
+- **FK cascade delete on all remaining FKs** — Migration `0008` adds `ON DELETE CASCADE` to `repositories.installation_id`, `reviews.repository_id`, and `github_user_mappings.installation_id`. Prevents orphaned data on GitHub App uninstall.
+
+#### High
+- **Correlation IDs (reviewId)** — Each review generates a `reviewId` (8-char UUID) propagated from webhook → Inngest event → pipeline logs → PR comment. Enables end-to-end tracing for debugging.
+- **Token cache periodic cleanup** — Added `setInterval` (every 5 minutes) to clean expired tokens from the auth cache, preventing slow memory leaks in low-traffic deployments.
+- **GitHub API pagination for >100 files/commits** — `getPRFileList()` and `getPRCommitMessages()` now paginate through all pages instead of truncating at 100 items.
+- **Keepalive fetch with timeout** — Render keepalive ping now uses `AbortSignal.timeout(5000)`.
+
+#### Medium
+- **CONTRIBUTING.md** — New contributor guide covering prerequisites, setup, testing, commit conventions, PR process, code style, and local PostgreSQL setup.
+- **`.env.example` improved** — All variables labeled `[REQUIRED]` or `[OPTIONAL]` with format descriptions and generation commands.
+- **Migrations made idempotent** — All custom SQL migrations now use `IF NOT EXISTS` / `DROP ... IF EXISTS` guards for safe re-execution.
+- **Dockerfile HEALTHCHECK** — Added `HEALTHCHECK` instruction for container orchestration health monitoring.
+
+#### Low
+- **Structured review metrics in logs** — Review completion logs now include structured `metrics` object with `durationMs`, `provider`, `status`, and `findingsCount`.
+- **API response envelope standardized** — All mutation endpoints (`PUT /api/settings`, `PUT /api/installation-settings`) now use `{ data: { message: ... } }` envelope consistent with GET endpoints.
+- **Error IDs in 500 responses** — All internal server errors include an `errorId` (8-char UUID) in both the response body and server logs, enabling support ticket correlation.
+- **Missing router imports fix** — Fixed missing route module imports that caused 404s on some API endpoints.
+
+### Upgrades
+- **Vercel AI SDK v4 → v5** — Migrated to AI SDK 5 with updated provider APIs and streaming patterns.
+- **Zod v3 → v4** — Migrated to Zod 4 with updated schema APIs.
+- **Docker digest pinning** — All base images annotated with digest comments for supply-chain reproducibility.
 
 ## [2.2.0] - 2026-03-07
 

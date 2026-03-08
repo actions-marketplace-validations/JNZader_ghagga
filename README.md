@@ -52,6 +52,7 @@ You bring your own API key (BYOK). GHAGGA never sees or stores your keys in plai
 | **Project Memory** | Learns patterns, decisions, and bug fixes across reviews (PostgreSQL + tsvector FTS) |
 | **Multi-Provider** | 6 providers: GitHub Models (free), Anthropic, OpenAI, Google, Ollama (local), Qwen (Alibaba) — bring your own key. **Note**: In SaaS mode, GitHub Models requires a personal access token in the provider chain — installation tokens lack `models:read` scope. Entries without an explicit API key are silently skipped. |
 | **3 Distribution Modes** | SaaS, GitHub Action, CLI |
+| **Pagination** | Full GitHub API pagination for PRs with >100 files/commits — no silent truncation |
 | **Comment Trigger** | Type `ghagga review` on any PR to re-trigger a review on demand |
 | **Dashboard** | React SPA on GitHub Pages — review history, stats, settings, memory browser |
 | **BYOK Security** | AES-256-GCM encryption, HMAC-SHA256 webhook verification, privacy stripping |
@@ -536,6 +537,12 @@ The **ObservationDetailModal** shows full observation details including PR links
 | **No secret logging** | Console outputs and error messages never contain sensitive data (verified by automated security tests) |
 | **BYOK model** | Users provide their own LLM API keys. GHAGGA never pays for or sees your LLM usage in plaintext. |
 | **Installation scoping** | API routes are scoped by GitHub installation ID — users can only access their own repos |
+| **HTTP timeouts** | All `fetch()` calls use `AbortSignal.timeout()` (10s/15s/5s) to prevent resource exhaustion |
+| **Env validation (fail-fast)** | Server validates all required environment variables at startup, exiting immediately with a clear error if any are missing |
+| **Error IDs** | All 500 responses include an `errorId` (8-char UUID) for support ticket correlation with server logs |
+| **Correlation IDs** | Each review generates a `reviewId` propagated through webhook → Inngest → pipeline → PR comment for end-to-end tracing |
+| **FK cascade delete** | All foreign keys use `ON DELETE CASCADE` to prevent orphaned data when installations are removed |
+| **Dockerfile HEALTHCHECK** | Container health monitoring via Docker `HEALTHCHECK` instruction |
 
 ### Automated Security Tests
 
@@ -756,21 +763,21 @@ pnpm --filter @ghagga/dashboard dev
 ```bash
 pnpm exec turbo typecheck    # Typecheck all packages
 pnpm exec turbo build         # Build all packages
-pnpm exec turbo test          # Run all ~2,640 tests
+pnpm exec turbo test          # Run all ~2,778 tests
 ```
 
 ### Test Suite
 
-~2,640 tests across 8 packages. All passing.
+~2,778 tests across 8 packages. All passing. 4 audit rounds completed (62 improvements).
 
 | Package | Tests | What's Covered |
 |---------|------:|----------------|
-| `@ghagga/core` | 782 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), static analysis tools (semgrep, trivy, cpd), parsers, security audit, review calibration, Engram memory adapter, circuit breaker |
-| `@ghagga/db` | 136 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto (roundtrip, tamper, edge cases), index verification |
-| `@ghagga/server` | 524 | API routes (6 domain modules), webhook handlers, auth middleware + token cache, provider validation, Inngest review function, GitHub client, runner dispatch, callback verification, graceful shutdown, health checks |
-| `ghagga` (CLI) | 310 | Config resolution, review command — input validation, output formatting, exit codes, git hooks (install, uninstall, status) |
-| `@ghagga/action` | 228 | Input parsing, output setting, comment formatting, error handling, tool installation, cache management |
-| `@ghagga/dashboard` | 374 | Component rendering, ErrorBoundary, a11y (7 axe tests), focus trap, virtual scrolling |
+| `@ghagga/core` | 1,328 | Pipeline, diff parsing, stack detection, token budget, prompts, agents (simple, workflow, consensus), fallback provider, privacy, memory (search, persist, context), static analysis tools (semgrep, trivy, cpd), parsers, security audit, review calibration, Engram memory adapter, circuit breaker |
+| `@ghagga/db` | 118 | Queries (CRUD, effective settings, provider chain), AES-256-GCM crypto (roundtrip, tamper, edge cases), index verification |
+| `@ghagga/server` | 523 | API routes (6 domain modules), webhook handlers, auth middleware + token cache, provider validation, Inngest review function, GitHub client, runner dispatch, callback verification, graceful shutdown, health checks, correlation IDs, error IDs, HTTP timeouts, env validation, Zod negative tests |
+| `ghagga` (CLI) | 272 | Config resolution, review command — input validation, output formatting, exit codes, git hooks (install, uninstall, status) |
+| `@ghagga/action` | 195 | Input parsing, output setting, comment formatting, error handling, tool installation, cache management |
+| `@ghagga/dashboard` | 342 | Component rendering, ErrorBoundary, a11y (7 axe tests), focus trap, virtual scrolling |
 | `@ghagga/types` | 24 | Shared API type exports and contract validation |
 | E2E | 14 | Webhook→pipeline→comment, CLI review flow, Action review flow |
 
@@ -784,7 +791,7 @@ pnpm exec turbo test          # Run all ~2,640 tests
 | **Language** | TypeScript 5.7 (strict mode) | Type safety across all packages |
 | **Backend** | Hono 4 | Fastest TS framework, 14KB, runs anywhere |
 | **Database** | PostgreSQL 16 + Drizzle ORM | Zero-overhead SQL, tsvector FTS, plain TS migrations |
-| **AI** | Vercel AI SDK 4 | Multi-provider (6 providers), streaming, structured output, fallback chains |
+| **AI** | Vercel AI SDK 5 | Multi-provider (6 providers), streaming, structured output, fallback chains |
 | **Async** | Inngest 3 | Zero-infra durable functions, step checkpointing, automatic retries |
 | **Frontend** | React 19 + Vite + Tailwind 3 | Lazy-loaded routes, vendor splitting, dark theme |
 | **Data Fetching** | TanStack Query 5 | Caching, background refetching, optimistic updates |
@@ -838,7 +845,7 @@ GHAGGA v2 is a **complete rewrite** from scratch. The v1 codebase (~11,000 lines
 | Runtime | Deno + Node.js + Python | Node.js only |
 | Database | Supabase (hosted PostgreSQL) | Any PostgreSQL (self-hosted or cloud) |
 | Deploy steps | 10+ manual steps | 3 env vars + `docker compose up` |
-| Test suite | 0 tests | ~2,640 tests |
+| Test suite | 0 tests | ~2,778 tests |
 | Distribution modes | 1 (webhook only) | 3 (SaaS, Action, CLI) |
 | Static analysis | Semgrep only (via microservice) | Semgrep + Trivy + CPD (direct binary execution) |
 | Memory | Partial (stored but never consumed) | Full pipeline (search → inject → review → extract → persist) |
