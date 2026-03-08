@@ -676,7 +676,7 @@ describe('PUT /api/installation-settings', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.message).toBe('Installation settings updated');
+    expect(json.data.message).toBe('Installation settings updated');
 
     // Verify encrypt was called with the new key
     expect(mockEncrypt).toHaveBeenCalledWith('sk-ant-new-key');
@@ -1007,7 +1007,7 @@ describe('PUT /api/settings', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.message).toBe('Settings updated');
+    expect(json.data.message).toBe('Settings updated');
 
     expect(mockEncrypt).toHaveBeenCalledWith('sk-new-openai-key');
     expect(mockUpdateRepoSettings).toHaveBeenCalledOnce();

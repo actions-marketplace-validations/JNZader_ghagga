@@ -266,7 +266,7 @@ export function createSettingsRouter(db: Database) {
         { repo: repoFullName, user: user.githubLogin, chainLength: mergedChain.length },
         'Settings updated',
       );
-      return c.json({ message: 'Settings updated' });
+      return c.json({ data: { message: 'Settings updated' } });
     } catch (err) {
       const errorId = generateErrorId();
       logger.error(

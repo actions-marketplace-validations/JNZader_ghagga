@@ -131,7 +131,7 @@ export function useUpdateSettings() {
 
   return useMutation({
     mutationFn: (settings: Record<string, unknown> & { repoFullName: string }) =>
-      fetchApi<{ message: string }>('/api/settings', {
+      fetchApi<{ data: { message: string } }>('/api/settings', {
         method: 'PUT',
         body: JSON.stringify(settings),
       }),
@@ -180,7 +180,7 @@ export function useUpdateInstallationSettings() {
 
   return useMutation({
     mutationFn: (settings: Record<string, unknown> & { installationId: number }) =>
-      fetchApi<{ message: string }>('/api/installation-settings', {
+      fetchApi<{ data: { message: string } }>('/api/installation-settings', {
         method: 'PUT',
         body: JSON.stringify(settings),
       }),

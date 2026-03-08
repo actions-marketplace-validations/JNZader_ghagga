@@ -229,7 +229,7 @@ export function createInstallationsRouter(db: Database) {
         { installationId, user: user.githubLogin, chainLength: mergedChain.length },
         'Installation settings updated',
       );
-      return c.json({ message: 'Installation settings updated' });
+      return c.json({ data: { message: 'Installation settings updated' } });
     } catch (err) {
       const errorId = generateErrorId();
       logger.error(

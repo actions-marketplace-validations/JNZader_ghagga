@@ -47,6 +47,8 @@ export const reviewFunction = inngest.createFunction(
   },
   { event: 'ghagga/review.requested' },
   async ({ event, step }) => {
+    const reviewStartTime = Date.now();
+
     const {
       reviewId,
       installationId,
@@ -75,6 +77,7 @@ export const reviewFunction = inngest.createFunction(
 
     // Step 1: Fetch context from GitHub
     const context = await step.run('fetch-context', async () => {
+      const stepStart = Date.now();
       const appId = process.env.GITHUB_APP_ID;
       const privateKey = process.env.GITHUB_PRIVATE_KEY;
 
@@ -89,6 +92,11 @@ export const reviewFunction = inngest.createFunction(
         getPRCommitMessages(owner, repo, prNumber, token),
         getPRFileList(owner, repo, prNumber, token),
       ]);
+
+      log.info(
+        { metrics: { step: 'fetch-context', durationMs: Date.now() - stepStart } },
+        'Fetch context completed',
+      );
 
       return { token, diff, commitMessages, fileList };
     });
@@ -184,6 +192,7 @@ export const reviewFunction = inngest.createFunction(
 
     // Step 4: Run the core review pipeline
     const result = await step.run('run-review', async () => {
+      const stepStart = Date.now();
       // Build the provider chain (decrypt API keys)
       const dbChain = (rawProviderChain ?? []) as DbProviderChainEntry[];
       let providerChain: ProviderChainEntry[] | undefined;
@@ -289,7 +298,14 @@ export const reviewFunction = inngest.createFunction(
         memoryStorage,
       };
 
-      return await reviewPipeline(input);
+      const reviewResult = await reviewPipeline(input);
+
+      log.info(
+        { metrics: { step: 'run-review', durationMs: Date.now() - stepStart } },
+        'AI review analysis completed',
+      );
+
+      return reviewResult;
     });
 
     // Step 5: Save review to database
@@ -310,6 +326,7 @@ export const reviewFunction = inngest.createFunction(
 
     // Step 6: Post comment to GitHub PR
     await step.run('post-comment', async () => {
+      const stepStart = Date.now();
       const appId = process.env.GITHUB_APP_ID;
       const privateKey = process.env.GITHUB_PRIVATE_KEY;
 
@@ -323,6 +340,11 @@ export const reviewFunction = inngest.createFunction(
       // Append reviewId to the comment footer for traceability
       commentBody += `\n<!-- reviewId: ${reviewId} -->`;
       await postComment(owner, repo, prNumber, commentBody, token);
+
+      log.info(
+        { metrics: { step: 'post-comment', durationMs: Date.now() - stepStart } },
+        'Review comment posted',
+      );
     });
 
     // Step 7: React with rocket to the trigger comment (if review was triggered by comment)
@@ -342,6 +364,21 @@ export const reviewFunction = inngest.createFunction(
         }
       });
     }
+
+    log.info(
+      {
+        metrics: {
+          durationMs: Date.now() - reviewStartTime,
+          provider: result.metadata.provider,
+          model: result.metadata.model,
+          status: result.status,
+          findingsCount: result.findings?.length ?? 0,
+          filesAnalyzed: context.fileList?.length ?? 0,
+          tokensUsed: result.metadata.tokensUsed,
+        },
+      },
+      'Review completed',
+    );
 
     return { status: result.status, prNumber, repoFullName, reviewId };
   },

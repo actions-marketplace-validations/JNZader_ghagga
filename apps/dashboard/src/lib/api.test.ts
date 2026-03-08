@@ -480,7 +480,7 @@ describe('useUpdateSettings', () => {
   });
 
   it('sends PUT to /api/settings with JSON body', async () => {
-    mockFetch.mockResolvedValueOnce(mockJsonResponse({ message: 'Settings updated' }));
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { message: 'Settings updated' } }));
 
     const { result } = renderHook(() => useUpdateSettings(), {
       wrapper: createWrapper(queryClient),
@@ -505,7 +505,7 @@ describe('useUpdateSettings', () => {
 
   it('invalidates settings cache for the repo on success', async () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-    mockFetch.mockResolvedValueOnce(mockJsonResponse({ message: 'Settings updated' }));
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { message: 'Settings updated' } }));
 
     const { result } = renderHook(() => useUpdateSettings(), {
       wrapper: createWrapper(queryClient),
@@ -614,7 +614,7 @@ describe('useUpdateInstallationSettings', () => {
   });
 
   it('sends PUT to /api/installation-settings', async () => {
-    mockFetch.mockResolvedValueOnce(mockJsonResponse({ message: 'Settings updated' }));
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { message: 'Settings updated' } }));
 
     const { result } = renderHook(() => useUpdateInstallationSettings(), {
       wrapper: createWrapper(queryClient),
@@ -635,7 +635,7 @@ describe('useUpdateInstallationSettings', () => {
 
   it('invalidates both installation-settings and settings cache on success', async () => {
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-    mockFetch.mockResolvedValueOnce(mockJsonResponse({ message: 'Settings updated' }));
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { message: 'Settings updated' } }));
 
     const { result } = renderHook(() => useUpdateInstallationSettings(), {
       wrapper: createWrapper(queryClient),
