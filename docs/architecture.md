@@ -14,12 +14,12 @@ graph TB
 
   subgraph Runner["Delegated Runner"]
     RunnerRepo["ghagga-runner<br/>GitHub Actions"]
-    RunnerTools["Semgrep · Trivy · CPD<br/>7GB RAM"]
+    RunnerTools["15 Static Analysis Tools<br/>7GB RAM"]
   end
 
   subgraph Core["@ghagga/core"]
     direction TB
-    SA["Static Analysis<br/>Semgrep · Trivy · CPD"]
+    SA["Static Analysis<br/>15-tool plugin registry"]
     Agents["AI Agents<br/>Simple · Workflow · Consensus"]
     Memory["Memory<br/>Search · Persist · Privacy"]
   end
@@ -48,7 +48,7 @@ Each adapter does the minimum work necessary to bridge between its I/O world and
 |---------|-------|--------|--------|----------------|
 | **Server** | GitHub webhook | PR comment via GitHub API | Yes (PostgreSQL) | Delegated to runner |
 | **Action** | PR event in GitHub Actions | PR comment via Octokit | Yes (SQLite) | Direct on runner |
-| **CLI** | Local `git diff` | Terminal output (markdown/json) | Yes (SQLite or Engram) | If installed locally |
+| **CLI** | Local `git diff` | Terminal output (markdown/json/sarif) | Yes (SQLite or Engram) | If installed locally |
 
 > Memory uses PostgreSQL + tsvector FTS in Server mode, SQLite (via `sql.js` WASM) with FTS5 in Action mode, and SQLite or [Engram](https://github.com/Gentleman-Programming/engram) in CLI mode (`--memory-backend engram`). All three distribution modes have full memory support.
 
@@ -62,7 +62,7 @@ ghagga/
 │   │       ├── pipeline.ts     # Main orchestrator
 │   │       ├── types.ts        # All TypeScript interfaces
 │   │       ├── agents/         # Simple, Workflow, Consensus
-│   │       ├── tools/          # Semgrep, Trivy, CPD runners
+│   │       ├── tools/          # 15-tool plugin registry
 │   │       ├── memory/         # Search, persist, privacy, engram.ts
 │   │       ├── providers/      # Vercel AI SDK multi-provider
 │   │       └── utils/          # Diff parsing, stack detect, tokens
@@ -80,13 +80,13 @@ ghagga/
 ├── templates/                 # Runner dispatch templates
 │   ├── ghagga-analysis.yml       # GitHub Actions workflow for analysis
 │   └── ghagga-runner-README.md   # Template repo README
-├── Dockerfile          # Multi-stage with Semgrep, Trivy, CPD
+├── Dockerfile          # Multi-stage with 15 static analysis tools
 └── docker-compose.yml  # PostgreSQL + server for local dev
 ```
 
 ## Runner Architecture (SaaS Mode)
 
-In SaaS mode, static analysis is delegated to a user-owned GitHub Actions runner. The Render free tier (512MB RAM) can't run Semgrep + PMD/CPD simultaneously, so tools run on the user's public `ghagga-runner` repo (7GB RAM, unlimited free minutes).
+In SaaS mode, static analysis is delegated to a user-owned GitHub Actions runner. The Render free tier (512MB RAM) can't run all 15 static analysis tools simultaneously, so tools run on the user's public `ghagga-runner` repo (7GB RAM, unlimited free minutes).
 
 ```mermaid
 sequenceDiagram
@@ -97,7 +97,7 @@ sequenceDiagram
     S->>GH: Check {owner}/ghagga-runner exists
     S->>GH: Set GHAGGA_TOKEN secret
     S->>GH: workflow_dispatch (10 inputs)
-    R->>R: Install + run Semgrep, Trivy, CPD
+    R->>R: Install + run static analysis (15 tools)
     R->>S: POST /runner/callback (HMAC-signed)
     S->>S: Verify HMAC, merge findings
 ```

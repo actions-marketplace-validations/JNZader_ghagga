@@ -1,6 +1,6 @@
 # GHAGGA Static Analysis Runner
 
-This repository runs static analysis tools (Semgrep, Trivy, PMD/CPD) on behalf of the [GHAGGA](https://ghagga.dev) AI Code Review service. It is automatically managed by the GHAGGA GitHub App.
+This repository runs static analysis tools (15+ tools including Semgrep, Trivy, PMD/CPD, Gitleaks, and more) on behalf of the [GHAGGA](https://ghagga.dev) AI Code Review service. It is automatically managed by the GHAGGA GitHub App.
 
 > **You should not need to modify this repository.** GHAGGA manages the workflow file automatically and will restore it if changes are detected.
 
@@ -20,17 +20,17 @@ sequenceDiagram
 
     GH->>SRV: webhook (PR event)
     SRV->>RUN: workflow_dispatch
-    RUN->>RUN: Clone, Semgrep, Trivy, CPD
+    RUN->>RUN: Clone, run static analysis tools
     RUN->>SRV: callback (JSON results)
     SRV->>GH: Post review comment
 ```
 
 1. You open a Pull Request on one of your repositories
 2. GHAGGA receives the webhook and dispatches a `workflow_dispatch` event to this runner repo
-3. The runner workflow clones your repo, runs Semgrep + Trivy + CPD, and sends structured JSON results back
+3. The runner workflow clones your repo, runs static analysis tools (Semgrep, Trivy, CPD, and more), and sends structured JSON results back
 4. GHAGGA combines the static analysis findings with AI-powered code review and posts a comment on your PR
 
-The heavy static analysis tools (~800MB combined) run here on GitHub Actions (7GB RAM, free for public repos), while the lightweight GHAGGA server handles webhooks, LLM orchestration, and comment posting.
+The static analysis tools run here on GitHub Actions (7GB RAM, free for public repos), while the lightweight GHAGGA server handles webhooks, LLM orchestration, and comment posting.
 
 ## Security
 
@@ -66,13 +66,20 @@ Your source code is handled with multiple layers of protection:
 - Tool failures don't block the review — GHAGGA falls back to LLM-only analysis for any tools that fail.
 - Individual tool results show `status: "error"` in the callback, but other tools continue.
 
-## Tool Versions
+## Tools
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| [Semgrep](https://semgrep.dev) | 1.90.0 | Static analysis (security, bugs, style) |
-| [Trivy](https://trivy.dev) | 0.58.1 | Dependency vulnerability scanning |
-| [PMD/CPD](https://pmd.github.io) | 7.8.0 | Copy-paste detection |
+The runner supports 15+ static analysis tools across 5 categories. Core tools include:
+
+| Tool | Purpose |
+|------|---------|
+| [Semgrep](https://semgrep.dev) | Static analysis (security, bugs, style) |
+| [Trivy](https://trivy.dev) | Dependency vulnerability scanning |
+| [PMD/CPD](https://pmd.github.io) | Copy-paste detection |
+| [Gitleaks](https://gitleaks.io) | Secret detection |
+| [ShellCheck](https://www.shellcheck.net) | Shell script linting |
+| [Lizard](https://github.com/terryyin/lizard) | Cyclomatic complexity |
+
+Additional language-specific tools (Ruff, Bandit, golangci-lint, Biome, Psalm, clippy, Hadolint) activate automatically when matching files are in the diff. See the [Static Analysis docs](https://jnzader.github.io/ghagga/docs/#/static-analysis) for the full list.
 
 ## Links
 

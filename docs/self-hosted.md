@@ -251,7 +251,7 @@ docker compose up -d
 
 This starts:
 - **PostgreSQL 16** on port 5432 (with health checks and persistent volume)
-- **GHAGGA Server** on port 3000 (with Semgrep, Trivy, and PMD/CPD pre-installed, Docker `HEALTHCHECK` enabled)
+- **GHAGGA Server** on port 3000 (with 15 static analysis tools pre-installed, Docker `HEALTHCHECK` enabled)
 
 #### 4A.4 Verify it's running
 

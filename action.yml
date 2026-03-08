@@ -1,7 +1,7 @@
 name: 'GHAGGA Code Review'
 description: >-
   AI-powered multi-agent code review for PRs with built-in static analysis.
-  Runs Semgrep, Trivy, and CPD directly on the GitHub Actions runner (cached).
+  Runs 15+ static analysis tools directly on the GitHub Actions runner (cached).
   Free via GitHub Models. 6 providers, 3 review modes.
 
 branding:

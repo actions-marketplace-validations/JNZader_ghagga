@@ -15,7 +15,7 @@
 | **Charts** | Recharts 2 | Composable React chart components |
 | **CLI** | Commander 13 + @clack/prompts 0.9 | Standard CLI framework with styled TUI prompts |
 | **Testing** | Vitest 3 | Fast, ESM-native, compatible with Jest API |
-| **Static Analysis** | Semgrep + Trivy + PMD/CPD | Security, vulnerabilities, duplication — zero tokens |
+| **Static Analysis** | 15-tool plugin registry | Security, vulnerabilities, duplication, code quality — zero tokens |
 | **Encryption** | Node.js `crypto` (AES-256-GCM) | No external dependencies for cryptographic operations |
 
 ## Why These Choices
@@ -42,7 +42,7 @@ Zero infrastructure — no Redis. 50k events/month free. Step-based checkpointin
 
 ## Test Suite
 
-~2,778 tests across 8 packages. All passing. 4 audit rounds completed (62 improvements).
+~2,859 tests across 8 packages. All passing. 4 audit rounds completed (62 improvements).
 
 | Package | Tests | What's Covered |
 |---------|------:|----------------|

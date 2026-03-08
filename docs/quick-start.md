@@ -50,7 +50,13 @@ ghagga login
 ghagga review
 
 # Review with options
-ghagga review --mode workflow --format json
+ghagga review --mode workflow --output json
+```
+
+Check your project's health score:
+
+```bash
+ghagga health
 ```
 
 Optionally, install git hooks for automatic review on every commit:
@@ -73,7 +79,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-This starts PostgreSQL 16 on port 5432 and the GHAGGA Server (Hono) on port 3000 with Semgrep, Trivy, and CPD pre-installed.
+This starts PostgreSQL 16 on port 5432 and the GHAGGA Server (Hono) on port 3000 with static analysis tools pre-installed.
 
 See [Self-Hosted](self-hosted.md) for full deployment details.
 

@@ -143,8 +143,8 @@ All configuration is done via Action inputs in the workflow YAML. The Action doe
 | `mode` | No | `simple` | Review mode: `simple` (1 LLM call), `workflow` (5 specialists), `consensus` (multi-model voting) |
 | `api-key` | No | — | LLM provider API key. **Not required** for `github` provider (uses `GITHUB_TOKEN` automatically) |
 | `github-token` | No | `${{ github.token }}` | GitHub token for fetching PR diffs and posting comments. Automatic. |
-| `enabled-tools` | No | — | Comma-separated list of tools to force-enable (e.g., `ruff,bandit`) |
-| `disabled-tools` | No | — | Comma-separated list of tools to force-disable (e.g., `markdownlint`) |
+| `enabled-tools` | No | — | Comma-separated list of tools to force-enable (e.g., `ruff,bandit`). Properly forwarded through webhooks in SaaS mode. |
+| `disabled-tools` | No | — | Comma-separated list of tools to force-disable (e.g., `markdownlint`). Properly forwarded through webhooks in SaaS mode. |
 | `enable-semgrep` | No | `true` | ⚠️ Deprecated — use `disabled-tools`. Enable Semgrep |
 | `enable-trivy` | No | `true` | ⚠️ Deprecated — use `disabled-tools`. Enable Trivy |
 | `enable-cpd` | No | `true` | ⚠️ Deprecated — use `disabled-tools`. Enable CPD |

@@ -67,7 +67,7 @@ The `workflow_dispatch` event carries exactly 10 string inputs (GitHub's maximum
 | `callbackSecret` | Per-dispatch HMAC secret |
 | `enabledTools` | Comma-separated list of tools to force-enable |
 | `disabledTools` | Comma-separated list of tools to force-disable |
-| `toolRegistryEnabled` | `"true"` or `"false"` — use 15-tool registry or legacy 3-tool path |
+| `toolRegistryEnabled` | Always `"true"` since v2.4.2 (`GHAGGA_TOOL_REGISTRY` feature flag removed). Kept for backward compatibility with older runner templates |
 
 ### Callback
 

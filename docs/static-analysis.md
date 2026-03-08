@@ -24,8 +24,6 @@ GHAGGA supports 15 static analysis tools across 5 categories, organized into two
 | **clippy** | lint | auto-detect | Rust (`*.rs`) |
 | **Hadolint** | lint | auto-detect | Docker (`Dockerfile*`) |
 
-> **Feature flag**: Set `GHAGGA_TOOL_REGISTRY=true` to enable the 15-tool registry. When unset or `false`, the original 3-tool path (Semgrep, Trivy, CPD) runs unchanged.
-
 ## Tool Tiers
 
 ### always-on

@@ -52,7 +52,7 @@ npm install -g ghagga
 npx ghagga --version
 ```
 
-> ✅ **Verification**: Run `ghagga --version` (or `npx ghagga --version`). You should see the version number (e.g., `2.1.0`).
+> ✅ **Verification**: Run `ghagga --version` (or `npx ghagga --version`). You should see the version number (e.g., `2.5.0`).
 
 ---
 
@@ -99,7 +99,7 @@ The CLI computes a `git diff`, sends it to the AI, and prints the review to your
 ghagga review --mode workflow
 
 # JSON output for CI integration
-ghagga review --format json | jq '.status'
+ghagga review --output json | jq '.status'
 
 # See real-time progress of each pipeline step
 ghagga review --mode workflow --verbose
@@ -153,7 +153,7 @@ Hooks auto-detect `ghagga` in PATH and skip gracefully if not found, so they won
 
 ## Commands
 
-The CLI has 6 commands:
+The CLI has 7 commands:
 
 ### `ghagga login`
 
@@ -258,6 +258,30 @@ Show the current status of git hooks in the repository (installed, not installed
 ghagga hooks status
 ```
 
+### `ghagga health [path]`
+
+Run a project health assessment. Computes a health score (0-100), shows historical trends, and provides actionable recommendations.
+
+```bash
+# Basic health check
+ghagga health
+
+# Health check on a specific directory
+ghagga health ./src
+
+# Show top 10 issues
+ghagga health --top 10
+```
+
+Options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `[path]` | `.` | Path to repository or subdirectory |
+| `--top <n>` | `5` | Number of top issues to display |
+
+The health command inherits `--output json` from global options for CI integration. See [Health Check](health.md) for full details.
+
 ---
 
 ## Review Command Options
@@ -269,13 +293,16 @@ ghagga hooks status
 | `--provider <provider>` | `-p` | `github` | LLM provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen` |
 | `--model <model>` | — | Auto | Model identifier (auto-selects best model per provider) |
 | `--api-key <key>` | — | — | LLM provider API key (or use env vars) |
-| `--format <format>` | `-f` | `markdown` | Output format: `markdown`, `json` |
+| `--output <format>` | `-o` | `markdown` | Output format: `markdown`, `json`, `sarif` |
+| `--format <format>` | `-f` | — | **Deprecated** — use `--output` |
+| `--enhance` | — | — | AI-powered post-analysis enhancement (groups findings, adds fix suggestions) |
+| `--issue <target>` | — | — | Create (`new`) or update (`<number>`) a GitHub issue with review results |
 | `--enable-tool <name>` | — | — | Force-enable a specific tool (can be repeated) |
 | `--disable-tool <name>` | — | — | Force-disable a specific tool (can be repeated) |
 | `--list-tools` | — | — | Show all 15 available tools with status, tier, and languages |
-| `--no-semgrep` | — | — | ⚠️ Deprecated — use `--disable-tool semgrep`. Disable Semgrep |
-| `--no-trivy` | — | — | ⚠️ Deprecated — use `--disable-tool trivy`. Disable Trivy |
-| `--no-cpd` | — | — | ⚠️ Deprecated — use `--disable-tool cpd`. Disable CPD |
+| `--no-semgrep` | — | — | **Deprecated** — use `--disable-tool semgrep` |
+| `--no-trivy` | — | — | **Deprecated** — use `--disable-tool trivy` |
+| `--no-cpd` | — | — | **Deprecated** — use `--disable-tool cpd` |
 | `--no-memory` | — | — | Disable review memory (skip search and persist steps) |
 | `--memory-backend <type>` | — | `sqlite` | Memory backend: `sqlite` or `engram` |
 | `--config <path>` | `-c` | `.ghagga.json` | Path to config file (must be a file path, not inline JSON) |
@@ -295,7 +322,7 @@ ghagga hooks status
 | `--version` | Show version number |
 | `--help` | Show help |
 
-> 💡 **Terminal UI**: The CLI uses [`@clack/prompts`](https://github.com/natemoo-re/clack) for styled terminal output — colored headers, spinners, and structured results. In non-TTY or CI environments, output automatically falls back to plain `console.log` with zero ANSI escape codes. Use `--plain` to force plain output in any environment.
+> 💡 **Terminal UI**: The CLI uses [`@clack/prompts`](https://github.com/natemoo-re/clack) for styled terminal output — colored severity indicators, box-drawing summary panels, step progress (`[n/m]`), and section dividers. In non-TTY or CI environments, output automatically falls back to plain `console.log` with zero ANSI escape codes. Use `--plain` to force plain output in any environment.
 
 ---
 
@@ -493,11 +520,19 @@ Powered by GHAGGA — AI Code Review
 ### JSON Format
 
 ```bash
-ghagga review --format json | jq '.status'
+ghagga review --output json | jq '.status'
 # "PASSED"
 ```
 
 The JSON output contains the full `ReviewResult` object with `status`, `summary`, `findings[]`, and `metadata`.
+
+### SARIF Format
+
+```bash
+ghagga review --output sarif > results.sarif
+```
+
+The SARIF (Static Analysis Results Interchange Format) output is compatible with the GitHub Security tab. Upload SARIF files via the GitHub Code Scanning API to see findings directly in your repository's Security overview.
 
 ---
 

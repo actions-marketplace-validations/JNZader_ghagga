@@ -31,9 +31,9 @@ GHAGGA v2 is a **complete rewrite** from scratch. The v1 codebase (~11,000 lines
 | Runtime | Deno + Node.js + Python | Node.js only |
 | Database | Supabase (hosted PostgreSQL) | Any PostgreSQL (self-hosted or cloud) |
 | Deploy steps | 10+ manual steps | 3 env vars + `docker compose up` |
-| Test suite | 0 tests | ~2,778 tests |
+| Test suite | 0 tests | ~2,859 tests |
 | Distribution modes | 1 (webhook only) | 3 (SaaS, Action, CLI) |
-| Static analysis | Semgrep only (via microservice) | Semgrep + Trivy + CPD (direct binary execution) |
+| Static analysis | Semgrep only (via microservice) | 15 tools via plugin registry (direct binary execution) |
 | Memory | Partial (stored but never consumed) | Full pipeline (search → inject → review → extract → persist) |
 | Dead code | ~40% of codebase | 0% |
 | Git hooks | None | Pre-commit + commit-msg hooks via `ghagga hooks install` |

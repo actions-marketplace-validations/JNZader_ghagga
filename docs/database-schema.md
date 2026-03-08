@@ -166,6 +166,8 @@ interface RepoSettings {
   enableTrivy: boolean;
   enableCpd: boolean;
   enableMemory: boolean;
+  enabledTools?: string[];
+  disabledTools?: string[];
   customRules: string[];
   ignorePatterns: string[];
   reviewLevel: 'soft' | 'normal' | 'strict';

@@ -31,7 +31,6 @@
 | `GHAGGA_MEMORY_BACKEND` | No | Memory backend: `sqlite` (default) or `engram` |
 | `GHAGGA_ENGRAM_HOST` | No | Engram server URL (default: `http://localhost:7437`) |
 | `GHAGGA_ENGRAM_TIMEOUT` | No | Engram connection timeout in seconds (default: `5`) |
-| `GHAGGA_TOOL_REGISTRY` | No | Set to `true` to enable the 15-tool plugin registry (default: `false` — uses original 3-tool path) |
 
 ### GitHub Action Mode
 

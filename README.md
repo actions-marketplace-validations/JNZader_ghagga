@@ -141,6 +141,10 @@ ghagga review
 ghagga review --mode workflow --provider openai --api-key sk-xxx
 ghagga review --provider ollama --model qwen2.5-coder:7b
 
+# Project health check
+ghagga health
+ghagga health ./src --top 5
+
 # Manage review memory
 ghagga memory list
 ghagga memory search "error handling"
@@ -160,6 +164,7 @@ ghagga hooks install
 | `ghagga review [path]` | Review local code changes |
 | `ghagga memory <subcommand>` | Inspect, search, and manage review memory (`list`, `search`, `show`, `delete`, `stats`, `clear`) |
 | `ghagga hooks <subcommand>` | Install, uninstall, and check status of git hooks (`install`, `uninstall`, `status`) |
+| `ghagga health [path]` | Run project health assessment with scoring, trends, and recommendations |
 
 #### CLI Options
 
@@ -170,7 +175,10 @@ ghagga hooks install
 | `--provider <provider>` | `-p` | `github` | LLM provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen` |
 | `--model <model>` | — | Auto | Model identifier (or `GHAGGA_MODEL` env var) |
 | `--api-key <key>` | — | — | API key (or `GHAGGA_API_KEY` env var) |
-| `--format <format>` | `-f` | `markdown` | Output format: `markdown`, `json` |
+| `--output <format>` | `-o` | `markdown` | Output format: `markdown`, `json`, `sarif` |
+| `--format <format>` | `-f` | — | **Deprecated** — use `--output`. Output format |
+| `--enhance` | — | — | AI-powered post-analysis enhancement (groups findings, adds fix suggestions) |
+| `--issue <target>` | — | — | Create (`new`) or update (`<number>`) a GitHub issue with review results |
 | `--enable-tool <name>` | — | — | Force-enable a specific tool |
 | `--disable-tool <name>` | — | — | Force-disable a specific tool |
 | `--list-tools` | — | — | Show all 15 tools with status |
@@ -284,7 +292,7 @@ Each distribution mode (`apps/*`) is a thin adapter:
 |---------|-------|--------|--------|----------------|
 | **Server** | GitHub webhook | PR comment via GitHub API | Yes (PostgreSQL) | Delegated to runner |
 | **Action** | PR event in GitHub Actions | PR comment via Octokit | Yes (SQLite) | Direct on runner |
-| **CLI** | Local `git diff` | Terminal output (markdown/json) | Yes (SQLite) | If installed locally |
+| **CLI** | Local `git diff` | Terminal output (markdown/json/sarif) | Yes (SQLite) | If installed locally |
 
 ### Review Pipeline
 
@@ -373,7 +381,7 @@ GHAGGA supports **15 static analysis tools** across 5 categories, organized into
 - **7 always-on tools** run on every review: Semgrep (security), Trivy (SCA), CPD (duplication), Gitleaks (secrets), ShellCheck (shell lint), markdownlint (docs lint), Lizard (complexity)
 - **8 auto-detect tools** activate when matching files are in the diff: Ruff (Python), Bandit (Python security), golangci-lint (Go), Biome (JS/TS), PMD (Java), Psalm (PHP), clippy (Rust), Hadolint (Docker)
 
-> Set `GHAGGA_TOOL_REGISTRY=true` to enable the 15-tool registry. See [Static Analysis](docs/static-analysis.md) for the full tool table, tier system, and per-tool control.
+> See [Static Analysis](docs/static-analysis.md) for the full tool table, tier system, and per-tool control.
 
 ### Graceful Degradation
 
@@ -762,12 +770,12 @@ pnpm --filter @ghagga/dashboard dev
 ```bash
 pnpm exec turbo typecheck    # Typecheck all packages
 pnpm exec turbo build         # Build all packages
-pnpm exec turbo test          # Run all ~2,778 tests
+pnpm exec turbo test          # Run all ~2,859 tests
 ```
 
 ### Test Suite
 
-~2,778 tests across 8 packages. All passing. 4 audit rounds completed (62 improvements).
+~2,859 tests across 8 packages. All passing. 4 audit rounds completed (62 improvements).
 
 | Package | Tests | What's Covered |
 |---------|------:|----------------|
@@ -844,7 +852,7 @@ GHAGGA v2 is a **complete rewrite** from scratch. The v1 codebase (~11,000 lines
 | Runtime | Deno + Node.js + Python | Node.js only |
 | Database | Supabase (hosted PostgreSQL) | Any PostgreSQL (self-hosted or cloud) |
 | Deploy steps | 10+ manual steps | 3 env vars + `docker compose up` |
-| Test suite | 0 tests | ~2,778 tests |
+| Test suite | 0 tests | ~2,859 tests |
 | Distribution modes | 1 (webhook only) | 3 (SaaS, Action, CLI) |
 | Static analysis | Semgrep only (via microservice) | 15 tools via plugin registry (direct binary execution) |
 | Memory | Partial (stored but never consumed) | Full pipeline (search → inject → review → extract → persist) |

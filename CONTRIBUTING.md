@@ -39,7 +39,7 @@ pnpm build
 pnpm test
 ```
 
-If all ~2,778 tests pass, you're ready to develop.
+If all ~2,859 tests pass, you're ready to develop.
 
 ## Project Structure
 
@@ -59,7 +59,7 @@ This is a **pnpm workspace + Turborepo** monorepo. Build order is managed automa
 |-----|------|-------------|
 | `apps/server` | `@ghagga/server` | Hono HTTP server — GitHub webhooks, REST API, Inngest durable functions |
 | `apps/dashboard` | `@ghagga/dashboard` | React 19 SPA — review history, settings, memory browser (deployed to GitHub Pages) |
-| `apps/cli` | `ghagga` | CLI tool — `ghagga review`, `ghagga memory`, `ghagga hooks` (published to npm) |
+| `apps/cli` | `ghagga` | CLI tool — `ghagga review`, `ghagga memory`, `ghagga hooks`, `ghagga health` (published to npm) |
 | `apps/action` | `@ghagga/action` | GitHub Action — runs reviews in CI with `@vercel/ncc` bundle |
 
 ### Build Order
@@ -163,7 +163,7 @@ pnpm build
 - **Framework**: [Vitest](https://vitest.dev/) 3 across all packages
 - **Mutation testing**: [Stryker](https://stryker-mutator.io/) for `@ghagga/core` and `@ghagga/server`
 - **Dashboard testing**: Testing Library + vitest-axe for accessibility
-- **Total**: ~2,778 tests
+- **Total**: ~2,859 tests
 
 ```bash
 # Mutation testing (core only — takes ~10-30 min)

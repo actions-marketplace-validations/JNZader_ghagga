@@ -68,6 +68,17 @@ graph TB
   Mem --> Combined
 ```
 
+### Step 5.5: AI Enhance (Optional)
+
+When `--enhance` is enabled, an AI post-analysis step runs on the static analysis findings before agent execution:
+
+1. **Groups findings by pattern** — clusters related findings across files
+2. **Assigns AI priorities** — re-ranks findings based on actual impact, not just tool severity
+3. **Suggests fixes** — generates actionable fix suggestions for each finding group
+4. **Filters noise** — removes low-signal findings that are likely false positives
+
+This step reduces noise from raw static analysis output and provides more actionable context to the AI agents. It is skipped when `--enhance` is not set.
+
 ### Step 6: Agent Execution
 
 The combined context (diff + static findings + memory) is sent to the selected review mode:

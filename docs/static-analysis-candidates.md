@@ -2,13 +2,25 @@
 
 > Reference document for evaluating new static analysis tools to integrate into GHAGGA's runner. See [current tools](static-analysis.md) and [runner architecture](runner-architecture.md).
 
-## Current Toolset
+## Current Toolset (15 tools — plugin registry)
 
-| Tool | Category | What It Finds |
-|------|----------|---------------|
-| **Semgrep** 1.90.0 | SAST (pattern matching) | Security vulnerabilities, dangerous APIs, hardcoded secrets |
-| **Trivy** 0.69.3 | SCA + IaC | Known CVEs in dependencies, container/IaC misconfigs |
-| **PMD/CPD** 7.8.0 | Code quality | Duplicated code blocks (copy-paste detection) |
+| Tool | Category | What It Finds | Status |
+|------|----------|---------------|--------|
+| **Semgrep** 1.90.0 | SAST (pattern matching) | Security vulnerabilities, dangerous APIs, hardcoded secrets | Always-on |
+| **Trivy** 0.69.3 | SCA + IaC | Known CVEs in dependencies, container/IaC misconfigs | Always-on |
+| **PMD/CPD** 7.8.0 | Code quality | Duplicated code blocks (copy-paste detection) | Always-on |
+| **Gitleaks** | Secrets scanning | API keys, tokens, passwords in code and git history | Always-on |
+| **ShellCheck** | Shell analysis | Shell script bugs, unquoted variables, portability issues | Always-on |
+| **markdownlint** | Documentation quality | Markdown formatting and style issues | Always-on |
+| **Lizard** | Code complexity | Cyclomatic complexity, function length metrics | Always-on |
+| **Ruff** | Python linting | Python code quality (800+ rules, replaces Flake8) | Auto-detect |
+| **Bandit** | Python security | Python-specific security (shell=True, insecure crypto) | Auto-detect |
+| **golangci-lint** | Go linting + security | Go code quality + gosec security rules | Auto-detect |
+| **Biome** | JS/TS linting | JavaScript/TypeScript code quality | Auto-detect |
+| **PMD** | Java/Apex linting | Java code quality and style rules | Auto-detect |
+| **Psalm** | PHP analysis | PHP type checking + taint analysis for security | Auto-detect |
+| **clippy** | Rust linting | Rust code quality and idiom checks | Auto-detect |
+| **Hadolint** | Dockerfile linting | Dockerfile best practices and security anti-patterns | Auto-detect |
 
 ## Integration Requirements
 
@@ -327,18 +339,18 @@ These tools **cannot run in GHAGGA's ephemeral runner model** or have significan
 
 ## Recommended Additions by Priority
 
-Tools that fill genuine gaps in the current Semgrep + Trivy + CPD trident:
+Tools that fill genuine gaps beyond the current 15-tool registry:
 
-| Priority | Tool | Gap Filled | Effort |
-|----------|------|-----------|--------|
-| **P0** | **Gitleaks** | Secrets in code/git history (150+ rules vs Semgrep's ~5) | Low — single binary, JSON output |
-| **P1** | **ShellCheck** | Shell script bugs (pre-installed on runners, zero cost) | Trivial — already available |
-| **P1** | **Hadolint** | Dockerfile quality + embedded ShellCheck | Low — single binary |
-| **P2** | **OSV-Scanner** | Richer vuln DB + PR-diff mode (only new vulns) | Low — single binary |
-| **P2** | **Bearer** | Data flow / privacy / GDPR risk detection | Medium — needs Docker or binary |
-| **P3** | **Ruff** | Python code quality (if Python repos in scope) | Low — single binary |
-| **P3** | **Bandit** | Python security (if Python repos in scope) | Low — pip install |
-| **P3** | **Biome** | JS/TS code quality (if JS/TS repos in scope) | Low — single binary |
+| Priority | Tool | Gap Filled | Effort | Status |
+|----------|------|-----------|--------|--------|
+| ~~**P0**~~ | ~~**Gitleaks**~~ | ~~Secrets in code/git history~~ | — | **Implemented** (v2.5.0) |
+| ~~**P1**~~ | ~~**ShellCheck**~~ | ~~Shell script bugs~~ | — | **Implemented** (v2.5.0) |
+| ~~**P1**~~ | ~~**Hadolint**~~ | ~~Dockerfile quality~~ | — | **Implemented** (v2.5.0) |
+| **P2** | **OSV-Scanner** | Richer vuln DB + PR-diff mode (only new vulns) | Low — single binary |  |
+| **P2** | **Bearer** | Data flow / privacy / GDPR risk detection | Medium — needs Docker or binary |  |
+| ~~**P3**~~ | ~~**Ruff**~~ | ~~Python code quality~~ | — | **Implemented** (v2.5.0) |
+| ~~**P3**~~ | ~~**Bandit**~~ | ~~Python security~~ | — | **Implemented** (v2.5.0) |
+| ~~**P3**~~ | ~~**Biome**~~ | ~~JS/TS code quality~~ | — | **Implemented** (v2.5.0) |
 
 ## Language-Specific Recommendations
 
@@ -359,18 +371,8 @@ Which tools to add based on the languages in the reviewed repo:
 
 ## Architecture Note
 
-Adding a new tool currently requires changes to ~9 files across 4 packages (see [runner architecture](runner-architecture.md)). Before adding multiple tools, consider refactoring `StaticAnalysisResult` from a closed interface to a `Record<ToolName, ToolResult>` to make the type system extensible.
+Since v2.5.0, the tool registry uses an open `Record<ToolName, ToolResult>` type, so adding a new tool no longer requires changes to the `StaticAnalysisResult` interface. New tools are registered via the plugin registry configuration.
 
-Current (closed — each tool hardcoded):
-```typescript
-interface StaticAnalysisResult {
-  semgrep: ToolResult;
-  trivy: ToolResult;
-  cpd: ToolResult;
-}
-```
-
-Proposed (open — new tools require no type changes):
 ```typescript
 type ToolName = 'semgrep' | 'trivy' | 'cpd' | string;
 type StaticAnalysisResult = Record<ToolName, ToolResult>;

@@ -69,6 +69,7 @@ The review engine (`@ghagga/core`) is distribution-agnostic. Each app is a thin 
 ## Quick Links
 
 - **[Quick Start](quick-start.md)** — Get running in 5 minutes
+- **[Health Check](health.md)** — Project health scoring, trends, and recommendations
 - **[Architecture](architecture.md)** — Core + Adapters pattern explained
 - **[Review Modes](review-modes.md)** — Simple, Workflow, and Consensus
 - **[Static Analysis](static-analysis.md)** — 15 tools, tier system, per-tool control

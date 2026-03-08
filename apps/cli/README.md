@@ -100,11 +100,13 @@ Options:
   -p, --provider <provider>  LLM provider: github, anthropic, openai, google, ollama, qwen
   --model <model>            LLM model identifier
   --api-key <key>            LLM provider API key
-  -f, --format <format>      Output format: markdown, json (default: "markdown")
+  -o, --output <format>      Output format: markdown, json, sarif (default: "markdown")
+  --enhance                  AI-powered post-analysis enhancement (groups findings, adds fix suggestions)
+  --issue <target>           Create (new) or update (<number>) a GitHub issue with review results
   -v, --verbose              Show detailed progress during review
-  --no-semgrep               Disable Semgrep static analysis
-  --no-trivy                 Disable Trivy vulnerability scanning
-  --no-cpd                   Disable CPD duplicate detection
+  --enable-tool <name>       Force-enable a specific tool (can be repeated)
+  --disable-tool <name>      Force-disable a specific tool (can be repeated)
+  --list-tools               Show all 15 available tools with status
   --no-memory                Disable review memory (skip search and persist)
   --memory-backend <type>    Memory backend: sqlite (default) or engram
   --staged                   Review only staged files (for pre-commit hook)
@@ -141,6 +143,43 @@ ghagga memory clear [--repo <owner/repo>] [--force]
 ```
 
 Memory is stored locally at `~/.config/ghagga/memory.db` (SQLite + FTS5). Observations are automatically extracted from reviews and used to provide context in future reviews.
+
+### Deprecated Flags
+
+The following flags still work but show deprecation warnings:
+
+```
+  -f, --format <format>      Use --output instead
+  --no-semgrep               Use --disable-tool semgrep instead
+  --no-trivy                 Use --disable-tool trivy instead
+  --no-cpd                   Use --disable-tool cpd instead
+```
+
+## Health Command
+
+Run a project health assessment with scoring, historical trends, and actionable recommendations:
+
+```bash
+# Basic health check
+ghagga health
+
+# Health check on a specific path
+ghagga health ./src
+
+# Show top 10 issues
+ghagga health --top 10
+
+# JSON output for CI integration
+ghagga health --output json
+```
+
+Options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `[path]` | `.` | Path to repository or subdirectory |
+| `--top <n>` | `5` | Number of top issues to display |
+| `--output <format>` | `markdown` | Output format (inherits global `--output`) |
 
 ## BYOK (Bring Your Own Key)
 
@@ -204,13 +243,14 @@ Create a `.ghagga.json` in your project root:
 ```json
 {
   "mode": "workflow",
-  "enableSemgrep": true,
-  "enableTrivy": true,
-  "enableCpd": true,
+  "enabledTools": ["ruff", "bandit"],
+  "disabledTools": ["markdownlint"],
   "ignorePatterns": ["*.test.ts", "*.spec.ts"],
   "reviewLevel": "strict"
 }
 ```
+
+> The legacy fields `enableSemgrep`, `enableTrivy`, `enableCpd` still work but are deprecated. Use `enabledTools`/`disabledTools` arrays instead.
 
 ## How It Works
 

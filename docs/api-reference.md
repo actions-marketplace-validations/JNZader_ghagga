@@ -395,6 +395,9 @@ Returns the settings for a specific repository, including its resolved global se
     "enableTrivy": true,
     "enableCpd": true,
     "enableMemory": true,
+    "enabledTools": ["semgrep", "trivy", "cpd", "gitleaks", "shellcheck"],
+    "disabledTools": ["psalm"],
+    "registeredTools": ["semgrep", "trivy", "cpd", "gitleaks", "shellcheck", "markdownlint", "lizard", "ruff", "bandit", "golangci-lint", "biome", "pmd", "psalm", "clippy", "hadolint"],
     "customRules": "rule1\nrule2",
     "ignorePatterns": ["*.test.ts", "docs/**"],
     "globalSettings": {
@@ -411,6 +414,8 @@ Returns the settings for a specific repository, including its resolved global se
       "enableTrivy": true,
       "enableCpd": true,
       "enableMemory": true,
+      "enabledTools": [],
+      "disabledTools": [],
       "customRules": "",
       "ignorePatterns": []
     }
@@ -419,6 +424,8 @@ Returns the settings for a specific repository, including its resolved global se
 ```
 
 > **Note**: API keys are never returned in plain text. The `maskedApiKey` field shows the first 3 and last 4 characters (e.g., `sk-...xYzW`). The `hasApiKey` boolean indicates whether a key is stored.
+
+> **Deprecated**: `enableSemgrep`, `enableTrivy`, and `enableCpd` are deprecated since v2.5.0. Use `enabledTools`/`disabledTools` instead to control individual tools from the 15-tool plugin registry. The legacy boolean fields still work but will be removed in a future version.
 
 ### Update Repository Settings
 
@@ -444,6 +451,8 @@ Updates configuration for a repository. Supports partial updates — only includ
   "enableTrivy": true,
   "enableCpd": false,
   "enableMemory": true,
+  "enabledTools": ["semgrep", "trivy", "gitleaks"],
+  "disabledTools": ["cpd"],
   "customRules": "rule1\nrule2",
   "ignorePatterns": ["*.test.ts", "docs/**"]
 }
@@ -458,10 +467,12 @@ Updates configuration for a repository. Supports partial updates — only includ
 | `aiReviewEnabled` | `boolean` | No | Enable/disable AI review |
 | `reviewMode` | `string` | No | Review mode: `simple`, `workflow`, `consensus` |
 | `providerChain` | `array` | No | Ordered list of LLM providers (see below) |
-| `enableSemgrep` | `boolean` | No | Enable Semgrep static analysis |
-| `enableTrivy` | `boolean` | No | Enable Trivy vulnerability scanning |
-| `enableCpd` | `boolean` | No | Enable copy-paste detection |
+| `enableSemgrep` | `boolean` | No | **Deprecated.** Enable Semgrep static analysis. Use `enabledTools`/`disabledTools` instead |
+| `enableTrivy` | `boolean` | No | **Deprecated.** Enable Trivy vulnerability scanning. Use `enabledTools`/`disabledTools` instead |
+| `enableCpd` | `boolean` | No | **Deprecated.** Enable copy-paste detection. Use `enabledTools`/`disabledTools` instead |
 | `enableMemory` | `boolean` | No | Enable project memory |
+| `enabledTools` | `string[]` | No | Tools to force-enable (e.g., `["semgrep", "gitleaks"]`). Overrides registry defaults |
+| `disabledTools` | `string[]` | No | Tools to force-disable (e.g., `["cpd", "psalm"]`). Overrides registry defaults |
 | `customRules` | `string` | No | Custom review rules (newline-separated) |
 | `ignorePatterns` | `string[]` | No | Glob patterns for files to skip |
 | `reviewLevel` | `string` | No | Review thoroughness level |
@@ -522,6 +533,9 @@ Returns the global (installation-level) settings that apply as defaults to all r
     "enableTrivy": true,
     "enableCpd": true,
     "enableMemory": true,
+    "enabledTools": [],
+    "disabledTools": [],
+    "registeredTools": ["semgrep", "trivy", "cpd", "gitleaks", "shellcheck", "markdownlint", "lizard", "ruff", "bandit", "golangci-lint", "biome", "pmd", "psalm", "clippy", "hadolint"],
     "customRules": "",
     "ignorePatterns": []
   }
@@ -550,6 +564,8 @@ Updates the global settings for an installation. These settings apply to all rep
   "enableTrivy": true,
   "enableCpd": true,
   "enableMemory": true,
+  "enabledTools": ["semgrep", "trivy", "cpd", "gitleaks"],
+  "disabledTools": [],
   "customRules": "rule1\nrule2",
   "ignorePatterns": ["*.test.ts"],
   "reviewLevel": "standard"
