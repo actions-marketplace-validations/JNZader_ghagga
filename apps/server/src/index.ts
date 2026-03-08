@@ -20,11 +20,12 @@ import { reviewFunction } from './inngest/review.js';
 import { githubCircuitBreaker } from './lib/circuit-breaker.js';
 import { getClientIp } from './lib/get-client-ip.js';
 import { logger } from './lib/logger.js';
+import { validateEnvironment } from './lib/validate-env.js';
 import { authMiddleware } from './middleware/auth.js';
-import { createApiRouter } from './routes/api.js';
-import { createOAuthRouter } from './routes/oauth.js';
-import { createRunnerCallbackRouter } from './routes/runner-callback.js';
-import { createWebhookRouter } from './routes/webhook.js';
+
+// ─── Validate required env vars (fail-fast) ────────────────────
+
+validateEnvironment();
 
 // ─── Database ───────────────────────────────────────────────────
 
