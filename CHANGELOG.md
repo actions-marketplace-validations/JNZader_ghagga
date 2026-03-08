@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.4.2] - 2026-03-08
+
+### Fixed
+- **API globalSettings response** — `GET /api/settings` now includes `enabledTools` and `disabledTools` in the `globalSettings` object. Previously the dashboard's inherited ToolGrid always showed all tools as enabled.
+- **Installation settings API** — `GET /api/installation-settings` now returns `enabledTools`, `disabledTools`, and `registeredTools`. `PUT /api/installation-settings` now accepts `enabledTools`/`disabledTools`.
+- **GlobalSettings dashboard page** — Replaced 4 legacy checkboxes (Semgrep/Trivy/CPD/Memory) with full ToolGrid component showing all 15 tools with category grouping and per-tool toggles.
+
+### Removed
+- **`GHAGGA_TOOL_REGISTRY` feature flag** — The registry-driven orchestrator is now the only path. The legacy 3-tool hardcoded path has been removed. `isToolRegistryEnabled()` kept as deprecated stub for existing imports.
+
 ## [2.4.1] - 2026-03-08
 
 ### Fixed
