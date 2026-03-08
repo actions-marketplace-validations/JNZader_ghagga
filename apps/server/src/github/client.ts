@@ -114,6 +114,7 @@ export async function postComment(
 
 /**
  * Fetch commit messages for a pull request.
+ * Paginates through all pages (max 5 pages / 500 commits).
  */
 export async function getPRCommitMessages(
   owner: string,
@@ -121,33 +122,44 @@ export async function getPRCommitMessages(
   prNumber: number,
   token: string,
 ): Promise<string[]> {
-  const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/commits?per_page=100`;
+  const baseUrl = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/commits`;
+  const MAX_PAGES = 5;
 
   return githubCircuitBreaker.execute(async () => {
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github.v3+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
+    const allMessages: string[] = [];
 
-    if (!response.ok) {
-      throw new Error(
-        `GitHub API error fetching commits: ${response.status} ${response.statusText}`,
-      );
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const url = `${baseUrl}?per_page=100&page=${page}`;
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `GitHub API error fetching commits: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      const commits = (await response.json()) as Array<{
+        commit: { message: string };
+      }>;
+      allMessages.push(...commits.map((c) => c.commit.message));
+
+      if (commits.length < 100) break;
     }
 
-    const commits = (await response.json()) as Array<{
-      commit: { message: string };
-    }>;
-    return commits.map((c) => c.commit.message);
+    return allMessages;
   });
 }
 
 /**
  * Fetch the list of changed file paths for a pull request.
+ * Paginates through all pages (max 10 pages / 1000 files).
  */
 export async function getPRFileList(
   owner: string,
@@ -155,24 +167,36 @@ export async function getPRFileList(
   prNumber: number,
   token: string,
 ): Promise<string[]> {
-  const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/files?per_page=100`;
+  const baseUrl = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}/files`;
+  const MAX_PAGES = 10;
 
   return githubCircuitBreaker.execute(async () => {
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github.v3+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
+    const allFiles: string[] = [];
 
-    if (!response.ok) {
-      throw new Error(`GitHub API error fetching files: ${response.status} ${response.statusText}`);
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const url = `${baseUrl}?per_page=100&page=${page}`;
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        signal: AbortSignal.timeout(10_000),
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `GitHub API error fetching files: ${response.status} ${response.statusText}`,
+        );
+      }
+
+      const files = (await response.json()) as Array<{ filename: string }>;
+      allFiles.push(...files.map((f) => f.filename));
+
+      if (files.length < 100) break;
     }
 
-    const files = (await response.json()) as Array<{ filename: string }>;
-    return files.map((f) => f.filename);
+    return allFiles;
   });
 }
 

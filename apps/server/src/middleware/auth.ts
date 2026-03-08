@@ -62,14 +62,28 @@ function getCachedUser(token: string): GitHubUser | null {
 
 function cacheUser(token: string, user: GitHubUser): void {
   tokenCache.set(token, { user, expiresAt: Date.now() + CACHE_TTL_MS });
-  // Cleanup old entries periodically
+  // Inline cleanup when cache is very large (immediate pressure relief)
   if (tokenCache.size > 1000) {
-    const now = Date.now();
-    for (const [key, value] of tokenCache) {
-      if (value.expiresAt <= now) tokenCache.delete(key);
-    }
+    cleanupExpiredTokens();
   }
 }
+
+/**
+ * Remove all expired entries from the token cache.
+ * Called both inline (when cache exceeds 1000) and periodically.
+ */
+export function cleanupExpiredTokens(): void {
+  const now = Date.now();
+  for (const [key, value] of tokenCache) {
+    if (value.expiresAt <= now) tokenCache.delete(key);
+  }
+}
+
+// Periodic cleanup every 5 minutes so expired tokens don't accumulate
+// in low-traffic deployments. `.unref()` prevents keeping the process alive.
+const CLEANUP_INTERVAL_MS = 300_000; // 5 minutes
+export const cleanupInterval = setInterval(cleanupExpiredTokens, CLEANUP_INTERVAL_MS);
+cleanupInterval.unref();
 
 // ─── Middleware ──────────────────────────────────────────────────
 

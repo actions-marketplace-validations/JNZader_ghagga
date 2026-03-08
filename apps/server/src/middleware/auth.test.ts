@@ -7,7 +7,7 @@
 
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { authMiddleware, tokenCache } from './auth.js';
+import { authMiddleware, cleanupExpiredTokens, cleanupInterval, tokenCache } from './auth.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -714,5 +714,59 @@ describe('auth middleware — token cache', () => {
 
     expect(res.status).toBe(401);
     expect(tokenCache.has('bad-token')).toBe(false);
+  });
+});
+
+// ─── Periodic Token Cache Cleanup ───────────────────────────────
+
+describe('token cache — periodic cleanup', () => {
+  it('cleanupExpiredTokens removes expired entries', () => {
+    // Add an expired entry
+    tokenCache.set('expired-1', {
+      user: { id: 1, login: 'user1' },
+      expiresAt: Date.now() - 10_000,
+    });
+    // Add another expired entry
+    tokenCache.set('expired-2', {
+      user: { id: 2, login: 'user2' },
+      expiresAt: Date.now() - 1,
+    });
+
+    expect(tokenCache.size).toBe(2);
+
+    cleanupExpiredTokens();
+
+    expect(tokenCache.size).toBe(0);
+    expect(tokenCache.has('expired-1')).toBe(false);
+    expect(tokenCache.has('expired-2')).toBe(false);
+  });
+
+  it('cleanupExpiredTokens keeps non-expired entries', () => {
+    // Add an expired entry
+    tokenCache.set('expired', {
+      user: { id: 1, login: 'expired-user' },
+      expiresAt: Date.now() - 10_000,
+    });
+    // Add a valid (non-expired) entry
+    tokenCache.set('valid', {
+      user: { id: 2, login: 'valid-user' },
+      expiresAt: Date.now() + 60_000,
+    });
+
+    expect(tokenCache.size).toBe(2);
+
+    cleanupExpiredTokens();
+
+    expect(tokenCache.size).toBe(1);
+    expect(tokenCache.has('expired')).toBe(false);
+    expect(tokenCache.has('valid')).toBe(true);
+    expect(tokenCache.get('valid')!.user.login).toBe('valid-user');
+  });
+
+  it('cleanupInterval is a valid timer with .unref() applied', () => {
+    // The interval should exist and be a Node.js Timer object
+    expect(cleanupInterval).toBeDefined();
+    // Verify it has hasRef() — which returns false after .unref()
+    expect(cleanupInterval.hasRef()).toBe(false);
   });
 });
