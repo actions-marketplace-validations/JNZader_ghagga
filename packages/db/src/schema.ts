@@ -79,7 +79,7 @@ export const repositories = pgTable(
     id: serial('id').primaryKey(),
     githubRepoId: integer('github_repo_id').unique().notNull(),
     installationId: integer('installation_id')
-      .references(() => installations.id)
+      .references(() => installations.id, { onDelete: 'cascade' })
       .notNull(),
     fullName: varchar('full_name', { length: 255 }).notNull(), // "owner/repo"
     isActive: boolean('is_active').default(true).notNull(),
@@ -114,7 +114,7 @@ export const reviews = pgTable(
   {
     id: serial('id').primaryKey(),
     repositoryId: integer('repository_id')
-      .references(() => repositories.id)
+      .references(() => repositories.id, { onDelete: 'cascade' })
       .notNull(),
     prNumber: integer('pr_number').notNull(),
     status: varchar('status', { length: 30 }).notNull(), // PASSED | FAILED | NEEDS_HUMAN_REVIEW | SKIPPED
@@ -186,7 +186,7 @@ export const githubUserMappings = pgTable(
     githubUserId: integer('github_user_id').notNull(),
     githubLogin: varchar('github_login', { length: 255 }).notNull(),
     installationId: integer('installation_id')
-      .references(() => installations.id)
+      .references(() => installations.id, { onDelete: 'cascade' })
       .notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
