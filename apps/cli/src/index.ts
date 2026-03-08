@@ -117,6 +117,7 @@ program
   .option('--commit-msg <file>', 'Validate commit message from file path')
   .option('--exit-on-issues', 'Exit with code 1 if critical/high issues found')
   .option('--quick', 'Static analysis only — skip LLM review')
+  .option('--enhance', 'Enable AI-powered post-analysis enhancement')
   .option(
     '--memory-backend <type>',
     'Memory backend: sqlite (default) or engram (env: GHAGGA_MEMORY_BACKEND)',
@@ -226,6 +227,7 @@ program
       commitMsg: options.commitMsg,
       exitOnIssues: options.exitOnIssues ?? false,
       quick: options.quick ?? false,
+      enhance: options.enhance ?? false,
       disableTools: options.disableTool ?? [],
       enableTools: options.enableTool ?? [],
       listTools: options.listTools ?? false,
@@ -263,6 +265,7 @@ interface ReviewCommandOptions {
   commitMsg?: string;
   exitOnIssues?: boolean;
   quick?: boolean;
+  enhance?: boolean;
   // Extensible tool system flags (Phase 7)
   disableTool: string[];
   enableTool: string[];

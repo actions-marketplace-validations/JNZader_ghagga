@@ -19,6 +19,8 @@ import { runConsensusReview } from './agents/consensus.js';
 import { buildStackHints } from './agents/prompts.js';
 import { runSimpleReview } from './agents/simple.js';
 import { runWorkflowReview } from './agents/workflow.js';
+import { enhanceFindings, mergeEnhanceResult } from './enhance/index.js';
+import { serializeFindings } from './enhance/prompt.js';
 import { persistReviewObservations } from './memory/persist.js';
 import { searchMemoryForContext } from './memory/search.js';
 import { initializeDefaultTools } from './tools/plugins/index.js';
@@ -31,6 +33,7 @@ import {
 import type {
   LLMProvider,
   ProviderChainEntry,
+  ReviewFinding,
   ReviewInput,
   ReviewResult,
   ReviewStatus,
@@ -164,6 +167,39 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
     });
   }
 
+  // ── Step 5.5: AI Enhance (optional) ─────────────────────────
+  let enhancedStaticFindings: ReviewFinding[] | undefined;
+  let enhanceMetadata: import('./enhance/types.js').EnhanceMetadata | undefined;
+
+  if (input.enhance) {
+    // Collect all static findings
+    const allStaticFindings: ReviewFinding[] = [];
+    for (const toolResult of Object.values(staticResult)) {
+      allStaticFindings.push(...toolResult.findings);
+    }
+
+    if (allStaticFindings.length > 0) {
+      emit({ step: 'static-analysis', message: 'Enhancing findings with AI...' });
+      try {
+        const primary = resolvePrimaryProvider(input);
+        const serialized = serializeFindings(allStaticFindings);
+        const { result: eResult, metadata: eMeta } = await enhanceFindings({
+          findings: serialized,
+          provider: primary.provider,
+          model: primary.model,
+          apiKey: primary.apiKey,
+        });
+        enhancedStaticFindings = mergeEnhanceResult(allStaticFindings, eResult);
+        enhanceMetadata = eMeta;
+      } catch {
+        emit({
+          step: 'static-analysis',
+          message: 'AI enhance failed — continuing without enhancement',
+        });
+      }
+    }
+  }
+
   // ── Step 6: Execute agent mode (or skip if AI disabled) ────
   let result: ReviewResult;
 
@@ -269,6 +305,15 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
       : [],
   );
   result.findings = [...result.findings, ...staticFindings];
+
+  // ── Merge enhanced static findings into result ──────────────
+  if (enhancedStaticFindings && enhanceMetadata) {
+    result.enhanced = true;
+    result.enhanceMetadata = enhanceMetadata;
+    // Replace static-sourced findings with enhanced versions
+    const nonStaticFindings = result.findings.filter((f) => f.source === 'ai');
+    result.findings = [...enhancedStaticFindings, ...nonStaticFindings];
+  }
 
   // Track which tools ran successfully
   result.metadata.toolsRun = [];

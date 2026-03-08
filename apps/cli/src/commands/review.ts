@@ -60,6 +60,8 @@ export interface ReviewOptions {
   commitMsg?: string;
   exitOnIssues?: boolean;
   quick?: boolean;
+  /** Enable AI enhance post-analysis. */
+  enhance?: boolean;
   // Extensible tool system flags (Phase 7)
   /** Tools to force-disable (repeatable --disable-tool) */
   disableTools: string[];
@@ -267,6 +269,7 @@ export async function reviewCommand(targetPath: string, options: ReviewOptions):
       },
       memoryStorage,
       onProgress,
+      enhance: options.enhance,
       // --quick: disable AI review, use static analysis only
       ...(options.quick ? { aiReviewEnabled: false } : {}),
     });

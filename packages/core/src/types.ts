@@ -106,6 +106,9 @@ export interface ReviewInput {
    * Undefined in CLI/Action modes where tools run locally.
    */
   precomputedStaticAnalysis?: StaticAnalysisResult;
+
+  /** Enable AI-powered post-analysis enhancement. Default: false. */
+  enhance?: boolean;
 }
 
 export interface ReviewSettings {
@@ -160,6 +163,12 @@ export interface ReviewResult {
 
   /** Execution metadata */
   metadata: ReviewMetadata;
+
+  /** Whether AI enhance was applied to this result. */
+  enhanced?: boolean;
+
+  /** Metadata from the AI enhance pass (present when enhanced === true). */
+  enhanceMetadata?: import('./enhance/types.js').EnhanceMetadata;
 }
 
 export interface ReviewFinding {
@@ -183,6 +192,18 @@ export interface ReviewFinding {
 
   /** Which tool or agent produced this finding */
   source: FindingSource;
+
+  /** AI-assigned group ID (shared by related findings). */
+  groupId?: string;
+
+  /** AI-assigned priority score (1-10, where 10 = highest impact). */
+  aiPriority?: number;
+
+  /** Whether the AI flagged this as a likely false positive. */
+  aiFiltered?: boolean;
+
+  /** Reason for AI filtering (present when aiFiltered === true). */
+  filterReason?: string;
 }
 
 export interface ReviewMetadata {
