@@ -10,7 +10,7 @@ import { DEFAULT_REPO_SETTINGS } from './schema.js';
 // ─── DEFAULT_REPO_SETTINGS ──────────────────────────────────────
 
 describe('DEFAULT_REPO_SETTINGS', () => {
-  it('should have all 7 keys matching RepoSettings interface with correct defaults', () => {
+  it('should have all 9 keys matching RepoSettings interface with correct defaults', () => {
     expect(DEFAULT_REPO_SETTINGS).toEqual({
       enableSemgrep: true,
       enableTrivy: true,
@@ -19,6 +19,8 @@ describe('DEFAULT_REPO_SETTINGS', () => {
       customRules: [],
       ignorePatterns: expect.any(Array),
       reviewLevel: 'normal',
+      enabledTools: undefined,
+      disabledTools: [],
     });
   });
 

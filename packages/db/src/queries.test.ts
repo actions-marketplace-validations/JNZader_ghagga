@@ -1242,6 +1242,8 @@ describe('DEFAULT_REPO_SETTINGS', () => {
       customRules: [],
       ignorePatterns: ['*.md', '*.txt', '.gitignore', 'LICENSE', '*.lock'],
       reviewLevel: 'normal',
+      enabledTools: undefined,
+      disabledTools: [],
     });
   });
 
