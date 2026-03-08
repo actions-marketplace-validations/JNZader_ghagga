@@ -13,9 +13,9 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@actions/cache": "^4.0.0",
-    "@actions/core": "^1.11.0",
-    "@actions/exec": "^1.1.1",
+    "@actions/cache": "^6.0.0",
+    "@actions/core": "^3.0.0",
+    "@actions/exec": "^3.0.0",
     "@actions/github": "^9.0.0",
     "ghagga-core": "workspace:*",
     "fts5-sql-bundle": "^1.0.2"
