@@ -127,3 +127,22 @@ export type {
   FindingGroup,
 } from './enhance/index.js';
 export { enhanceFindings, mergeEnhanceResult } from './enhance/index.js';
+
+// ─── Health ─────────────────────────────────────────────────────
+
+export type {
+  HealthHistoryEntry,
+  HealthRecommendation,
+  HealthScore,
+  HealthTrend,
+} from './health/index.js';
+export {
+  computeHealthScore,
+  computeTrend,
+  formatTopIssues,
+  generateRecommendations,
+  getScoreColor,
+  loadHistory,
+  SEVERITY_WEIGHTS,
+  saveHistory,
+} from './health/index.js';
