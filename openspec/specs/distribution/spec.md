@@ -189,6 +189,50 @@ The system MUST provide a Docker image for self-hosting on any infrastructure.
 
 ---
 
+### Requirement: Docker Image Digest Pinning
+
+> **Origin**: Archived from `docker-digest-pinning` change (2026-03-07)
+
+All Docker base images in project-owned Dockerfiles and Compose files MUST be pinned to their SHA256 multi-architecture manifest digest to ensure reproducible, tamper-proof builds.
+
+Every `FROM` instruction MUST use the format `FROM <image>:<tag>@sha256:<digest>`.
+
+Every `image:` field in `docker-compose.yml` MUST use the format `image: <image>:<tag>@sha256:<digest>`.
+
+The digest MUST be the multi-architecture manifest digest (not platform-specific) so builds work on amd64, arm64, and other supported platforms.
+
+The human-readable tag (e.g., `22-slim`, `16-alpine`) MUST be preserved alongside the digest for developer readability.
+
+#### Scenario: Action Dockerfile uses pinned images
+
+- GIVEN `apps/action/Dockerfile` contains two `FROM` statements (builder + runtime stages)
+- WHEN the Dockerfile is built
+- THEN both `FROM` lines MUST include `@sha256:` digest syntax
+- AND each line MUST retain the human-readable tag (e.g., `node:22-slim@sha256:...`)
+
+#### Scenario: Server Dockerfile uses pinned images
+
+- GIVEN `apps/server/Dockerfile` contains two `FROM` statements (builder + runner stages)
+- WHEN the Dockerfile is built
+- THEN both `FROM` lines MUST include `@sha256:` digest syntax
+- AND each line MUST retain the human-readable tag (e.g., `node:22-slim@sha256:...`)
+
+#### Scenario: Docker Compose uses pinned PostgreSQL image
+
+- GIVEN `docker-compose.yml` contains a PostgreSQL service
+- WHEN the compose file is parsed
+- THEN the `image:` field MUST include `@sha256:` digest syntax
+- AND the human-readable tag MUST be preserved (e.g., `postgres:16-alpine@sha256:...`)
+
+#### Scenario: No unpinned Docker images in project files
+
+- GIVEN all project-owned Dockerfiles and `docker-compose.yml`
+- WHEN scanning for `FROM` and `image:` directives
+- THEN every directive MUST contain `@sha256:`
+- AND no `TODO` comments referencing digest pinning MUST remain
+
+---
+
 ### Requirement: Hook-Triggered Review Scope
 
 > Added by change: cli-git-hooks

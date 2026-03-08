@@ -109,7 +109,13 @@ The system MUST support a "consensus" review mode where multiple LLM models revi
 
 ### Requirement: Multi-Provider AI Support
 
-The system MUST support multiple LLM providers through the Vercel AI SDK.
+The system MUST support multiple LLM providers through the Vercel AI SDK (v5+).
+
+> Updated by change: ai-sdk-v5-migration (2026-03-07)
+> — Migrated from AI SDK v4 to v5, `@ai-sdk/*` providers from v1 to v2, Zod v3 to v4.
+> — Token usage properties renamed: `usage.promptTokens` → `usage.inputTokens`, `usage.completionTokens` → `usage.outputTokens`.
+> — Provider factories (`createAnthropic`, `createOpenAI`, `createGoogleGenerativeAI`) and `LanguageModel` type unchanged.
+> — Zod v4 is fully backward compatible for the schema patterns used in this project.
 
 #### Scenario: Provider fallback chain
 
@@ -128,7 +134,7 @@ The system MUST support multiple LLM providers through the Vercel AI SDK.
 
 ### Requirement: Token Budget Management
 
-The system MUST manage token consumption to avoid exceeding model context limits.
+The system MUST manage token consumption to avoid exceeding model context limits. Token usage from `generateText()` is tracked via `result.usage.inputTokens` and `result.usage.outputTokens` (AI SDK v5 naming).
 
 #### Scenario: Diff exceeds model context
 
@@ -137,6 +143,16 @@ The system MUST manage token consumption to avoid exceeding model context limits
 - THEN the diff MUST be truncated to fit within the token budget
 - AND the truncation MUST prioritize files with the most changes
 - AND the review result MUST note that the diff was truncated
+
+#### Scenario: Token usage tracking with AI SDK v5
+
+> Added by change: ai-sdk-v5-migration
+
+- GIVEN a single-step `generateText()` call completes successfully
+- WHEN the result usage is accessed
+- THEN `result.usage.inputTokens` MUST contain the prompt token count
+- AND `result.usage.outputTokens` MUST contain the completion token count
+- AND the total tokens used MUST be calculated as `inputTokens + outputTokens`
 
 ### Requirement: Stack Detection
 
