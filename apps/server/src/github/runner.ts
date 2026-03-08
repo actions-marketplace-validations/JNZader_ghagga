@@ -219,6 +219,7 @@ export async function discoverRunnerRepo(
         Accept: 'application/vnd.github.v3+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (response.status === 404) {
@@ -259,6 +260,7 @@ export async function setRunnerSecret(
         Accept: 'application/vnd.github.v3+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
+      signal: AbortSignal.timeout(10_000),
     }),
   );
 
@@ -297,6 +299,7 @@ export async function setRunnerSecret(
         encrypted_value: encryptedB64,
         key_id: keyId,
       }),
+      signal: AbortSignal.timeout(10_000),
     }),
   );
 
@@ -372,6 +375,7 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
         ref: 'main',
         inputs,
       }),
+      signal: AbortSignal.timeout(15_000),
     }),
   );
 
@@ -442,6 +446,7 @@ export async function createRunnerRepo(
         include_all_branches: false,
         private: false,
       }),
+      signal: AbortSignal.timeout(10_000),
     }),
   );
 

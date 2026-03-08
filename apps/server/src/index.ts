@@ -221,7 +221,7 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
 
     setInterval(async () => {
       try {
-        await fetch(url);
+        await fetch(url, { signal: AbortSignal.timeout(5_000) });
       } catch {
         // Silently ignore — if we can't reach ourselves, something else is wrong
       }

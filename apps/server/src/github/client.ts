@@ -29,6 +29,7 @@ export async function fetchPRDetails(
         Accept: 'application/vnd.github.v3+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {
@@ -64,6 +65,7 @@ export async function fetchPRDiff(
         Accept: 'application/vnd.github.v3.diff',
         'X-GitHub-Api-Version': '2022-11-28',
       },
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {
@@ -96,6 +98,7 @@ export async function postComment(
         'X-GitHub-Api-Version': '2022-11-28',
       },
       body: JSON.stringify({ body }),
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {
@@ -127,6 +130,7 @@ export async function getPRCommitMessages(
         Accept: 'application/vnd.github.v3+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {
@@ -160,6 +164,7 @@ export async function getPRFileList(
         Accept: 'application/vnd.github.v3+json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
+      signal: AbortSignal.timeout(10_000),
     });
 
     if (!response.ok) {
@@ -197,6 +202,7 @@ export async function addCommentReaction(
           'X-GitHub-Api-Version': '2022-11-28',
         },
         body: JSON.stringify({ content: reaction }),
+        signal: AbortSignal.timeout(10_000),
       });
 
       if (!response.ok) {
@@ -299,6 +305,7 @@ export async function getInstallationToken(
         'Content-Type': 'application/json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
+      signal: AbortSignal.timeout(10_000),
       ...(Object.keys(body).length > 0 && { body: JSON.stringify(body) }),
     });
 
