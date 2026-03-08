@@ -98,6 +98,7 @@ export {
   getEffectiveBudget,
   initializeDefaultTools,
   isToolRegistryEnabled,
+  resetInitialization,
   resolveActivatedTools,
   runTools,
   ToolRegistry,

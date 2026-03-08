@@ -42,8 +42,23 @@ inputs:
     required: false
     default: ${{ github.token }}
 
+  enabled-tools:
+    description: >-
+      Comma-separated list of tool names to force-enable (overrides auto-detect).
+      Example: "ruff,clippy,bandit". See README for the full list of 15 tools.
+    required: false
+    default: ''
+
+  disabled-tools:
+    description: >-
+      Comma-separated list of tool names to force-disable (overrides always-on and auto-detect).
+      Example: "gitleaks,cpd". See README for the full list of 15 tools.
+    required: false
+    default: ''
+
   enable-semgrep:
     description: >-
+      [DEPRECATED — use disabled-tools instead]
       Enable Semgrep security analysis. Runs directly on the runner.
       First run installs via pip (~2 min), subsequent runs use cache (~10s).
     required: false
@@ -51,6 +66,7 @@ inputs:
 
   enable-trivy:
     description: >-
+      [DEPRECATED — use disabled-tools instead]
       Enable Trivy vulnerability scanning. Runs directly on the runner.
       First run installs via official script (~1 min), subsequent runs use cache (~5s).
     required: false
@@ -58,6 +74,7 @@ inputs:
 
   enable-cpd:
     description: >-
+      [DEPRECATED — use disabled-tools instead]
       Enable PMD/CPD copy-paste detection. Runs directly on the runner.
       First run downloads PMD (~1 min), subsequent runs use cache (~5s).
     required: false

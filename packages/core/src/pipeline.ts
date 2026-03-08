@@ -21,7 +21,13 @@ import { runSimpleReview } from './agents/simple.js';
 import { runWorkflowReview } from './agents/workflow.js';
 import { persistReviewObservations } from './memory/persist.js';
 import { searchMemoryForContext } from './memory/search.js';
-import { formatStaticAnalysisContext, runStaticAnalysis } from './tools/runner.js';
+import { initializeDefaultTools } from './tools/plugins/index.js';
+import { toolRegistry } from './tools/registry.js';
+import {
+  formatStaticAnalysisContext,
+  isToolRegistryEnabled,
+  runStaticAnalysis,
+} from './tools/runner.js';
 import type {
   LLMProvider,
   ProviderChainEntry,
@@ -256,12 +262,12 @@ export async function reviewPipeline(input: ReviewInput): Promise<ReviewResult> 
   result.staticAnalysis = staticResult;
   result.memoryContext = memoryContext;
 
-  // Add static analysis findings to the result's findings array
-  const staticFindings = [
-    ...staticResult.semgrep.findings,
-    ...staticResult.trivy.findings,
-    ...staticResult.cpd.findings,
-  ];
+  // Add static analysis findings to the result's findings array (dynamic — all tools)
+  const staticFindings = Object.values(staticResult).flatMap((toolResult) =>
+    toolResult && typeof toolResult === 'object' && 'findings' in toolResult
+      ? toolResult.findings
+      : [],
+  );
   result.findings = [...result.findings, ...staticFindings];
 
   // Track which tools ran successfully
@@ -364,6 +370,8 @@ async function runStaticAnalysisSafe(fileList: string[], input: ReviewInput) {
       enableTrivy: input.settings.enableTrivy,
       enableCpd: input.settings.enableCpd,
       customRules: input.settings.customRules,
+      enabledTools: input.settings.enabledTools,
+      disabledTools: input.settings.disabledTools,
     });
   } catch (error) {
     console.warn(
@@ -411,15 +419,36 @@ async function searchMemorySafe(input: ReviewInput, fileList: string[]): Promise
  */
 function createSkippedResult(input: ReviewInput, startTime: number): ReviewResult {
   const primary = input.providerChain?.[0];
+
+  // Build a dynamic skipped result (legacy keys always present)
+  const skippedToolResult = { status: 'skipped' as const, findings: [], executionTimeMs: 0 };
+  const staticAnalysis: import('./types.js').StaticAnalysisResult = {
+    semgrep: { ...skippedToolResult },
+    trivy: { ...skippedToolResult },
+    cpd: { ...skippedToolResult },
+  };
+
+  // Collect all tool names for the toolsSkipped metadata
+  const allToolNames = ['semgrep', 'trivy', 'cpd'];
+
+  // When registry is enabled, include all registered tools as skipped
+  if (isToolRegistryEnabled()) {
+    initializeDefaultTools();
+    for (const tool of toolRegistry.getAll()) {
+      if (!staticAnalysis[tool.name]) {
+        staticAnalysis[tool.name] = { ...skippedToolResult };
+      }
+      if (!allToolNames.includes(tool.name)) {
+        allToolNames.push(tool.name);
+      }
+    }
+  }
+
   return {
     status: 'SKIPPED' as ReviewStatus,
     summary: 'All files in the diff matched ignore patterns. No review was performed.',
     findings: [],
-    staticAnalysis: {
-      semgrep: { status: 'skipped', findings: [], executionTimeMs: 0 },
-      trivy: { status: 'skipped', findings: [], executionTimeMs: 0 },
-      cpd: { status: 'skipped', findings: [], executionTimeMs: 0 },
-    },
+    staticAnalysis,
     memoryContext: null,
     metadata: {
       mode: input.mode,
@@ -428,7 +457,7 @@ function createSkippedResult(input: ReviewInput, startTime: number): ReviewResul
       tokensUsed: 0,
       executionTimeMs: Date.now() - startTime,
       toolsRun: [],
-      toolsSkipped: ['semgrep', 'trivy', 'cpd'],
+      toolsSkipped: allToolNames,
     },
   };
 }
@@ -442,12 +471,12 @@ function createStaticOnlyResult(
   mode: import('./types.js').ReviewMode,
   startTime: number,
 ): ReviewResult {
-  // Determine status from static findings severity
-  const allFindings = [
-    ...staticResult.semgrep.findings,
-    ...staticResult.trivy.findings,
-    ...staticResult.cpd.findings,
-  ];
+  // Determine status from static findings severity (dynamic — all tools)
+  const allFindings = Object.values(staticResult).flatMap((toolResult) =>
+    toolResult && typeof toolResult === 'object' && 'findings' in toolResult
+      ? toolResult.findings
+      : [],
+  );
   const hasCriticalOrHigh = allFindings.some(
     (f) => f.severity === 'critical' || f.severity === 'high',
   );

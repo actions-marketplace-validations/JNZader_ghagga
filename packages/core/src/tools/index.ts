@@ -41,7 +41,7 @@ export { createNodeExecutionContext } from './execution.js';
 
 // ─── Plugins ────────────────────────────────────────────────────
 
-export { initializeDefaultTools } from './plugins/index.js';
+export { initializeDefaultTools, resetInitialization } from './plugins/index.js';
 
 // ─── Runner (feature flag) ──────────────────────────────────────
 

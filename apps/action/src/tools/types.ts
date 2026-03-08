@@ -10,8 +10,11 @@ import type { FindingSeverity, ReviewFinding, StaticAnalysisResult, ToolResult }
 // Re-export core types for convenience
 export type { ToolResult, StaticAnalysisResult, ReviewFinding, FindingSeverity };
 
-/** Tool names matching the keys in StaticAnalysisResult */
-export type ToolName = 'semgrep' | 'trivy' | 'cpd';
+/**
+ * Tool names matching the keys in StaticAnalysisResult.
+ * Re-exported from @ghagga/core for consistency across all distribution modes.
+ */
+export type { ToolName } from 'ghagga-core';
 
 /**
  * Pinned tool versions — bump these to invalidate cache.

@@ -5,6 +5,9 @@
  * suitable for posting to a PR via the GitHub API.
  */
 
+import { initializeDefaultTools } from './tools/plugins/index.js';
+import { toolRegistry } from './tools/registry.js';
+import { isToolRegistryEnabled } from './tools/runner.js';
 import type { ReviewResult, ReviewStatus } from './types.js';
 
 // ─── Constants ──────────────────────────────────────────────────
@@ -50,13 +53,34 @@ export function formatReviewComment(result: ReviewResult): string {
     }
 
     // Render order: static tools first, then AI
+    // Generate SOURCE_LABELS dynamically from registry when available
     const SOURCE_LABELS: Record<string, string> = {
+      // Legacy defaults (always present)
       semgrep: '\ud83d\udd0d Semgrep',
       trivy: '\ud83d\udee1\ufe0f Trivy',
       cpd: '\ud83d\udccb CPD',
       ai: '\ud83e\udd16 AI Review',
     };
-    const renderOrder = ['semgrep', 'trivy', 'cpd', 'ai'];
+
+    const renderOrder: string[] = [];
+
+    if (isToolRegistryEnabled()) {
+      initializeDefaultTools();
+      for (const tool of toolRegistry.getAll()) {
+        SOURCE_LABELS[tool.name] = `\ud83d\udd27 ${tool.displayName}`;
+        renderOrder.push(tool.name);
+      }
+    } else {
+      renderOrder.push('semgrep', 'trivy', 'cpd');
+    }
+
+    // AI always comes last; also include any unknown sources from grouped keys
+    for (const src of grouped.keys()) {
+      if (src !== 'ai' && !renderOrder.includes(src)) {
+        renderOrder.push(src);
+      }
+    }
+    renderOrder.push('ai');
 
     for (const src of renderOrder) {
       const findings = grouped.get(src);

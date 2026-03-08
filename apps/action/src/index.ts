@@ -43,10 +43,27 @@ async function run(): Promise<void> {
     const mode = (core.getInput('mode') || 'simple') as ReviewMode;
     const apiKeyInput = core.getInput('api-key');
 
+    // Legacy per-tool boolean flags (backward compat)
     const enableSemgrep = core.getInput('enable-semgrep') !== 'false';
     const enableTrivy = core.getInput('enable-trivy') !== 'false';
     const enableCpd = core.getInput('enable-cpd') !== 'false';
     const enableMemory = core.getInput('enable-memory') !== 'false';
+
+    // New registry-driven tool selection inputs (comma-separated strings)
+    const enabledToolsInput = core.getInput('enabled-tools');
+    const disabledToolsInput = core.getInput('disabled-tools');
+    const enabledTools = enabledToolsInput
+      ? enabledToolsInput
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+    const disabledTools = disabledToolsInput
+      ? disabledToolsInput
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
 
     // Step 2: Resolve GitHub token (for PR diff fetching + GitHub Models API)
     const githubToken = core.getInput('github-token') || process.env.GITHUB_TOKEN || '';
@@ -127,17 +144,26 @@ async function run(): Promise<void> {
       enableSemgrep,
       enableTrivy,
       enableCpd,
+      enabledTools,
+      disabledTools,
       repoDir,
     });
 
-    // Log a summary of static analysis results
-    const semgrepCount = staticAnalysis.semgrep.findings.length;
-    const trivyCount = staticAnalysis.trivy.findings.length;
-    const cpdCount = staticAnalysis.cpd.findings.length;
-    const totalFindings = semgrepCount + trivyCount + cpdCount;
+    // Log a summary of static analysis results (dynamic — all tools)
+    const toolSummaries: string[] = [];
+    let totalFindings = 0;
+    for (const [name, toolResult] of Object.entries(staticAnalysis)) {
+      if (toolResult && typeof toolResult === 'object' && 'findings' in toolResult) {
+        const count = toolResult.findings.length;
+        totalFindings += count;
+        if (toolResult.status === 'success' && count > 0) {
+          toolSummaries.push(`${name}: ${count}`);
+        }
+      }
+    }
     core.info(
-      `Static analysis summary: ${totalFindings} findings ` +
-        `(Semgrep: ${semgrepCount}, Trivy: ${trivyCount}, CPD: ${cpdCount})`,
+      `Static analysis summary: ${totalFindings} findings` +
+        (toolSummaries.length > 0 ? ` (${toolSummaries.join(', ')})` : ''),
     );
 
     // Step 5.6: Initialize review memory (SQLite + @actions/cache)
@@ -185,6 +211,8 @@ async function run(): Promise<void> {
         enableTrivy,
         enableCpd,
         enableMemory,
+        enabledTools,
+        disabledTools,
       },
       context: {
         repoFullName,

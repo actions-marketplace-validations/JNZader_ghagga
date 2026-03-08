@@ -29,6 +29,18 @@ vi.mock('./agents/consensus.js', () => ({
 vi.mock('./tools/runner.js', () => ({
   runStaticAnalysis: vi.fn(),
   formatStaticAnalysisContext: vi.fn(),
+  isToolRegistryEnabled: vi.fn().mockReturnValue(false),
+}));
+
+vi.mock('./tools/plugins/index.js', () => ({
+  initializeDefaultTools: vi.fn(),
+}));
+
+vi.mock('./tools/registry.js', () => ({
+  toolRegistry: {
+    getAll: vi.fn().mockReturnValue([]),
+    clear: vi.fn(),
+  },
 }));
 
 vi.mock('./memory/search.js', () => ({
