@@ -12,6 +12,19 @@ vi.mock('@actions/core', () => ({
   warning: vi.fn(),
 }));
 
+vi.mock('ghagga-core', () => ({
+  toolRegistry: {
+    getByName: vi.fn((name: string) => {
+      const tools: Record<string, { cachePaths: string[]; version: string }> = {
+        semgrep: { cachePaths: ['~/.cache/pip'], version: '1.90.0' },
+        trivy: { cachePaths: ['~/.cache/trivy'], version: '0.69.3' },
+        cpd: { cachePaths: ['/opt/pmd'], version: '7.8.0' },
+      };
+      return tools[name] ?? null;
+    }),
+  },
+}));
+
 import * as cache from '@actions/cache';
 import * as core from '@actions/core';
 import { restoreToolCache, saveToolCache } from '../cache.js';
@@ -130,8 +143,7 @@ describe('restoreToolCache', () => {
     await restoreToolCache('semgrep');
 
     const paths = mockRestoreCache.mock.calls[0]?.[0];
-    expect(paths).toContain('~/.local/bin/semgrep');
-    expect(paths).toContain('~/.local/lib/python3*/site-packages/semgrep*');
+    expect(paths).toContain('~/.cache/pip');
   });
 
   it('uses correct paths for trivy', async () => {
@@ -140,7 +152,7 @@ describe('restoreToolCache', () => {
     await restoreToolCache('trivy');
 
     const paths = mockRestoreCache.mock.calls[0]?.[0];
-    expect(paths).toContain('/usr/local/bin/trivy');
+    expect(paths).toContain('~/.cache/trivy');
   });
 
   it('uses correct paths for cpd', async () => {
