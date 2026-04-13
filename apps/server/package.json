@@ -15,25 +15,25 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@hono/node-server": "^1.19.11",
+    "@hono/node-server": "^1.19.14",
     "@octokit/rest": "^22.0.1",
-    "dotenv": "^17.3.0",
+    "dotenv": "^17.4.2",
     "ghagga-core": "workspace:*",
     "ghagga-db": "workspace:*",
-    "hono": "^4.12.5",
+    "hono": "^4.12.12",
     "hono-rate-limiter": "^0.5.3",
     "inngest": "^3.52.6",
-    "libsodium-wrappers": "^0.8.2",
+    "libsodium-wrappers": "^0.8.3",
     "pino": "^10.3.1",
     "zod": "^4.3.0"
   },
   "devDependencies": {
-    "@stryker-mutator/core": "^9.6.0",
-    "@stryker-mutator/vitest-runner": "^9.6.0",
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
     "@types/libsodium-wrappers": "^0.8.2",
-    "@types/node": "^25.3.5",
+    "@types/node": "^25.6.0",
     "tsx": "^4.19.0",
     "typescript": "^5.9.0",
-    "vitest": "^4.0.0"
+    "vitest": "^4.1.4"
   }
 }
