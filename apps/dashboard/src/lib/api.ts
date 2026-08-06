@@ -1,26 +1,30 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { REDIRECT_KEY, safeInternalPath } from './auth';
+import { notifySessionExpired } from './session-expired';
 import type {
   Installation,
   InstallationSettings,
+  IssueDraft,
+  IssueDraftStatus,
   MemorySession,
   Observation,
   Repository,
   RepositorySettings,
   Review,
+  ReviewStatus,
   ReviewsResponse,
-  RunnerConfigureResult,
-  RunnerCreateResult,
-  RunnerStatus,
   SaaSProvider,
   Stats,
   ValidationResponse,
+  WorkflowInstallResult,
+  WorkflowStatus,
 } from './types';
 
 const API_URL =
   import.meta.env.VITE_API_URL ||
   (window.location.hostname === 'localhost'
     ? 'http://localhost:3000'
-    : 'https://ghagga.onrender.com');
+    : 'https://api.javierzader.com');
 
 class ApiError extends Error {
   constructor(
@@ -49,6 +53,36 @@ async function fetchApi<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
+    // ── Global 401 handler: clear auth state and redirect to login ──
+    if (response.status === 401) {
+      const currentPath = window.location.hash;
+      if (!currentPath.includes('/login') && !currentPath.includes('/auth/callback')) {
+        // Preserve where the user was so a successful re-login returns them
+        // there instead of collapsing to '/'. The route lives in the hash as
+        // e.g. '#/settings'; strip the leading '#' (and any '?query') and keep
+        // only safe, internal paths. A bare '/' is not worth stashing.
+        //
+        // DELIBERATE: preservation is pathname-only. The '?query' is dropped
+        // (split('?')[0]) to stay consistent with ProtectedRoute, which stashes
+        // location.pathname (no query) as well. We do NOT round-trip the user
+        // to the EXACT URL — '/settings?tab=tokens' returns to '/settings'. This
+        // matches what the rest of the redirect path can faithfully preserve;
+        // claiming "exactly where you were" would oversell it.
+        const route = safeInternalPath(currentPath.replace(/^#/, '').split('?')[0]);
+        if (route && route !== '/') {
+          sessionStorage.setItem(REDIRECT_KEY, route);
+        }
+        localStorage.removeItem('ghagga_token');
+        localStorage.removeItem('ghagga_user');
+        // Clear the in-memory auth state too (AuthProvider listens for this
+        // event). Without it, React still considers the user authenticated,
+        // Login bounces back to "/", queries refetch, 401 again → loop.
+        notifySessionExpired();
+        window.location.hash = '#/login?expired=1';
+      }
+      throw new ApiError(401, 'Session expired');
+    }
+
     let message = 'Request failed';
     try {
       const body = await response.text();
@@ -75,21 +109,46 @@ async function fetchData<T>(path: string, options?: RequestInit): Promise<T> {
 
 // ─── Reviews ──────────────────────────────────────────────
 
-export function useReviews(repo?: string, page: number = 1) {
+/**
+ * Extra query options for `useReviews`. `status`/`search` are forwarded to
+ * the API as `status`/`q` query params so the dashboard is ready the moment
+ * the server implements server-side filtering (PRODOPS-005) — today the
+ * server ignores unknown params and returns the same unfiltered page, so
+ * Reviews.tsx still applies status/search client-side over whatever window
+ * was fetched. `limit` lets a caller request a wider window (up to the
+ * server's cap) when filters are active, so client-side filtering isn't
+ * scoped to a single default-size page.
+ */
+export interface UseReviewsOptions {
+  limit?: number;
+  status?: ReviewStatus | '';
+  search?: string;
+}
+
+export function useReviews(repo?: string, page: number = 1, options?: UseReviewsOptions) {
+  const { limit, status, search } = options ?? {};
   const params = new URLSearchParams();
   if (repo) params.set('repo', repo);
   params.set('page', String(page));
+  if (limit) params.set('limit', String(limit));
+  if (status) params.set('status', status);
+  if (search) params.set('q', search);
 
   return useQuery<ReviewsResponse>({
-    queryKey: ['reviews', repo, page],
+    // status/search are included so a query for one filter combination never
+    // resolves stale cached data from a different one (PRODOPS-005).
+    queryKey: ['reviews', repo, page, limit, status, search],
     queryFn: async () => {
+      // The server populates `repo` (repository fullName) on EVERY review row,
+      // for both the per-repo and the "All repositories" listings — no
+      // client-side labeling or fallbacks needed.
       const result = await fetchApi<{
         data: Review[];
-        pagination: { page: number; limit: number; offset: number };
+        pagination: { page: number; limit: number; offset: number; total: number };
       }>(`/api/reviews?${params.toString()}`);
       return {
         reviews: result.data,
-        total: result.data.length,
+        total: result.pagination.total,
         page: result.pagination.page,
         pageSize: result.pagination.limit,
       };
@@ -118,6 +177,65 @@ export function useDeleteRepoReviews() {
       if (variables.includeMemory) {
         void queryClient.invalidateQueries({ queryKey: ['memory'] });
       }
+    },
+  });
+}
+
+// ─── Issue Drafts (issue-triage approval) ─────────────────
+
+export function useIssueDrafts(status?: IssueDraftStatus) {
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  const qs = params.toString();
+  return useQuery<IssueDraft[]>({
+    queryKey: ['issue-drafts', status ?? 'all'],
+    queryFn: () => fetchData<IssueDraft[]>(`/api/issue-drafts${qs ? `?${qs}` : ''}`),
+  });
+}
+
+export function useEditIssueDraft() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: number; body: string }) =>
+      fetchData<IssueDraft>(`/api/issue-drafts/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ body }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['issue-drafts'] });
+    },
+  });
+}
+
+export function useApproveIssueDraft() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }: { id: number }) =>
+      fetchData<IssueDraft>(`/api/issue-drafts/${id}/approve`, { method: 'POST' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['issue-drafts'] });
+    },
+    // On failure — especially a 409 when another maintainer already decided the
+    // draft — refetch so the stale DRAFT row reflects true server state and the
+    // user can't retry a resolved draft (REL-002).
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: ['issue-drafts'] });
+    },
+  });
+}
+
+export function useRejectIssueDraft() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id }: { id: number }) =>
+      fetchData<IssueDraft>(`/api/issue-drafts/${id}/reject`, { method: 'POST' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['issue-drafts'] });
+    },
+    // On failure (e.g. a 409 concurrent decision) refetch so the stale DRAFT row
+    // reflects true server state and can't be retried (REL-002).
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: ['issue-drafts'] });
     },
   });
 }
@@ -168,6 +286,23 @@ export function useUpdateSettings() {
   });
 }
 
+export function useCopySettingsToGlobal() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ repoId }: { repoId: number }) =>
+      fetchApi<{ data: { message: string } }>('/api/settings/copy-to-global', {
+        method: 'POST',
+        body: JSON.stringify({ repoId }),
+      }),
+    onSuccess: () => {
+      // Invalidate both installation-level and repo-level caches
+      void queryClient.invalidateQueries({ queryKey: ['installation-settings'] });
+      void queryClient.invalidateQueries({ queryKey: ['settings'] });
+    },
+  });
+}
+
 // ─── Provider Validation ──────────────────────────────────
 
 export function useValidateProvider() {
@@ -177,6 +312,29 @@ export function useValidateProvider() {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
+  });
+}
+
+// ─── Available Keys (for key selector dropdown) ───────────
+
+/** Masked key info returned by GET /api/providers/keys */
+export interface AvailableKeyInfo {
+  maskedApiKey: string;
+  source: 'global';
+}
+
+/** Map of provider → masked key info for all saved keys */
+export type AvailableKeysMap = Record<string, AvailableKeyInfo>;
+
+/**
+ * Fetches all saved (masked) API keys for the current user, grouped by provider.
+ * Used to populate the key-selector dropdown in ProviderEntry without re-entering keys.
+ */
+export function useAvailableKeys() {
+  return useQuery<AvailableKeysMap>({
+    queryKey: ['providers', 'keys'],
+    queryFn: () => fetchData<AvailableKeysMap>('/api/providers/keys'),
+    staleTime: 60_000, // 1 minute — keys don't change often
   });
 }
 
@@ -356,38 +514,29 @@ export function useBatchDeleteObservations() {
   });
 }
 
-// ─── Runner ───────────────────────────────────────────────
+// ─── Workflow Installation ─────────────────────────────────
 
-export function useRunnerStatus(ownerLogin?: string) {
-  return useQuery<RunnerStatus>({
-    queryKey: ['runner', 'status', ownerLogin],
-    queryFn: () => fetchData<RunnerStatus>('/api/runner/status'),
-    enabled: !!ownerLogin,
+export function useWorkflowStatus(owner?: string, repo?: string) {
+  return useQuery<WorkflowStatus>({
+    queryKey: ['workflow', 'status', owner, repo],
+    queryFn: () =>
+      fetchData<WorkflowStatus>(`/api/runner/install-workflow/status/${owner}/${repo}`),
+    enabled: !!owner && !!repo,
     staleTime: 30_000,
-    retry: 1,
   });
 }
 
-export function useCreateRunner() {
+export function useInstallWorkflow(owner: string, repo: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: () =>
-      fetchApi<{ data: RunnerCreateResult }>('/api/runner/create', {
+      fetchApi<{ data: WorkflowInstallResult }>(`/api/runner/install-workflow/${owner}/${repo}`, {
         method: 'POST',
       }).then((res) => res.data),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['runner', 'status'] });
+      void queryClient.invalidateQueries({ queryKey: ['workflow', 'status', owner, repo] });
     },
-  });
-}
-
-export function useConfigureRunnerSecret() {
-  return useMutation({
-    mutationFn: () =>
-      fetchApi<{ data: RunnerConfigureResult }>('/api/runner/configure-secret', {
-        method: 'POST',
-      }).then((res) => res.data),
   });
 }
 

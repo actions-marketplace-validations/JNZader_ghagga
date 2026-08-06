@@ -36,6 +36,9 @@ const { mockBuildSarif } = vi.hoisted(() => ({
 vi.mock('ghagga-core', () => ({
   reviewPipeline: vi.fn(),
   buildSarif: mockBuildSarif,
+  formatReviewComment: vi.fn().mockReturnValue('<!-- ghagga-review -->\nbody'),
+  formatBoxSummary: vi.fn().mockReturnValue([]),
+  REVIEW_COMMENT_MARKER: '<!-- ghagga-review -->',
   SqliteMemoryStorage: {
     create: vi.fn().mockResolvedValue({
       searchObservations: vi.fn().mockResolvedValue([]),
@@ -85,6 +88,16 @@ vi.mock('node:fs', () => ({
   existsSync: vi.fn().mockReturnValue(false),
 }));
 
+// Embedding resolution is unrelated to output routing — stub to `none`
+// (undefined provider) so the SqliteMemoryStorage.create call stays on the
+// pre-existing keyword-only path the mocked ghagga-core above expects.
+vi.mock('../lib/embedding.js', () => ({
+  resolveCliEmbeddingProvider: () => ({
+    config: { provider: 'none', candidateK: 200 },
+    provider: undefined,
+  }),
+}));
+
 // ─── Imports ────────────────────────────────────────────────────
 
 import { execSync } from 'node:child_process';
@@ -101,7 +114,7 @@ const mockReviewPipeline = vi.mocked(reviewPipeline);
 function defaultOptions(overrides: Partial<ReviewOptions> = {}): ReviewOptions {
   return {
     mode: 'simple',
-    provider: 'anthropic',
+    provider: 'gateway',
     model: 'claude-sonnet-4-20250514',
     apiKey: 'test-key',
     semgrep: true,
@@ -122,7 +135,7 @@ function makeReviewResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
     findings: [],
     metadata: {
       mode: 'simple',
-      provider: 'anthropic',
+      provider: 'gateway',
       model: 'claude-sonnet-4-20250514',
       tokensUsed: 100,
       executionTimeMs: 1500,
@@ -237,6 +250,35 @@ describe('--output flag routing', () => {
     const output = String(markdownCall[0]);
     // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI detection
     expect(output).not.toMatch(/\x1b\[/);
+  });
+
+  it('--output sarif keeps stdout pure JSON (no interleaved tool diagnostics)', async () => {
+    // BL-SARIF-STDOUT: core static-analysis tools used to write progress to
+    // stdout (console.log), corrupting machine output for CI consumers. They
+    // must now write to stderr. Simulate a tool emitting a diagnostic during
+    // the pipeline and assert it never lands on stdout.
+    const diff = 'diff --git a/file.ts b/file.ts\n+hello';
+    mockExecSync.mockReturnValue(diff as never);
+    mockReviewPipeline.mockImplementation(async () => {
+      // A core tool diagnostic — now correctly routed to stderr.
+      console.error('[ghagga:tools] Running static analysis with registry-driven orchestrator');
+      return makeReviewResult();
+    });
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ outputFormat: 'sarif', version: '2.5.0' }));
+
+    // EVERY console.log (stdout) call must be parseable JSON — zero diagnostics.
+    const stdoutCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(stdoutCalls.length).toBeGreaterThan(0);
+    for (const line of stdoutCalls) {
+      expect(() => JSON.parse(line)).not.toThrow();
+    }
+
+    // The tool diagnostic landed on stderr, not stdout.
+    const stderrCalls = errorSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(stderrCalls.some((s: string) => s.includes('[ghagga:tools]'))).toBe(true);
+    expect(stdoutCalls.some((s: string) => s.includes('[ghagga:tools]'))).toBe(false);
   });
 
   it('when --output is set, tui.intro() and tui.outro() are NOT called', async () => {

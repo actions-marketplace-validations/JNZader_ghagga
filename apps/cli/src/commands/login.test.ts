@@ -129,11 +129,12 @@ describe('loginCommand', () => {
     expect(mockFetchGitHubUser).toHaveBeenCalledWith('gho_newtoken');
 
     // Verify config was saved with correct data
+    // (gateway/auto — 'github' is a legacy provider the CLI no longer accepts)
     expect(mockSaveConfig).toHaveBeenCalledWith({
       githubToken: 'gho_newtoken',
       githubLogin: 'newuser',
-      defaultProvider: 'github',
-      defaultModel: 'gpt-4o-mini',
+      defaultProvider: 'gateway',
+      defaultModel: 'auto',
     });
 
     // Verify success message
@@ -150,9 +151,7 @@ describe('loginCommand', () => {
     expect(mockSpinner.stop).toHaveBeenCalledWith('Authorization received');
 
     // start must be called before stop
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const startOrder = mockSpinner.start.mock.invocationCallOrder[0]!;
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const stopOrder = mockSpinner.stop.mock.invocationCallOrder[0]!;
     expect(startOrder).toBeLessThan(stopOrder);
   });

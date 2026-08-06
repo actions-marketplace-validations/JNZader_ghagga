@@ -1,5 +1,5 @@
 import type { ReviewResult } from 'ghagga-core';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createComment,
   createIssue,
@@ -64,7 +64,7 @@ function makeResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
     memoryContext: null,
     metadata: {
       mode: 'simple',
-      provider: 'github',
+      provider: 'gateway',
       model: 'gpt-4o-mini',
       tokensUsed: 500,
       executionTimeMs: 3200,
@@ -255,5 +255,33 @@ describe('formatIssueBody', () => {
     const body = formatIssueBody(makeResult({ findings: [] }), '2.5.0');
     expect(body).toContain('0 total');
     expect(body).toContain('none');
+  });
+
+  it('sanitizes LLM-derived summary and finding fields (mentions, HTML, table pipes)', () => {
+    const body = formatIssueBody(
+      makeResult({
+        summary: 'cc @everyone <script>alert(1)</script><!-- hidden payload -->',
+        findings: [
+          {
+            severity: 'high',
+            category: 'security',
+            file: 'a|b.ts',
+            line: 1,
+            message: 'msg | breaks | table',
+            suggestion: 'fix <img src=x onerror=alert(1)>',
+            source: 'ai',
+          },
+        ],
+        // biome-ignore lint/suspicious/noExplicitAny: hostile-input cast
+      } as any),
+      '2.5.0',
+    );
+
+    expect(body).not.toContain('@everyone');
+    expect(body).not.toContain('<script>');
+    expect(body).not.toContain('hidden payload');
+    expect(body).not.toContain('<img');
+    expect(body).not.toContain('msg | breaks | table');
+    expect(body).toContain('msg \\| breaks \\| table');
   });
 });

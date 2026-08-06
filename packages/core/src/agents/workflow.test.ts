@@ -2,14 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
-vi.mock('ai', () => ({
-  generateText: vi.fn(),
-}));
-
-vi.mock('../providers/index.js', () => ({
-  createModel: vi.fn(() => 'mock-language-model'),
-}));
-
 vi.mock('./prompts.js', () => ({
   WORKFLOW_SCOPE_SYSTEM: 'SCOPE_SYSTEM',
   WORKFLOW_STANDARDS_SYSTEM: 'STANDARDS_SYSTEM',
@@ -18,16 +10,25 @@ vi.mock('./prompts.js', () => ({
   WORKFLOW_PERFORMANCE_SYSTEM: 'PERFORMANCE_SYSTEM',
   WORKFLOW_SYNTHESIS_SYSTEM: 'SYNTHESIS_SYSTEM',
   REVIEW_CALIBRATION: 'REVIEW_CALIBRATION_BLOCK',
+  COMPACT_CALIBRATION: 'COMPACT_CALIBRATION_BLOCK',
+  UNTRUSTED_CONTENT_POLICY: 'UNTRUSTED_CONTENT_POLICY_BLOCK',
+  STATIC_ANALYSIS_UNTRUSTED_LABEL: 'STATIC ANALYSIS OUTPUT (untrusted tool/data)',
+  SPECIALIST_OUTPUT_UNTRUSTED_LABEL: 'SPECIALIST OUTPUT (untrusted, model-generated)',
   buildMemoryContext: vi.fn((ctx: string | null) => (ctx ? `MEMORY:${ctx}` : '')),
   buildReviewLevelInstruction: vi.fn((level: string) => `REVIEW_LEVEL:${level}`),
+  wrapUntrusted: vi.fn(
+    (label: string, content: string) => `<UNTRUSTED label="${label}">\n${content}\n</UNTRUSTED>`,
+  ),
+  wrapUntrustedDiff: vi.fn(
+    (diff: string) => `<USER_DIFF>\n\`\`\`diff\n${diff}\n\`\`\`\n</USER_DIFF>`,
+  ),
 }));
 
 vi.mock('./simple.js', () => ({
   parseReviewResponse: vi.fn(),
 }));
 
-import { generateText } from 'ai';
-import { createModel } from '../providers/index.js';
+import type { GenerateTextFn } from '../providers/generate-fn.js';
 import type { ReviewResult } from '../types.js';
 import { parseReviewResponse } from './simple.js';
 import type { WorkflowReviewInput } from './workflow.js';
@@ -35,29 +36,24 @@ import { runWorkflowReview } from './workflow.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-const mockGenerateText = vi.mocked(generateText);
-const mockCreateModel = vi.mocked(createModel);
 const mockParseReviewResponse = vi.mocked(parseReviewResponse);
 
-function makeInput(overrides: Partial<WorkflowReviewInput> = {}): WorkflowReviewInput {
-  return {
-    diff: '--- a/file.ts\n+++ b/file.ts\n@@ -1,3 +1,3 @@\n-old\n+new',
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
-    apiKey: 'sk-test-key',
-    staticContext: '',
-    memoryContext: null,
-    stackHints: '',
-    reviewLevel: 'normal' as const,
-    ...overrides,
-  };
-}
-
-function makeSpecialistResult(text: string, inputTokens = 100, outputTokens = 50) {
-  return {
-    text,
-    usage: { inputTokens, outputTokens },
-  };
+/** Create a mock GenerateTextFn that returns controlled responses */
+function makeMockGenerateFn(
+  providerName = 'gateway',
+  modelName = 'auto',
+): { fn: GenerateTextFn; calls: Array<{ system: string; prompt: string }> } {
+  const calls: Array<{ system: string; prompt: string }> = [];
+  const fn: GenerateTextFn = vi.fn(async (system: string, prompt: string) => {
+    calls.push({ system, prompt });
+    return {
+      text: `Output from ${providerName}/${modelName}`,
+      tokensUsed: 150,
+      provider: providerName,
+      model: modelName,
+    };
+  });
+  return { fn, calls };
 }
 
 function makeParsedResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
@@ -73,8 +69,8 @@ function makeParsedResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
     memoryContext: null,
     metadata: {
       mode: 'simple',
-      provider: 'anthropic',
-      model: 'claude-sonnet-4-20250514',
+      provider: 'gateway',
+      model: 'auto',
       tokensUsed: 0,
       executionTimeMs: 0,
       toolsRun: [],
@@ -84,208 +80,267 @@ function makeParsedResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
   };
 }
 
+function makeInput(overrides: Partial<WorkflowReviewInput> = {}): WorkflowReviewInput {
+  const { fn: defaultGenerateFn } = makeMockGenerateFn();
+  return {
+    diff: '--- a/file.ts\n+++ b/file.ts\n@@ -1,3 +1,3 @@\n-old\n+new',
+    provider: 'gateway',
+    model: 'auto',
+    apiKey: 'test-token',
+    staticContext: '',
+    memoryContext: null,
+    stackHints: '',
+    reviewLevel: 'normal' as const,
+    generateFns: [defaultGenerateFn],
+    ...overrides,
+  };
+}
+
 // ─── Tests ──────────────────────────────────────────────────────
 
 describe('runWorkflowReview', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-
-    // Default: all generateText calls succeed
-    // biome-ignore lint/suspicious/noExplicitAny: mock cast
-    mockGenerateText.mockResolvedValue(makeSpecialistResult('Specialist output') as any);
-
-    // Default: parseReviewResponse returns a valid result
     mockParseReviewResponse.mockReturnValue(makeParsedResult());
   });
 
-  // ── Model creation ──
+  // ── Guard: requires generateFns ──
 
-  it('creates the language model with the correct provider, model, and apiKey', async () => {
-    await runWorkflowReview(
-      makeInput({
-        provider: 'openai',
-        model: 'gpt-4o',
-        apiKey: 'sk-openai-key',
-      }),
-    );
+  it('throws when generateFns is not provided', async () => {
+    const input = makeInput({ generateFns: undefined });
+    await expect(runWorkflowReview(input)).rejects.toThrow('requires generateFns');
+  });
 
-    expect(mockCreateModel).toHaveBeenCalledWith('openai', 'gpt-4o', 'sk-openai-key');
+  it('throws when generateFns is empty', async () => {
+    const input = makeInput({ generateFns: [] });
+    await expect(runWorkflowReview(input)).rejects.toThrow('requires generateFns');
   });
 
   // ── Specialist calls ──
 
   it('makes exactly 5 specialist calls + 1 synthesis call (6 total)', async () => {
-    await runWorkflowReview(makeInput());
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(makeInput({ generateFns: [fn] }));
 
-    expect(mockGenerateText).toHaveBeenCalledTimes(6);
+    expect(calls).toHaveLength(6);
   });
 
-  it('calls all 5 specialists with temperature 0.3 and the diff', async () => {
-    const input = makeInput({ diff: 'my-diff-content' });
-    await runWorkflowReview(input);
+  it('calls all 5 specialists with the diff in the prompt', async () => {
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(makeInput({ diff: 'my-diff-content', generateFns: [fn] }));
 
     // First 5 calls are specialists
     for (let i = 0; i < 5; i++) {
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      const call = mockGenerateText.mock.calls[i]?.[0] as any;
-      expect(call.temperature).toBe(0.3);
-      expect(call.prompt).toContain('my-diff-content');
+      expect(calls[i]?.prompt).toContain('my-diff-content');
     }
   });
 
-  it('includes staticContext and stackHints in specialist system prompts', async () => {
-    const input = makeInput({
-      staticContext: 'STATIC_CONTEXT_DATA',
-      stackHints: 'STACK_HINTS_DATA',
-    });
-    await runWorkflowReview(input);
+  // ── Context isolation per specialist ──
 
-    // Check the first specialist call
-    // biome-ignore lint/suspicious/noExplicitAny: mock cast
-    const call = mockGenerateText.mock.calls[0]?.[0] as any;
-    expect(call.system).toContain('STATIC_CONTEXT_DATA');
-    expect(call.system).toContain('STACK_HINTS_DATA');
+  it('gives security specialist staticContext only', async () => {
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(
+      makeInput({
+        staticContext: 'STATIC_CONTEXT_DATA',
+        memoryContext: 'MEMORY_DATA',
+        stackHints: 'STACK_HINTS_DATA',
+        generateFns: [fn],
+      }),
+    );
+
+    // Specialists order: scope(0), standards(1), errors(2), security(3), performance(4)
+    expect(calls[3]?.system).toContain('STATIC_CONTEXT_DATA');
+    expect(calls[3]?.system).not.toContain('STACK_HINTS_DATA');
+    expect(calls[3]?.system).not.toContain('MEMORY:MEMORY_DATA');
   });
 
-  it('includes memory context in specialist system prompts when provided', async () => {
-    const input = makeInput({ memoryContext: 'past-review-data' });
-    await runWorkflowReview(input);
+  it('gives performance specialist stackHints only', async () => {
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(
+      makeInput({
+        staticContext: 'STATIC_CONTEXT_DATA',
+        memoryContext: 'MEMORY_DATA',
+        stackHints: 'STACK_HINTS_DATA',
+        generateFns: [fn],
+      }),
+    );
 
-    // biome-ignore lint/suspicious/noExplicitAny: mock cast
-    const call = mockGenerateText.mock.calls[0]?.[0] as any;
-    expect(call.system).toContain('MEMORY:past-review-data');
+    expect(calls[4]?.system).toContain('STACK_HINTS_DATA');
+    expect(calls[4]?.system).not.toContain('STATIC_CONTEXT_DATA');
+    expect(calls[4]?.system).not.toContain('MEMORY:MEMORY_DATA');
+  });
+
+  it('gives scope specialist memoryContext only', async () => {
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(
+      makeInput({
+        staticContext: 'STATIC_CONTEXT_DATA',
+        memoryContext: 'MEMORY_DATA',
+        stackHints: 'STACK_HINTS_DATA',
+        generateFns: [fn],
+      }),
+    );
+
+    expect(calls[0]?.system).toContain('MEMORY:MEMORY_DATA');
+    expect(calls[0]?.system).not.toContain('STATIC_CONTEXT_DATA');
+    expect(calls[0]?.system).not.toContain('STACK_HINTS_DATA');
+  });
+
+  it('gives standards specialist stackHints only', async () => {
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(
+      makeInput({
+        staticContext: 'STATIC_CONTEXT_DATA',
+        memoryContext: 'MEMORY_DATA',
+        stackHints: 'STACK_HINTS_DATA',
+        generateFns: [fn],
+      }),
+    );
+
+    expect(calls[1]?.system).toContain('STACK_HINTS_DATA');
+    expect(calls[1]?.system).not.toContain('STATIC_CONTEXT_DATA');
+    expect(calls[1]?.system).not.toContain('MEMORY:MEMORY_DATA');
+  });
+
+  it('gives error handling specialist no extra context (minimal)', async () => {
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(
+      makeInput({
+        staticContext: 'STATIC_CONTEXT_DATA',
+        memoryContext: 'MEMORY_DATA',
+        stackHints: 'STACK_HINTS_DATA',
+        generateFns: [fn],
+      }),
+    );
+
+    expect(calls[2]?.system).not.toContain('STATIC_CONTEXT_DATA');
+    expect(calls[2]?.system).not.toContain('STACK_HINTS_DATA');
+    expect(calls[2]?.system).not.toContain('MEMORY:MEMORY_DATA');
   });
 
   // ── Synthesis call ──
 
   it('passes SYNTHESIS_SYSTEM with review-level and calibration in system prompt for the 6th call', async () => {
-    await runWorkflowReview(makeInput());
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(makeInput({ generateFns: [fn] }));
 
-    // biome-ignore lint/suspicious/noExplicitAny: mock cast
-    const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
-    expect(synthesisCall.system).toContain('SYNTHESIS_SYSTEM');
-    expect(synthesisCall.system).toContain('REVIEW_LEVEL:normal');
-    expect(synthesisCall.system).toContain('REVIEW_CALIBRATION_BLOCK');
-    expect(synthesisCall.temperature).toBe(0.3);
+    expect(calls[5]?.system).toContain('SYNTHESIS_SYSTEM');
+    expect(calls[5]?.system).toContain('REVIEW_LEVEL:normal');
+    expect(calls[5]?.system).toContain('REVIEW_CALIBRATION_BLOCK');
   });
 
   it('includes all specialist outputs in the synthesis prompt', async () => {
-    // Make each specialist return different text
-    mockGenerateText
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Scope output') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Standards output') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Errors output') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Security output') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Performance output') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Synthesis final') as any);
+    let callCount = 0;
+    const specialistOutputs = [
+      'Scope output',
+      'Standards output',
+      'Errors output',
+      'Security output',
+      'Performance output',
+    ];
+    const fn: GenerateTextFn = vi.fn(async () => {
+      const text = specialistOutputs[callCount++] ?? 'Synthesis final';
+      return { text, tokensUsed: 150, provider: 'gateway', model: 'auto' };
+    });
 
-    await runWorkflowReview(makeInput());
+    const { calls } = { calls: [] as Array<{ system: string; prompt: string }> };
+    // Capture through the vitest mock
+    const trackedFn: GenerateTextFn = vi.fn(async (system, prompt) => {
+      const result = await fn(system, prompt);
+      calls.push({ system, prompt });
+      return result;
+    });
 
-    // biome-ignore lint/suspicious/noExplicitAny: mock cast
-    const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
-    expect(synthesisCall.prompt).toContain('Scope output');
-    expect(synthesisCall.prompt).toContain('Standards output');
-    expect(synthesisCall.prompt).toContain('Errors output');
-    expect(synthesisCall.prompt).toContain('Security output');
-    expect(synthesisCall.prompt).toContain('Performance output');
+    await runWorkflowReview(makeInput({ generateFns: [trackedFn] }));
+
+    expect(calls[5]?.prompt).toContain('Scope output');
+    expect(calls[5]?.prompt).toContain('Standards output');
+    expect(calls[5]?.prompt).toContain('Errors output');
+    expect(calls[5]?.prompt).toContain('Security output');
+    expect(calls[5]?.prompt).toContain('Performance output');
   });
 
   // ── Failed specialists ──
 
   it('includes [FAILED] marker in synthesis prompt when a specialist fails', async () => {
-    mockGenerateText
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Scope output') as any)
-      .mockRejectedValueOnce(new Error('Standards LLM timeout'))
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Errors output') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Security output') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Performance output') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Synthesis final') as any);
+    let callCount = 0;
+    const fn: GenerateTextFn = vi.fn(async () => {
+      callCount++;
+      if (callCount === 2) throw new Error('Standards LLM timeout');
+      return { text: `Output ${callCount}`, tokensUsed: 100, provider: 'gateway', model: 'auto' };
+    });
 
-    await runWorkflowReview(makeInput());
+    const calls: Array<{ system: string; prompt: string }> = [];
+    const trackedFn: GenerateTextFn = vi.fn(async (system, prompt) => {
+      const result = await fn(system, prompt);
+      calls.push({ system, prompt });
+      return result;
+    });
 
-    // biome-ignore lint/suspicious/noExplicitAny: mock cast
-    const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
-    expect(synthesisCall.prompt).toContain('[FAILED]');
-    expect(synthesisCall.prompt).toContain('Standards LLM timeout');
+    await runWorkflowReview(makeInput({ generateFns: [trackedFn] }));
+
+    // Synthesis prompt should contain [FAILED] for the failed specialist
+    const synthesisCalls = (vi.mocked(trackedFn).mock.calls as [string, string][]).map(
+      ([s, p]) => ({ system: s, prompt: p }),
+    );
+    const lastCall = synthesisCalls[synthesisCalls.length - 1];
+    expect(lastCall?.prompt).toContain('[FAILED]');
+    expect(lastCall?.prompt).toContain('Standards LLM timeout');
   });
 
   it('still produces a result when some specialists fail', async () => {
-    mockGenerateText
-      .mockRejectedValueOnce(new Error('Fail 1'))
-      .mockRejectedValueOnce(new Error('Fail 2'))
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Errors output') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Security output') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Performance output') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Synthesis final') as any);
+    let callCount = 0;
+    const fn: GenerateTextFn = vi.fn(async () => {
+      callCount++;
+      if (callCount <= 2) throw new Error(`Fail ${callCount}`);
+      return { text: `Output ${callCount}`, tokensUsed: 100, provider: 'gateway', model: 'auto' };
+    });
 
-    const result = await runWorkflowReview(makeInput());
+    const result = await runWorkflowReview(makeInput({ generateFns: [fn] }));
 
     expect(result).toBeDefined();
     expect(result.metadata.mode).toBe('workflow');
   });
 
-  // ── Token counting ──
+  // ── Dead voices (fulfilled with garbage) ──
 
-  it('aggregates tokens from all successful specialists and synthesis', async () => {
-    mockGenerateText
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s1', 100, 50) as any) // 150
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s2', 200, 100) as any) // 300
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s3', 150, 75) as any) // 225
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s4', 180, 90) as any) // 270
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s5', 120, 60) as any) // 180
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('syn', 300, 200) as any); // 500
+  it('treats a specialist that fulfills with a CLI error envelope as failed', async () => {
+    const errorEnvelope = JSON.stringify({
+      type: 'result',
+      subtype: 'error_max_turns',
+      is_error: true,
+      duration_ms: 42,
+    });
+    const onProgress = vi.fn();
+    let callCount = 0;
+    const fn: GenerateTextFn = vi.fn(async () => {
+      callCount++;
+      if (callCount === 2) {
+        return { text: errorEnvelope, tokensUsed: 999, provider: 'gateway', model: 'auto' };
+      }
+      return { text: `Output ${callCount}`, tokensUsed: 150, provider: 'gateway', model: 'auto' };
+    });
 
-    await runWorkflowReview(makeInput());
+    const result = await runWorkflowReview(makeInput({ onProgress, generateFns: [fn] }));
 
-    // Total: 150 + 300 + 225 + 270 + 180 + 500 = 1625
-    expect(mockParseReviewResponse).toHaveBeenCalledWith(
-      'syn',
-      'anthropic',
-      'claude-sonnet-4-20250514',
-      1625,
-      expect.any(Number),
-      null,
+    // ✗ emitted for the dead voice, not ✓
+    const failedCalls = onProgress.mock.calls.filter(
+      // biome-ignore lint/suspicious/noExplicitAny: mock callback type
+      ([event]: [any]) => event.step.startsWith('specialist-') && event.message.includes('✗'),
     );
-  });
+    expect(failedCalls).toHaveLength(1);
+    expect(failedCalls[0]?.[0].message).toContain('FAILED');
 
-  it('does not count tokens from failed specialists', async () => {
-    mockGenerateText
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s1', 100, 50) as any) // 150
-      .mockRejectedValueOnce(new Error('fail')) // 0
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s3', 100, 50) as any) // 150
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s4', 100, 50) as any) // 150
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s5', 100, 50) as any) // 150
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('syn', 100, 50) as any); // 150
+    // [FAILED] marker (not the raw envelope as a success) in the synthesis prompt
+    const synthesisCall = (vi.mocked(fn).mock.calls as [string, string][])[5];
+    expect(synthesisCall?.[1]).toContain('[FAILED]');
+    expect(synthesisCall?.[1]).toContain('error envelope');
 
-    await runWorkflowReview(makeInput());
+    // modelsUsed tags the dead voice as FAILED instead of a success entry
+    const failedEntries = (result.metadata.modelsUsed ?? []).filter((m) => m.includes('[FAILED:'));
+    expect(failedEntries).toHaveLength(1);
 
-    // Total: 150*4 + 150 = 750
+    // Tokens from the dead voice are NOT counted: 4 specialists + synthesis = 5 * 150
     expect(mockParseReviewResponse).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(String),
@@ -296,21 +351,90 @@ describe('runWorkflowReview', () => {
     );
   });
 
-  it('handles missing usage gracefully (defaults to 0)', async () => {
-    mockGenerateText.mockResolvedValue({
-      text: 'output',
-      usage: undefined,
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-    } as any);
+  it('treats a specialist that fulfills with empty text as failed', async () => {
+    const onProgress = vi.fn();
+    let callCount = 0;
+    const fn: GenerateTextFn = vi.fn(async () => {
+      callCount++;
+      if (callCount === 3) {
+        return { text: '   \n', tokensUsed: 150, provider: 'gateway', model: 'auto' };
+      }
+      return { text: `Output ${callCount}`, tokensUsed: 150, provider: 'gateway', model: 'auto' };
+    });
 
-    await runWorkflowReview(makeInput());
+    await runWorkflowReview(makeInput({ onProgress, generateFns: [fn] }));
 
-    // All 6 calls contribute 0 tokens
+    const failedCalls = onProgress.mock.calls.filter(
+      // biome-ignore lint/suspicious/noExplicitAny: mock callback type
+      ([event]: [any]) => event.step.startsWith('specialist-') && event.message.includes('✗'),
+    );
+    expect(failedCalls).toHaveLength(1);
+
+    const synthesisCall = (vi.mocked(fn).mock.calls as [string, string][])[5];
+    expect(synthesisCall?.[1]).toContain('[FAILED]');
+    expect(synthesisCall?.[1]).toContain('empty response text');
+  });
+
+  it('does not flag a normal review that merely contains the word "error"', async () => {
+    const onProgress = vi.fn();
+    const fn: GenerateTextFn = vi.fn(async () => ({
+      text: 'STATUS: FAILED\nSUMMARY: Missing error handling.\nFINDINGS:\n- error path uncovered',
+      tokensUsed: 150,
+      provider: 'gateway',
+      model: 'auto',
+    }));
+
+    await runWorkflowReview(makeInput({ onProgress, generateFns: [fn] }));
+
+    const successCalls = onProgress.mock.calls.filter(
+      // biome-ignore lint/suspicious/noExplicitAny: mock callback type
+      ([event]: [any]) => event.step.startsWith('specialist-') && event.message.includes('✓'),
+    );
+    expect(successCalls).toHaveLength(5);
+
+    const synthesisCall = (vi.mocked(fn).mock.calls as [string, string][])[5];
+    expect(synthesisCall?.[1]).not.toContain('[FAILED]');
+  });
+
+  // ── Token counting ──
+
+  it('aggregates tokens from all successful specialists and synthesis', async () => {
+    const tokenValues = [150, 300, 225, 270, 180, 500];
+    let callCount = 0;
+    const fn: GenerateTextFn = vi.fn(async () => {
+      const tokensUsed = tokenValues[callCount++] ?? 0;
+      return { text: `syn`, tokensUsed, provider: 'gateway', model: 'auto' };
+    });
+
+    await runWorkflowReview(makeInput({ generateFns: [fn] }));
+
+    // Total: 150 + 300 + 225 + 270 + 180 + 500 = 1625
+    expect(mockParseReviewResponse).toHaveBeenCalledWith(
+      'syn',
+      expect.any(String),
+      expect.any(String),
+      1625,
+      expect.any(Number),
+      null,
+    );
+  });
+
+  it('does not count tokens from failed specialists', async () => {
+    let callCount = 0;
+    const fn: GenerateTextFn = vi.fn(async () => {
+      callCount++;
+      if (callCount === 2) throw new Error('fail');
+      return { text: 'syn', tokensUsed: 150, provider: 'gateway', model: 'auto' };
+    });
+
+    await runWorkflowReview(makeInput({ generateFns: [fn] }));
+
+    // 5 successful calls * 150 tokens = 750 (one failed)
     expect(mockParseReviewResponse).toHaveBeenCalledWith(
       expect.any(String),
       expect.any(String),
       expect.any(String),
-      0,
+      750,
       expect.any(Number),
       null,
     );
@@ -319,26 +443,18 @@ describe('runWorkflowReview', () => {
   // ── parseReviewResponse integration ──
 
   it('calls parseReviewResponse with synthesis text output', async () => {
-    mockGenerateText
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s1') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s2') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s3') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s4') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s5') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('Final synthesis text') as any);
+    let callCount = 0;
+    const fn: GenerateTextFn = vi.fn(async () => {
+      const text = callCount++ < 5 ? `S${callCount}` : 'Final synthesis text';
+      return { text, tokensUsed: 100, provider: 'gateway', model: 'auto' };
+    });
 
-    await runWorkflowReview(makeInput());
+    await runWorkflowReview(makeInput({ generateFns: [fn] }));
 
     expect(mockParseReviewResponse).toHaveBeenCalledWith(
       'Final synthesis text',
-      'anthropic',
-      'claude-sonnet-4-20250514',
+      expect.any(String),
+      expect.any(String),
       expect.any(Number),
       expect.any(Number),
       null,
@@ -346,7 +462,8 @@ describe('runWorkflowReview', () => {
   });
 
   it('passes memoryContext to parseReviewResponse', async () => {
-    await runWorkflowReview(makeInput({ memoryContext: 'some-memory' }));
+    const { fn } = makeMockGenerateFn();
+    await runWorkflowReview(makeInput({ memoryContext: 'some-memory', generateFns: [fn] }));
 
     expect(mockParseReviewResponse).toHaveBeenCalledWith(
       expect.any(String),
@@ -365,8 +482,8 @@ describe('runWorkflowReview', () => {
       makeParsedResult({
         metadata: {
           mode: 'simple',
-          provider: 'anthropic',
-          model: 'claude-sonnet-4-20250514',
+          provider: 'gateway',
+          model: 'auto',
           tokensUsed: 100,
           executionTimeMs: 500,
           toolsRun: [],
@@ -375,7 +492,8 @@ describe('runWorkflowReview', () => {
       }),
     );
 
-    const result = await runWorkflowReview(makeInput());
+    const { fn } = makeMockGenerateFn();
+    const result = await runWorkflowReview(makeInput({ generateFns: [fn] }));
 
     expect(result.metadata.mode).toBe('workflow');
   });
@@ -384,7 +502,8 @@ describe('runWorkflowReview', () => {
 
   it('calls onProgress for workflow-start', async () => {
     const onProgress = vi.fn();
-    await runWorkflowReview(makeInput({ onProgress }));
+    const { fn } = makeMockGenerateFn();
+    await runWorkflowReview(makeInput({ onProgress, generateFns: [fn] }));
 
     expect(onProgress).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -396,23 +515,9 @@ describe('runWorkflowReview', () => {
 
   it('calls onProgress for each successful specialist with token count', async () => {
     const onProgress = vi.fn();
-    mockGenerateText
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('scope', 50, 50) as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('standards', 50, 50) as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('errors', 50, 50) as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('security', 50, 50) as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('perf', 50, 50) as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('synthesis') as any);
+    const { fn } = makeMockGenerateFn();
+    await runWorkflowReview(makeInput({ onProgress, generateFns: [fn] }));
 
-    await runWorkflowReview(makeInput({ onProgress }));
-
-    // Should have specialist progress events with ✓
     const specialistCalls = onProgress.mock.calls.filter(
       // biome-ignore lint/suspicious/noExplicitAny: mock callback type
       ([event]: [any]) => event.step.startsWith('specialist-') && event.message.includes('✓'),
@@ -422,20 +527,14 @@ describe('runWorkflowReview', () => {
 
   it('calls onProgress for failed specialists with ✗', async () => {
     const onProgress = vi.fn();
-    mockGenerateText
-      .mockRejectedValueOnce(new Error('boom'))
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s2') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s3') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s4') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('s5') as any)
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      .mockResolvedValueOnce(makeSpecialistResult('syn') as any);
+    let callCount = 0;
+    const fn: GenerateTextFn = vi.fn(async () => {
+      callCount++;
+      if (callCount === 1) throw new Error('boom');
+      return { text: 'ok', tokensUsed: 100, provider: 'gateway', model: 'auto' };
+    });
 
-    await runWorkflowReview(makeInput({ onProgress }));
+    await runWorkflowReview(makeInput({ onProgress, generateFns: [fn] }));
 
     const failedCalls = onProgress.mock.calls.filter(
       // biome-ignore lint/suspicious/noExplicitAny: mock callback type
@@ -447,7 +546,8 @@ describe('runWorkflowReview', () => {
 
   it('calls onProgress for workflow-synthesis step', async () => {
     const onProgress = vi.fn();
-    await runWorkflowReview(makeInput({ onProgress }));
+    const { fn } = makeMockGenerateFn();
+    await runWorkflowReview(makeInput({ onProgress, generateFns: [fn] }));
 
     expect(onProgress).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -458,45 +558,160 @@ describe('runWorkflowReview', () => {
   });
 
   it('does not throw when onProgress is not provided', async () => {
-    await expect(runWorkflowReview(makeInput({ onProgress: undefined }))).resolves.toBeDefined();
+    const { fn } = makeMockGenerateFn();
+    await expect(
+      runWorkflowReview(makeInput({ onProgress: undefined, generateFns: [fn] })),
+    ).resolves.toBeDefined();
+  });
+
+  // ── Multi-provider chain distribution ──
+
+  it('distributes 5 specialists round-robin across a 3-entry generateFns array', async () => {
+    const fn0 = vi
+      .fn()
+      .mockResolvedValue({ text: 'A', tokensUsed: 100, provider: 'gateway', model: 'm0' });
+    const fn1 = vi
+      .fn()
+      .mockResolvedValue({ text: 'B', tokensUsed: 100, provider: 'gateway', model: 'm1' });
+    const fn2 = vi
+      .fn()
+      .mockResolvedValue({ text: 'C', tokensUsed: 100, provider: 'gateway', model: 'm2' });
+
+    await runWorkflowReview(makeInput({ generateFns: [fn0, fn1, fn2] }));
+
+    // Specialist 0 (scope)       → fn0 (index 0 % 3)
+    // Specialist 1 (standards)   → fn1 (index 1 % 3)
+    // Specialist 2 (errors)      → fn2 (index 2 % 3)
+    // Specialist 3 (security)    → fn0 (index 3 % 3)
+    // Specialist 4 (performance) → fn1 (index 4 % 3)
+    // Synthesis always uses fn0 (index 0)
+    expect(fn0).toHaveBeenCalledTimes(3); // specialist 0, specialist 3, synthesis
+    expect(fn1).toHaveBeenCalledTimes(2); // specialist 1, specialist 4
+    expect(fn2).toHaveBeenCalledTimes(1); // specialist 2
+  });
+
+  it('synthesis always uses generateFns[0] (primary) regardless of array length', async () => {
+    const fn0 = vi.fn().mockResolvedValue({
+      text: 'primary',
+      tokensUsed: 100,
+      provider: 'gateway',
+      model: 'primary',
+    });
+    const fn1 = vi.fn().mockResolvedValue({
+      text: 'secondary',
+      tokensUsed: 100,
+      provider: 'gateway',
+      model: 'secondary',
+    });
+
+    await runWorkflowReview(makeInput({ generateFns: [fn0, fn1] }));
+
+    // fn0: specialists 0, 2, 4 (indices 0,2,4 → 0%2=0, 2%2=0, 4%2=0) + synthesis = 4 calls
+    // fn1: specialists 1, 3 (indices 1,3 → 1%2=1, 3%2=1) = 2 calls
+    expect(fn0.mock.calls.length).toBeGreaterThan(fn1.mock.calls.length);
   });
 
   // ── Review level & calibration injection ──
 
-  it('includes review-level instruction in specialist system prompts', async () => {
-    await runWorkflowReview(makeInput({ reviewLevel: 'soft' }));
+  it('includes review-level instruction in ALL specialist system prompts', async () => {
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(makeInput({ reviewLevel: 'soft', generateFns: [fn] }));
 
     // All 5 specialist calls should contain the review level instruction
     for (let i = 0; i < 5; i++) {
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      const call = mockGenerateText.mock.calls[i]?.[0] as any;
-      expect(call.system).toContain('REVIEW_LEVEL:soft');
+      expect(calls[i]?.system).toContain('REVIEW_LEVEL:soft');
     }
   });
 
-  it('includes REVIEW_CALIBRATION in specialist system prompts', async () => {
-    await runWorkflowReview(makeInput());
+  it('includes REVIEW_CALIBRATION for specialists with context, COMPACT for those without', async () => {
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(
+      makeInput({
+        staticContext: 'STATIC',
+        memoryContext: 'MEMORY',
+        stackHints: 'HINTS',
+        generateFns: [fn],
+      }),
+    );
+
+    // Order: scope(0), standards(1), errors(2), security(3), performance(4)
+    // scope has memoryContext → REVIEW_CALIBRATION
+    expect(calls[0]?.system).toContain('REVIEW_CALIBRATION_BLOCK');
+    expect(calls[0]?.system).not.toContain('COMPACT_CALIBRATION_BLOCK');
+
+    // standards has stackHints → REVIEW_CALIBRATION
+    expect(calls[1]?.system).toContain('REVIEW_CALIBRATION_BLOCK');
+    expect(calls[1]?.system).not.toContain('COMPACT_CALIBRATION_BLOCK');
+
+    // errors has no context → COMPACT_CALIBRATION
+    expect(calls[2]?.system).toContain('COMPACT_CALIBRATION_BLOCK');
+    expect(calls[2]?.system).not.toContain('REVIEW_CALIBRATION_BLOCK');
+
+    // security has staticContext → REVIEW_CALIBRATION
+    expect(calls[3]?.system).toContain('REVIEW_CALIBRATION_BLOCK');
+    expect(calls[3]?.system).not.toContain('COMPACT_CALIBRATION_BLOCK');
+
+    // performance has stackHints → REVIEW_CALIBRATION
+    expect(calls[4]?.system).toContain('REVIEW_CALIBRATION_BLOCK');
+    expect(calls[4]?.system).not.toContain('COMPACT_CALIBRATION_BLOCK');
+  });
+
+  it('all specialists get COMPACT_CALIBRATION when no context is provided', async () => {
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(
+      makeInput({
+        staticContext: '',
+        memoryContext: null,
+        stackHints: '',
+        generateFns: [fn],
+      }),
+    );
 
     for (let i = 0; i < 5; i++) {
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      const call = mockGenerateText.mock.calls[i]?.[0] as any;
-      expect(call.system).toContain('REVIEW_CALIBRATION_BLOCK');
+      expect(calls[i]?.system).toContain('COMPACT_CALIBRATION_BLOCK');
+      expect(calls[i]?.system).not.toContain('REVIEW_CALIBRATION_BLOCK');
     }
   });
 
   it('includes review-level instruction in synthesis system prompt', async () => {
-    await runWorkflowReview(makeInput({ reviewLevel: 'strict' }));
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(makeInput({ reviewLevel: 'strict', generateFns: [fn] }));
 
-    // biome-ignore lint/suspicious/noExplicitAny: mock cast
-    const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
-    expect(synthesisCall.system).toContain('REVIEW_LEVEL:strict');
+    expect(calls[5]?.system).toContain('REVIEW_LEVEL:strict');
   });
 
   it('includes REVIEW_CALIBRATION in synthesis system prompt', async () => {
-    await runWorkflowReview(makeInput());
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(makeInput({ generateFns: [fn] }));
 
-    // biome-ignore lint/suspicious/noExplicitAny: mock cast
-    const synthesisCall = mockGenerateText.mock.calls[5]?.[0] as any;
-    expect(synthesisCall.system).toContain('REVIEW_CALIBRATION_BLOCK');
+    expect(calls[5]?.system).toContain('REVIEW_CALIBRATION_BLOCK');
+  });
+
+  // ── Untrusted framing (prompt-injection trust boundary) ──
+
+  it('wraps staticContext in an untrusted fence for the security specialist', async () => {
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(makeInput({ staticContext: 'STATIC_CONTEXT_DATA', generateFns: [fn] }));
+
+    // Security specialist is index 3 and is the only one receiving staticContext.
+    expect(calls[3]?.system).toContain('<UNTRUSTED label="STATIC ANALYSIS OUTPUT');
+    expect(calls[3]?.system).toContain('STATIC_CONTEXT_DATA');
+    expect(calls[3]?.system).toContain('</UNTRUSTED>');
+  });
+
+  it('wraps each specialist output as untrusted in the synthesis prompt', async () => {
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(makeInput({ generateFns: [fn] }));
+
+    // Synthesis is call index 5.
+    expect(calls[5]?.prompt).toContain('<UNTRUSTED label="SPECIALIST OUTPUT');
+    expect(calls[5]?.prompt).toContain('</UNTRUSTED>');
+  });
+
+  it('includes the untrusted-content policy in the synthesis system prompt', async () => {
+    const { fn, calls } = makeMockGenerateFn();
+    await runWorkflowReview(makeInput({ generateFns: [fn] }));
+
+    expect(calls[5]?.system).toContain('UNTRUSTED_CONTENT_POLICY_BLOCK');
   });
 });

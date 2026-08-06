@@ -126,6 +126,7 @@ describe('saveConfig', () => {
 
     expect(mockMkdirSync).toHaveBeenCalledWith(expect.stringContaining('ghagga'), {
       recursive: true,
+      mode: 0o700,
     });
   });
 
@@ -146,7 +147,7 @@ describe('saveConfig', () => {
     expect(mockWriteFileSync).toHaveBeenCalledWith(
       expect.stringContaining('config.json'),
       `${JSON.stringify(config, null, 2)}\n`,
-      'utf-8',
+      { encoding: 'utf-8', mode: 0o600 },
     );
   });
 
@@ -155,11 +156,10 @@ describe('saveConfig', () => {
 
     saveConfig({});
 
-    expect(mockWriteFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('config.json'),
-      '{}\n',
-      'utf-8',
-    );
+    expect(mockWriteFileSync).toHaveBeenCalledWith(expect.stringContaining('config.json'), '{}\n', {
+      encoding: 'utf-8',
+      mode: 0o600,
+    });
   });
 
   it('should save all optional fields when provided', () => {
@@ -177,6 +177,24 @@ describe('saveConfig', () => {
     const parsed = JSON.parse(writtenJson);
     expect(parsed).toEqual(config);
   });
+
+  it('should set restrictive permissions on config directory (0o700)', () => {
+    mockExistsSync.mockReturnValue(false);
+
+    saveConfig({ githubToken: 'gho_token' });
+
+    const mkdirOpts = mockMkdirSync.mock.calls[0]?.[1] as { mode?: number };
+    expect(mkdirOpts.mode).toBe(0o700);
+  });
+
+  it('should set restrictive permissions on config file (0o600)', () => {
+    mockExistsSync.mockReturnValue(true);
+
+    saveConfig({ githubToken: 'gho_token' });
+
+    const writeOpts = mockWriteFileSync.mock.calls[0]?.[2] as { mode?: number };
+    expect(writeOpts.mode).toBe(0o600);
+  });
 });
 
 // ─── clearConfig ───────────────────────────────────────────────
@@ -189,11 +207,10 @@ describe('clearConfig', () => {
 
     clearConfig();
 
-    expect(mockWriteFileSync).toHaveBeenCalledWith(
-      expect.stringContaining('config.json'),
-      '{}\n',
-      'utf-8',
-    );
+    expect(mockWriteFileSync).toHaveBeenCalledWith(expect.stringContaining('config.json'), '{}\n', {
+      encoding: 'utf-8',
+      mode: 0o600,
+    });
   });
 });
 

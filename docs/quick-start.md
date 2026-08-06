@@ -83,27 +83,27 @@ This starts PostgreSQL 16 on port 5432 and the GHAGGA Server (Hono) on port 3000
 
 See [Self-Hosted](self-hosted.md) for full deployment details.
 
-## SaaS Mode — Runner Setup
+## SaaS Mode — Static Analysis Setup
 
-If you're using the hosted GHAGGA SaaS (Render deployment), static analysis runs on a delegated runner.
+If you're using the hosted GHAGGA SaaS, static analysis runs as an **inline GitHub Actions workflow** that the server injects into each target repository at `.github/workflows/ghagga.yml` (built from `templates/ghagga-inline.yml`).
 
-> **Important**: After installing the GitHub App, you must configure an LLM provider in the [Dashboard](https://jnzader.github.io/ghagga/app/) before reviews will work. See the [SaaS Getting Started Guide](saas-getting-started.md) for the full setup flow.
+> **Important**: After installing the GitHub App, you must configure an LLM provider in the [Dashboard](https://ghagga.javierzader.com/app/) before reviews will work. See the [SaaS Getting Started Guide](saas-getting-started.md) for the full setup flow.
 
-To enable static analysis:
+> **Auth note**: The dashboard signs in with GitHub OAuth Web Flow. That login is separate from GitHub Models credentials in SaaS/server mode.
 
-1. **[Open the Dashboard](https://jnzader.github.io/ghagga/app/)** and go to **Global Settings**
-2. **Click "Enable Runner"** in the Static Analysis Runner card
-3. A public repository named `ghagga-runner` will be created in your GitHub account from the official template
+There is nothing to enable manually for static analysis — on each PR review, the server:
 
-If your account was created before the `public_repo` scope was added, you'll be prompted to re-authenticate. This is a one-time step.
+1. PUTs `.github/workflows/ghagga.yml` into your repo (if it's missing or out-of-date).
+2. Triggers `workflow_dispatch` with a per-dispatch HMAC callback secret.
+3. Receives the signed callback at `/runner/callback` and merges the findings into the AI review.
 
-That's it. The server will auto-discover your runner and dispatch static analysis to it. If you skip this step, reviews still work — they just skip static analysis.
+The workflow uses your repo's own GitHub Actions minutes (unlimited on public repos). If injection is blocked by branch protection or missing permissions, the server falls back to LLM-only review — no hard failure.
 
-See [Runner Architecture](runner-architecture.md) for details.
+See [Architecture — Inline Static-Analysis Workflow](architecture.md#inline-static-analysis-workflow) for details.
 
 ## BYOK — Bring Your Own Key
 
-> **Free by default**: GHAGGA is free and open source. GitHub Models provides free LLM access (`gpt-4o-mini`) — no API key needed. The providers below are optional if you want different models.
+> **Mode note**: GHAGGA is free and open source, but GitHub Models auth differs by mode. SaaS/server mode needs a PAT with `models:read`; CLI and GitHub Action mode can use the GitHub token you already control.
 
 GHAGGA never sees or stores your keys in plaintext. They're encrypted with AES-256-GCM at rest. You bring your own API key from any supported provider:
 
@@ -115,5 +115,9 @@ GHAGGA never sees or stores your keys in plaintext. They're encrypted with AES-2
 | Google | `gemini-2.5-flash` |
 | Ollama | `qwen2.5-coder:7b` |
 | Qwen | `qwen-coder-plus` |
+| Groq | `llama-3.3-70b-versatile` |
+| Cerebras | `llama-3.3-70b` |
+| DeepSeek | `deepseek-chat` |
+| OpenRouter | `deepseek/deepseek-chat` |
 
 Static analysis tools (Semgrep, Trivy, CPD) are always free — they run on GitHub Actions runners (unlimited free minutes for public repos).

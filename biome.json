@@ -1,12 +1,12 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.6/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!.next", "!*.min.js", "!pnpm-lock.yaml"]
+    "includes": ["**", "!.next", "!*.min.js", "!pnpm-lock.yaml", "!packages/db/drizzle/meta"]
   },
   "formatter": {
     "enabled": true,
@@ -17,7 +17,10 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
+      "complexity": {
+        "useArrowFunction": "off"
+      },
       "correctness": {
         "noUnusedVariables": "warn",
         "noUnusedImports": "warn",
@@ -66,5 +69,167 @@
         "organizeImports": "on"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.spec.ts",
+        "**/__tests__/**",
+        "**/__integration__/**",
+        "**/test/**"
+      ],
+      "linter": { "rules": { "style": { "noNonNullAssertion": "off" } } }
+    },
+    {
+      "includes": ["packages/forge/**"],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noBarrelFile": "off"
+          },
+          "style": {
+            "useImportType": "error",
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "@ghagga/server": "packages/forge MUST NOT import the server app (R-AGNOSTIC).",
+                  "ghagga-server": "packages/forge MUST NOT import the server app (R-AGNOSTIC)."
+                },
+                "patterns": [
+                  {
+                    "group": ["**/apps/server/**", "../**/apps/server/**"],
+                    "message": "packages/forge MUST NOT import apps/server (R-AGNOSTIC)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/core/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "ghagga-forge": "ghagga-core MUST NOT import ghagga-forge — core stays forge-agnostic (R-AGNOSTIC).",
+                  "@ghagga/forge": "ghagga-core MUST NOT import @ghagga/forge — core stays forge-agnostic (R-AGNOSTIC)."
+                },
+                "patterns": [
+                  {
+                    "group": ["**/packages/forge/**", "../forge/**", "../**/packages/forge/**"],
+                    "message": "ghagga-core MUST NOT import packages/forge (R-AGNOSTIC)."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/server/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "./client.js": {
+                    "message": "FORGE BOUNDARY (R-AGNOSTIC 1.6): the client.ts forge-adapter fns are @internal — consume them via GitHubForgeAdapter built through apps/server/src/github/forge-adapter-factory.ts (makeGitHubAdapter). getInstallationToken/verifyWebhookSignature stay importable.",
+                    "importNames": [
+                      "fetchPRDiff",
+                      "fetchPRDetails",
+                      "getPRFileList",
+                      "getPRCommitMessages",
+                      "postComment",
+                      "findExistingComment",
+                      "deleteComment",
+                      "updateComment",
+                      "addCommentReaction",
+                      "fetchGraphFromBranch",
+                      "fetchGraphMetadata"
+                    ]
+                  },
+                  "./github/client.js": {
+                    "message": "FORGE BOUNDARY (R-AGNOSTIC 1.6): the client.ts forge-adapter fns are @internal — consume them via GitHubForgeAdapter built through apps/server/src/github/forge-adapter-factory.ts (makeGitHubAdapter). getInstallationToken/verifyWebhookSignature stay importable.",
+                    "importNames": [
+                      "fetchPRDiff",
+                      "fetchPRDetails",
+                      "getPRFileList",
+                      "getPRCommitMessages",
+                      "postComment",
+                      "findExistingComment",
+                      "deleteComment",
+                      "updateComment",
+                      "addCommentReaction",
+                      "fetchGraphFromBranch",
+                      "fetchGraphMetadata"
+                    ]
+                  },
+                  "../github/client.js": {
+                    "message": "FORGE BOUNDARY (R-AGNOSTIC 1.6): the client.ts forge-adapter fns are @internal — consume them via GitHubForgeAdapter built through apps/server/src/github/forge-adapter-factory.ts (makeGitHubAdapter). getInstallationToken/verifyWebhookSignature stay importable.",
+                    "importNames": [
+                      "fetchPRDiff",
+                      "fetchPRDetails",
+                      "getPRFileList",
+                      "getPRCommitMessages",
+                      "postComment",
+                      "findExistingComment",
+                      "deleteComment",
+                      "updateComment",
+                      "addCommentReaction",
+                      "fetchGraphFromBranch",
+                      "fetchGraphMetadata"
+                    ]
+                  },
+                  "../../github/client.js": {
+                    "message": "FORGE BOUNDARY (R-AGNOSTIC 1.6): the client.ts forge-adapter fns are @internal — consume them via GitHubForgeAdapter built through apps/server/src/github/forge-adapter-factory.ts (makeGitHubAdapter). getInstallationToken/verifyWebhookSignature stay importable.",
+                    "importNames": [
+                      "fetchPRDiff",
+                      "fetchPRDetails",
+                      "getPRFileList",
+                      "getPRCommitMessages",
+                      "postComment",
+                      "findExistingComment",
+                      "deleteComment",
+                      "updateComment",
+                      "addCommentReaction",
+                      "fetchGraphFromBranch",
+                      "fetchGraphMetadata"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "apps/server/src/github/forge-adapter-factory.ts",
+        "apps/server/**/*.test.ts",
+        "apps/server/**/*.test.tsx",
+        "apps/server/**/*.spec.ts",
+        "apps/server/**/__tests__/**",
+        "apps/server/**/__integration__/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": "off"
+          }
+        }
+      }
+    }
+  ]
 }

@@ -257,8 +257,22 @@ function ObservationCard({
 
   return (
     <Card className="cursor-pointer transition-colors hover:border-primary-500/30">
-      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-      <div className="relative flex items-start gap-3" onClick={() => onClick(observation)}>
+      <div
+        className="relative flex items-start gap-3 outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-card"
+        onClick={() => onClick(observation)}
+        onKeyDown={(e) => {
+          // Enter/Space opens the detail modal, matching native
+          // button/link activation (PRODOPS-008). Space is prevented to
+          // avoid scrolling the page.
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick(observation);
+          }
+        }}
+        role="button"
+        tabIndex={0}
+        aria-label={`View observation details: ${observation.title}`}
+      >
         {onToggleSelect && (
           <div className="flex items-start pt-0.5">
             <input
@@ -266,7 +280,7 @@ function ObservationCard({
               checked={isSelected ?? false}
               onChange={() => onToggleSelect(observation)}
               onClick={(e) => e.stopPropagation()}
-              className="h-4 w-4 rounded border-surface-border"
+              className="h-4 w-4 rounded-sm border-surface-border"
               aria-label={`Select observation: ${observation.title}`}
             />
           </div>
@@ -287,13 +301,13 @@ function ObservationCard({
               {visiblePaths.map((path: string) => (
                 <span
                   key={path}
-                  className="rounded bg-surface-bg px-2 py-1 font-mono text-xs text-text-secondary"
+                  className="rounded-sm bg-surface-bg px-2 py-1 font-mono text-xs text-text-secondary"
                 >
                   {path}
                 </span>
               ))}
               {extraPathCount > 0 && (
-                <span className="rounded bg-surface-bg px-2 py-1 text-xs text-text-muted">
+                <span className="rounded-sm bg-surface-bg px-2 py-1 text-xs text-text-muted">
                   +{extraPathCount} more
                 </span>
               )}
@@ -893,7 +907,7 @@ export function Memory() {
 
           <div className="flex gap-6">
             {/* Sessions sidebar */}
-            <div className="w-72 flex-shrink-0 space-y-2">
+            <div className="w-72 shrink-0 space-y-2">
               {hasEmptySessions && (
                 <button
                   onClick={() => {
@@ -960,7 +974,7 @@ export function Memory() {
                           if (el) el.indeterminate = someObsSelected;
                         }}
                         onChange={toggleSelectAllObs}
-                        className="h-4 w-4 rounded border-surface-border"
+                        className="h-4 w-4 rounded-sm border-surface-border"
                         aria-label="Select all observations"
                       />
                       Select all

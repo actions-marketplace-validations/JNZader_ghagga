@@ -1,5 +1,9 @@
+import { sql } from 'drizzle-orm';
 import {
+  bigint,
   boolean,
+  check,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -8,6 +12,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   varchar,
 } from 'drizzle-orm/pg-core';
 
@@ -39,6 +44,10 @@ export interface RepoSettings {
   enabledTools?: string[];
   /** Force-disable specific tools (overrides always-on and auto-detect). */
   disabledTools?: string[];
+
+  // ── Blast-radius analysis ──
+  /** Enable blast-radius analysis using dependency graph. Default: false. */
+  enableBlastRadius?: boolean;
 }
 
 export const DEFAULT_REPO_SETTINGS: RepoSettings = {
@@ -56,11 +65,29 @@ export const DEFAULT_REPO_SETTINGS: RepoSettings = {
 /**
  * Shape of each entry stored in the provider_chain JSONB column.
  * Encrypted API keys are stored here (one per provider entry).
+ *
+ * Provider union mirrors `SaaSProvider` from `@ghagga/types`: only the v3
+ * runtime targets (gateway / cli-bridge / ollama) are valid. Legacy entries
+ * (anthropic/openai/google/etc.) are remapped at the runtime boundary by
+ * `normalizeLegacyProvider` in `apps/server/src/queues/review.ts`.
  */
 export interface DbProviderChainEntry {
-  provider: 'anthropic' | 'openai' | 'google' | 'github' | 'qwen';
+  provider: 'gateway' | 'cli-bridge' | 'ollama';
   model: string;
-  encryptedApiKey: string | null; // null for GitHub Models (uses session token)
+  encryptedApiKey: string | null;
+  /** OpenCode model in `provider/model` format. Only meaningful when provider === 'cli-bridge'. */
+  cliModel?: string;
+
+  /** Gateway base URL. Only meaningful when provider === 'gateway'. */
+  gatewayUrl?: string;
+
+  /**
+   * Bridge-side provider id to route to (e.g. 'codex-cli'). Forwarded to the
+   * gateway so the bridge selects this provider directly, skipping model-based
+   * routing. Only meaningful when provider === 'gateway'.
+   * Stored in the schemaless `provider_chain` jsonb column — no migration.
+   */
+  targetProvider?: string;
 }
 
 // ─── Installation Settings ──────────────────────────────────────
@@ -68,7 +95,7 @@ export interface DbProviderChainEntry {
 export const installationSettings = pgTable('installation_settings', {
   id: serial('id').primaryKey(),
   installationId: integer('installation_id')
-    .references(() => installations.id)
+    .references(() => installations.id, { onDelete: 'cascade' })
     .unique()
     .notNull(),
   providerChain: jsonb('provider_chain').$type<DbProviderChainEntry[]>().default([]).notNull(),
@@ -103,8 +130,14 @@ export const repositories = pgTable(
 
     // ── Old columns (kept for rollback safety, will be dropped in a future migration) ──
     encryptedApiKey: text('encrypted_api_key'),
-    llmProvider: varchar('llm_provider', { length: 50 }).default('github').notNull(),
+    llmProvider: varchar('llm_provider', { length: 50 }).default('gateway').notNull(),
     llmModel: varchar('llm_model', { length: 100 }),
+
+    // ── Inline workflow (Phase: inline-workflow-migration) ──
+    /** ISO timestamp of when ghagga.yml was last pushed to .github/workflows/ in this repo */
+    workflowInstalledAt: timestamp('workflow_installed_at'),
+    /** SHA of the file object returned by Contents API — used for idempotent updates */
+    workflowSha: text('workflow_sha'),
 
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -140,6 +173,82 @@ export const reviews = pgTable(
   ],
 );
 
+// ─── Issue Drafts (Issue-Triage Agent) ──────────────────────────
+// Net-new, additive table. Unlike `reviews` (PR-centric, posts immediately),
+// the triage worker persists a DRAFT and NEVER auto-posts — a human approves
+// it in the dashboard, which then posts the comment via the issues API.
+
+/** Draft lifecycle: worker inserts DRAFT → human edits → APPROVED → POSTED, or → REJECTED. */
+export const ISSUE_DRAFT_STATUSES = ['DRAFT', 'APPROVED', 'REJECTED', 'POSTED'] as const;
+export type IssueDraftStatus = (typeof ISSUE_DRAFT_STATUSES)[number];
+
+/** What the worker produced: a full analysis, a duplicate match, or a missing-info request. */
+export const ISSUE_DRAFT_KINDS = ['ANALYSIS', 'DUPLICATE', 'NEEDS_INFO'] as const;
+export type IssueDraftKind = (typeof ISSUE_DRAFT_KINDS)[number];
+
+/** Cited source backing a draft claim (memory observation or issue excerpt). */
+export interface IssueDraftSource {
+  title: string;
+  type: string;
+  ref: string;
+}
+
+/** A prior observation surfaced by the dedup stage. */
+export interface IssueDedupMatch {
+  observationId: number;
+  title: string;
+  score: number;
+}
+
+export const issueDrafts = pgTable(
+  'issue_drafts',
+  {
+    id: serial('id').primaryKey(),
+    repositoryId: integer('repository_id')
+      .references(() => repositories.id, { onDelete: 'cascade' })
+      .notNull(),
+    issueNumber: integer('issue_number').notNull(),
+    issueTitle: varchar('issue_title', { length: 500 }).notNull(),
+    status: varchar('status', { length: 20 }).notNull(), // DRAFT | APPROVED | REJECTED | POSTED
+    draftKind: varchar('draft_kind', { length: 20 }).notNull(), // ANALYSIS | DUPLICATE | NEEDS_INFO
+    body: text('body').notNull(), // editable cited markdown report
+    sources: jsonb('sources').$type<IssueDraftSource[]>(),
+    dedupMatches: jsonb('dedup_matches').$type<IssueDedupMatch[]>(),
+    tokensUsed: integer('tokens_used').default(0).notNull(),
+    // GitHub comment IDs are 64-bit and already exceed int4's max, so this
+    // must be bigint to avoid out-of-range at insert time. Nullable: set on POSTED.
+    postedCommentId: bigint('posted_comment_id', { mode: 'number' }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    // Lease timestamp: set when a draft is claimed for posting (DRAFT → APPROVED),
+    // used to detect orphaned/stuck APPROVED drafts whose poster process crashed
+    // before posting the comment. NULL when not currently claimed (DRAFT/REJECTED,
+    // or cleared on release back to DRAFT).
+    claimedAt: timestamp('claimed_at'),
+  },
+  (t) => [
+    index('idx_issue_drafts_repository').on(t.repositoryId),
+    index('idx_issue_drafts_status').on(t.status),
+    // At most ONE open DRAFT per (repository, issue). Approved/rejected/posted
+    // rows are excluded by the partial predicate, so re-triaging after a
+    // decision is allowed.
+    uniqueIndex('uq_issue_drafts_open_draft')
+      .on(t.repositoryId, t.issueNumber)
+      .where(sql`${t.status} = 'DRAFT'`),
+    // DB-level CHECK mirroring the exported const unions. The partial-unique
+    // "one open DRAFT" index is only as strong as the validity of `status`,
+    // so this hardens that invariant at the database boundary.
+    check(
+      'chk_issue_drafts_status',
+      sql`${t.status} IN (${sql.raw(ISSUE_DRAFT_STATUSES.map((v) => `'${v}'`).join(', '))})`,
+    ),
+    check(
+      'chk_issue_drafts_draft_kind',
+      sql`${t.draftKind} IN (${sql.raw(ISSUE_DRAFT_KINDS.map((v) => `'${v}'`).join(', '))})`,
+    ),
+  ],
+);
+
 // ─── Memory: Sessions ───────────────────────────────────────────
 
 export const memorySessions = pgTable(
@@ -157,7 +266,7 @@ export const memorySessions = pgTable(
 
 // ─── Memory: Observations ───────────────────────────────────────
 // Note: tsvector column + GIN index + update trigger are created
-// via a raw SQL migration (see migrations/0001_add_tsvector.sql)
+// via a raw SQL migration (see drizzle/_custom_tsvector.sql)
 
 export const memoryObservations = pgTable(
   'memory_observations',
@@ -175,6 +284,25 @@ export const memoryObservations = pgTable(
     revisionCount: integer('revision_count').default(1).notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    lastAccessedAt: timestamp('last_accessed_at').defaultNow().notNull(),
+    /**
+     * Embedding stored as REAL[] (PostgreSQL float4 array).
+     * NULL when no embedding provider was available at insertion time.
+     * Used for hybrid BM25 + semantic search (feature #4).
+     */
+    embedding: doublePrecision('embedding').array(),
+    /**
+     * Provider id that produced `embedding` (e.g. 'openai-compatible', 'local').
+     * NULL when `embedding` is NULL. Used by the read guard to detect
+     * provider/dimension mismatches on rows embedded by a different config.
+     */
+    embeddingModel: text('embedding_model'),
+    /**
+     * Vector length of `embedding` at insertion time.
+     * NULL when `embedding` is NULL. Compared against the active provider's
+     * `dimension` on read; mismatched rows are excluded from the cosine set.
+     */
+    embeddingDim: integer('embedding_dim'),
   },
   (t) => [
     index('idx_observations_project').on(t.project),
@@ -182,6 +310,7 @@ export const memoryObservations = pgTable(
     index('idx_observations_type').on(t.type),
     index('idx_observations_content_hash').on(t.contentHash),
     index('idx_observations_created_at').on(t.createdAt),
+    index('idx_observations_last_accessed_at').on(t.lastAccessedAt),
   ],
 );
 

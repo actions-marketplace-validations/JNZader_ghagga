@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useCallback, useEffect, useRef } from 'react';
+import { type KeyboardEvent, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { cn } from '@/lib/cn';
@@ -52,8 +52,10 @@ export function ObservationDetailModal({ observation, onClose }: ObservationDeta
   // Trap focus within the dialog while open
   useFocusTrap(dialogRef, observation !== null);
 
+  // `HTMLElement` covers both the dialog `<div>` and the backdrop `<button>` —
+  // both attach this handler.
   const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLDivElement>) => {
+    (e: KeyboardEvent<HTMLElement>) => {
       if (e.key === 'Escape') {
         onClose();
       }
@@ -70,13 +72,29 @@ export function ObservationDetailModal({ observation, onClose }: ObservationDeta
   const typeConfig = observationTypeConfig[observation.type];
 
   return createPortal(
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
-    <div className="fixed inset-0 z-50 flex items-center justify-center" onKeyDown={handleKeyDown}>
-      {/* Backdrop */}
-      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-      <div
+    // Outer wrapper handles backdrop positioning + Escape key delegation.
+    // It is NOT the dialog itself — the inner div carries role="dialog".
+    // `role="presentation"` keeps the wrapper out of the a11y tree so screen
+    // readers only announce a single dialog (fixes dual-role ARIA violation).
+    // onKeyDown here catches Escape bubbling from ANY focused child (dialog,
+    // backdrop) regardless of which element holds focus — moving it to a single
+    // interactive child would miss Escape from siblings. The interactive
+    // affordances (close button, dialog) are real elements with proper roles, so
+    // this presentation wrapper is intentionally non-interactive to the a11y tree.
+    // biome-ignore lint/a11y/noStaticElementInteractions: presentation wrapper does Escape delegation only, see above
+    <div
+      role="presentation"
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      onKeyDown={handleKeyDown}
+    >
+      {/* Backdrop — acts as a dismiss button for keyboard/mouse */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label="Close dialog"
         className="absolute inset-0 bg-black/60"
         onClick={handleBackdropClick}
+        onKeyDown={handleKeyDown}
         data-testid="detail-backdrop"
       />
 
@@ -87,7 +105,7 @@ export function ObservationDetailModal({ observation, onClose }: ObservationDeta
         aria-modal="true"
         aria-labelledby="observation-detail-title"
         tabIndex={-1}
-        className="relative z-10 w-full max-w-2xl rounded-lg border border-surface-border bg-surface-card shadow-xl focus:outline-none"
+        className="relative z-10 w-full max-w-2xl rounded-lg border border-surface-border bg-surface-card shadow-xl focus:outline-hidden"
       >
         {/* Scrollable body */}
         <div className="max-h-[80vh] overflow-y-auto p-6">
@@ -119,6 +137,7 @@ export function ObservationDetailModal({ observation, onClose }: ObservationDeta
 
             {/* Close button */}
             <button
+              type="button"
               onClick={onClose}
               className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-primary"
               aria-label="Close"
@@ -129,7 +148,9 @@ export function ObservationDetailModal({ observation, onClose }: ObservationDeta
                 viewBox="0 0 24 24"
                 stroke="currentColor"
                 strokeWidth={1.5}
+                aria-hidden="true"
               >
+                <title>Close icon</title>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -152,7 +173,7 @@ export function ObservationDetailModal({ observation, onClose }: ObservationDeta
                 {observation.filePaths.map((path: string) => (
                   <span
                     key={path}
-                    className="rounded bg-surface-bg px-2 py-1 font-mono text-xs text-text-secondary"
+                    className="rounded-sm bg-surface-bg px-2 py-1 font-mono text-xs text-text-secondary"
                   >
                     {path}
                   </span>

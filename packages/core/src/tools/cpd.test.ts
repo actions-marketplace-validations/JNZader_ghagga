@@ -77,6 +77,37 @@ describe('runCpd', () => {
     );
   });
 
+  // ── BL-SARIF-STDOUT: diagnostics must go to stderr, never stdout ──
+
+  it('writes binary-detection diagnostics to stderr (not stdout) so SARIF/JSON stays clean', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    mockExecFile
+      // Both standalone-cpd paths (`cpd`, `/usr/local/bin/cpd`) fail → fall
+      // through to pmd, so the "Found pmd at" diagnostic fires.
+      .mockRejectedValueOnce(new Error('not found'))
+      .mockRejectedValueOnce(new Error('not found'))
+      // pmd cpd --help succeeds (this is the binary)
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
+      .mockResolvedValueOnce({ stdout: 'pmd version', stderr: '' } as any)
+      // pmd cpd scan
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
+      .mockResolvedValueOnce({ stdout: makeCpdXml([]), stderr: '' } as any);
+
+    await runCpd('/project');
+
+    // No diagnostic was written to stdout.
+    expect(logSpy).not.toHaveBeenCalled();
+    // Both binary-detection diagnostic lines went to stderr.
+    const stderrText = errorSpy.mock.calls.map((c) => String(c[0])).join('\n');
+    expect(stderrText).toContain('[ghagga:cpd] Found pmd at:');
+    expect(stderrText).toContain('[ghagga:cpd] Binary found:');
+
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+
   it('uses standalone cpd when available', async () => {
     mockExecFile
       // cpd --help succeeds
@@ -89,7 +120,6 @@ describe('runCpd', () => {
     await runCpd('/project');
 
     // The scan call should use 'cpd' (not 'pmd')
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExecFile.mock.calls[1]!;
     expect(scanCall[0]).toBe('cpd');
     expect(scanCall[1]).not.toContain('cpd'); // no 'cpd' in args (it's the command itself)
@@ -110,7 +140,6 @@ describe('runCpd', () => {
 
     await runCpd('/project');
 
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExecFile.mock.calls[3]!;
     expect(scanCall[0]).toBe('pmd');
     expect((scanCall[1] as string[])[0]).toBe('cpd');
@@ -169,7 +198,6 @@ describe('runCpd', () => {
 
     await runCpd('/project');
 
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExecFile.mock.calls[1]!;
     const args = scanCall[1] as string[];
     const tokenIdx = args.indexOf('--minimum-tokens');
@@ -185,7 +213,6 @@ describe('runCpd', () => {
 
     await runCpd('/project', { minimumTokens: 50 });
 
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExecFile.mock.calls[1]!;
     const args = scanCall[1] as string[];
     const tokenIdx = args.indexOf('--minimum-tokens');
@@ -310,7 +337,6 @@ describe('runCpd', () => {
 
     await runCpd('/my/project', { minimumTokens: 75 });
 
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExecFile.mock.calls[1]!;
     const args = scanCall[1] as string[];
     expect(args).toContain('--format');

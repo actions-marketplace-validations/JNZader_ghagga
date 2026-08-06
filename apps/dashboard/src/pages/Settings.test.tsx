@@ -16,11 +16,32 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockUseRepositories = vi.fn();
 const mockUseSettings = vi.fn();
 const mockUseUpdateSettings = vi.fn();
+const mockUseCopySettingsToGlobal = vi.fn();
 
 vi.mock('@/lib/api', () => ({
   useRepositories: () => mockUseRepositories(),
   useSettings: () => mockUseSettings(),
   useUpdateSettings: () => mockUseUpdateSettings(),
+  useCopySettingsToGlobal: () => mockUseCopySettingsToGlobal(),
+  useWorkflowStatus: () => ({
+    data: undefined,
+    isLoading: false,
+    refetch: vi.fn(),
+  }),
+  useInstallWorkflow: () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn().mockResolvedValue(undefined),
+    isPending: false,
+  }),
+  ApiError: class ApiError extends Error {
+    constructor(
+      public status: number,
+      message: string,
+    ) {
+      super(message);
+      this.name = 'ApiError';
+    }
+  },
 }));
 
 const mockUseSelectedRepo = vi.fn();
@@ -194,7 +215,14 @@ function setupSelectedRepo(repo = 'acme/app') {
 
 function setupWithSettings(settingsData = DEFAULT_SETTINGS) {
   setupSelectedRepo();
-  mockUseSettings.mockReturnValue({ data: settingsData, isLoading: false });
+  mockUseSettings.mockReturnValue({
+    data: settingsData,
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+    isFetching: false,
+  });
 }
 
 // ─── Setup ──────────────────────────────────────────────────────
@@ -207,9 +235,21 @@ beforeEach(() => {
     setSelectedRepo: vi.fn(),
   });
   mockUseRepositories.mockReturnValue({ data: DEFAULT_REPOS, isLoading: false });
-  mockUseSettings.mockReturnValue({ data: undefined, isLoading: false });
+  mockUseSettings.mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+    isFetching: false,
+  });
   mockUseUpdateSettings.mockReturnValue({
     mutateAsync: vi.fn().mockResolvedValue({ message: 'ok' }),
+    isPending: false,
+    isError: false,
+  });
+  mockUseCopySettingsToGlobal.mockReturnValue({
+    mutateAsync: vi.fn().mockResolvedValue({ data: { message: 'Settings copied to global' } }),
     isPending: false,
     isError: false,
   });
@@ -250,6 +290,126 @@ describe('Settings — loading state', () => {
     const { container } = renderSettings();
 
     expect(container.querySelector('.animate-spin')).toBeInTheDocument();
+    expect(screen.queryByText('Save Settings')).not.toBeInTheDocument();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PRODOPS-001 — load error must never render an editable/saveable form
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Settings — load error (PRODOPS-001)', () => {
+  it('shows an error message with repo context instead of the form on a failed GET', () => {
+    setupSelectedRepo('acme/app');
+    mockUseSettings.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error('Request failed'),
+      refetch: vi.fn(),
+      isFetching: false,
+    });
+
+    renderSettings();
+
+    expect(screen.getByText('Failed to load settings for acme/app')).toBeInTheDocument();
+    expect(screen.queryByText('Save Settings')).not.toBeInTheDocument();
+    expect(screen.queryByText('Static Analysis Tools')).not.toBeInTheDocument();
+  });
+
+  it('offers a Retry button that calls refetch', () => {
+    const mockRefetch = vi.fn();
+    setupSelectedRepo('acme/app');
+    mockUseSettings.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error('boom'),
+      refetch: mockRefetch,
+      isFetching: false,
+    });
+
+    renderSettings();
+
+    fireEvent.click(screen.getByText('Retry'));
+
+    expect(mockRefetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('a successful retry hydrates the form and enables Save', () => {
+    setupSelectedRepo('acme/app');
+    mockUseSettings.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error('boom'),
+      refetch: vi.fn(),
+      isFetching: false,
+    });
+
+    const { rerender } = renderSettings();
+    expect(screen.queryByText('Save Settings')).not.toBeInTheDocument();
+
+    // Simulate a successful refetch: the query now returns real data.
+    mockUseSettings.mockReturnValue({
+      data: DEFAULT_SETTINGS,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isFetching: false,
+    });
+    rerender(
+      <MemoryRouter>
+        <QueryClientProvider client={new QueryClient()}>
+          <Settings />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Save Settings')).toBeInTheDocument();
+    expect(screen.getByText('Save Settings')).not.toBeDisabled();
+  });
+
+  it('does not leak repo A values into repo B after B fails to load', () => {
+    setupSelectedRepo('acme/app');
+    mockUseSettings.mockReturnValue({
+      data: DEFAULT_SETTINGS,
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+      isFetching: false,
+    });
+
+    const { rerender } = renderSettings();
+    // Loaded A: custom rules field shows A's value.
+    expect(screen.getByPlaceholderText('Add custom review rules...')).toHaveValue('no eval()');
+
+    // Switch to repo B, whose load fails.
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: 'acme/api',
+      setSelectedRepo: vi.fn(),
+    });
+    mockUseSettings.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error('boom'),
+      refetch: vi.fn(),
+      isFetching: false,
+    });
+    rerender(
+      <MemoryRouter>
+        <QueryClientProvider client={new QueryClient()}>
+          <Settings />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    // Error state renders — never the form with A's stale "no eval()" value.
+    expect(screen.getByText('Failed to load settings for acme/api')).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('Add custom review rules...')).not.toBeInTheDocument();
     expect(screen.queryByText('Save Settings')).not.toBeInTheDocument();
   });
 });
@@ -382,9 +542,7 @@ describe('Settings — AI review toggle', () => {
 
     // Navigate from the "AI Review" heading up to the Card container, then find the toggle
     const aiReviewHeading = screen.getByText('AI Review');
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const aiReviewCard = aiReviewHeading.closest('.rounded-lg')!;
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const aiToggle = aiReviewCard.querySelector('input[type="checkbox"]')!;
 
     expect(screen.getByTestId('provider-chain-editor')).toBeInTheDocument();
@@ -513,7 +671,6 @@ describe('Settings — global/custom toggle', () => {
 
     // Find the Global/Custom toggle checkbox
     const globalLabel = screen.getByText('Global');
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const globalToggle = globalLabel.closest('label')!.querySelector('input[type="checkbox"]')!;
 
     fireEvent.click(globalToggle);
@@ -576,7 +733,6 @@ describe('Settings — save', () => {
 
     await waitFor(() => {
       expect(mockMutateAsync).toHaveBeenCalledTimes(1);
-      // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
       const payload = mockMutateAsync.mock.calls[0]![0];
       expect(payload.repoFullName).toBe('acme/app');
       expect(payload.useGlobalSettings).toBe(false);
@@ -708,7 +864,6 @@ describe('Settings — advanced fields', () => {
     fireEvent.click(screen.getByText('Save Settings'));
 
     await waitFor(() => {
-      // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
       const payload = mockMutateAsync.mock.calls[0]![0];
       expect(payload.ignorePatterns).toEqual(['*.log', 'vendor/**']);
     });
@@ -770,7 +925,6 @@ describe('Settings — save with provider chain', () => {
     fireEvent.click(screen.getByText('Save Settings'));
 
     await waitFor(() => {
-      // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
       const payload = mockMutateAsync.mock.calls[0]![0];
       expect(payload.providerChain).toHaveLength(2);
       // The first provider has no apiKey (existing key), so no apiKey field
@@ -836,7 +990,6 @@ describe('Settings — tool grid', () => {
     fireEvent.click(screen.getByText('Save Settings'));
 
     await waitFor(() => {
-      // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
       const payload = mockMutateAsync.mock.calls[0]![0];
       expect(payload.disabledTools).toBeDefined();
       expect(payload.disabledTools).toContain('gitleaks');

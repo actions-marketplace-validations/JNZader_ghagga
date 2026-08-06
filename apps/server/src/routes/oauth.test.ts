@@ -12,6 +12,14 @@
 
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// vi.hoisted runs before any imports, ensuring env vars are set
+// before oauth.ts evaluates its module-level constants
+vi.hoisted(() => {
+  process.env.GITHUB_CLIENT_ID = 'test-github-client-id';
+  process.env.SERVER_URL = 'https://api.javierzader.com';
+});
+
 import { createOAuthRouter, generateState, validateState } from './oauth.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
@@ -38,7 +46,7 @@ function createApp() {
 
 const TEST_STATE_SECRET = 'test-secret-key-for-hmac-validation';
 const TEST_CLIENT_SECRET = 'test-client-secret-value';
-const DASHBOARD_URL = 'https://jnzader.github.io/ghagga/app';
+const DASHBOARD_URL = 'https://ghagga.javierzader.com/app';
 
 // ═══════════════════════════════════════════════════════════════════
 // POST /auth/device/code
@@ -72,7 +80,7 @@ describe('POST /auth/device/code', () => {
     const body = JSON.parse(options.body as string);
     expect(body.scope).toBe('public_repo');
     expect(body.scope).not.toBe('');
-    expect(body.client_id).toBe('Ov23liyYpSgDqOLUFa5k');
+    expect(body.client_id).toBe('test-github-client-id');
   });
 
   it('proxies GitHub response back to client', async () => {
@@ -178,7 +186,7 @@ describe('POST /auth/device/token', () => {
 
     const body = JSON.parse(options.body as string);
     expect(body.device_code).toBe('dc-abc');
-    expect(body.client_id).toBe('Ov23liyYpSgDqOLUFa5k');
+    expect(body.client_id).toBe('test-github-client-id');
     expect(body.grant_type).toBe('urn:ietf:params:oauth:grant-type:device_code');
   });
 
@@ -330,15 +338,35 @@ describe('generateState / validateState', () => {
     expect(result.error).toBe('invalid_state');
   });
 
-  it('state format is {base36_timestamp}.{hex_hmac}', () => {
+  it('state format is {base36_timestamp}.{nonce_hex}.{hex_hmac}', () => {
     const state = generateState(TEST_STATE_SECRET);
     const parts = state.split('.');
 
-    expect(parts).toHaveLength(2);
+    expect(parts).toHaveLength(3);
     // First part is base36 timestamp
     expect(parseInt(parts[0], 36)).toBeGreaterThan(0);
-    // Second part is hex HMAC (64 chars for SHA256)
-    expect(parts[1]).toMatch(/^[0-9a-f]{64}$/);
+    // Second part is a 16-byte hex nonce (single-use CSPRNG)
+    expect(parts[1]).toMatch(/^[0-9a-f]{32}$/);
+    // Third part is hex HMAC (64 chars for SHA256)
+    expect(parts[2]).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('rejects a validly-signed state with a FUTURE timestamp (SEC-002)', () => {
+    vi.useFakeTimers();
+    // Generate a state 2 minutes in the FUTURE relative to validation time.
+    vi.setSystemTime(new Date(Date.now() + 2 * 60 * 1000));
+    const futureState = generateState(TEST_STATE_SECRET);
+    vi.setSystemTime(new Date(Date.now() - 2 * 60 * 1000));
+
+    const result = validateState(futureState, TEST_STATE_SECRET);
+    expect(result.valid).toBe(false);
+    expect(result.error).toBe('invalid_state');
+  });
+
+  it('mints a fresh single-use nonce per state (SEC-002)', () => {
+    const a = generateState(TEST_STATE_SECRET).split('.')[1];
+    const b = generateState(TEST_STATE_SECRET).split('.')[1];
+    expect(a).not.toBe(b);
   });
 });
 
@@ -357,7 +385,6 @@ describe('GET /auth/login', () => {
 
     expect(res.status).toBe(302);
 
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known response
     const location = res.headers.get('Location')!;
     expect(location).toContain('https://github.com/login/oauth/authorize');
   });
@@ -366,27 +393,39 @@ describe('GET /auth/login', () => {
     const app = createApp();
     const res = await app.request('/auth/login');
 
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known response
     const location = new URL(res.headers.get('Location')!);
 
-    expect(location.searchParams.get('client_id')).toBe('Ov23liyYpSgDqOLUFa5k');
+    expect(location.searchParams.get('client_id')).toBeTruthy();
     expect(location.searchParams.get('scope')).toBe('public_repo');
     expect(location.searchParams.get('redirect_uri')).toBe(
-      'https://ghagga.onrender.com/auth/callback',
+      'https://api.javierzader.com/auth/callback',
     );
     // State should be present and non-empty
     const state = location.searchParams.get('state');
     expect(state).toBeTruthy();
-    expect(state?.split('.')).toHaveLength(2);
+    expect(state?.split('.')).toHaveLength(3);
+  });
+
+  it('sets an HttpOnly browser-binding state cookie (SEC-002)', async () => {
+    const app = createApp();
+    const res = await app.request('/auth/login');
+
+    const setCookie = res.headers.get('Set-Cookie') ?? '';
+    expect(setCookie).toContain('ghagga_oauth_state=');
+    expect(setCookie).toMatch(/HttpOnly/i);
+    expect(setCookie).toMatch(/SameSite=Lax/i);
+
+    // The cookie value equals the nonce embedded in the redirect state.
+    const state = new URL(res.headers.get('Location')!).searchParams.get('state')!;
+    const nonce = state.split('.')[1];
+    expect(setCookie).toContain(`ghagga_oauth_state=${nonce}`);
   });
 
   it('generates a valid state that can be validated (S-R2.6)', async () => {
     const app = createApp();
     const res = await app.request('/auth/login');
 
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known response
     const location = new URL(res.headers.get('Location')!);
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known response
     const state = location.searchParams.get('state')!;
 
     // The state generated by the endpoint should be valid
@@ -417,6 +456,12 @@ describe('GET /auth/login', () => {
 describe('GET /auth/callback', () => {
   let validState: string;
 
+  // The browser-binding cookie the callback requires (SEC-002): its value is
+  // the nonce embedded in the state, exactly as /auth/login would have set it.
+  function cookieFor(state: string): { Cookie: string } {
+    return { Cookie: `ghagga_oauth_state=${state.split('.')[1]}` };
+  }
+
   beforeEach(() => {
     vi.stubEnv('STATE_SECRET', TEST_STATE_SECRET);
     vi.stubEnv('GITHUB_CLIENT_SECRET', TEST_CLIENT_SECRET);
@@ -439,10 +484,10 @@ describe('GET /auth/callback', () => {
     const app = createApp();
     const res = await app.request(
       `/auth/callback?code=abc123&state=${encodeURIComponent(validState)}`,
+      { headers: cookieFor(validState) },
     );
 
     expect(res.status).toBe(302);
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known response
     const location = res.headers.get('Location')!;
     expect(location).toBe(`${DASHBOARD_URL}/#/auth/callback?token=gho_web-flow-token`);
 
@@ -452,7 +497,7 @@ describe('GET /auth/callback', () => {
     expect(url).toBe('https://github.com/login/oauth/access_token');
 
     const body = JSON.parse(options.body as string);
-    expect(body.client_id).toBe('Ov23liyYpSgDqOLUFa5k');
+    expect(body.client_id).toBe('test-github-client-id');
     expect(body.client_secret).toBe(TEST_CLIENT_SECRET);
     expect(body.code).toBe('abc123');
   });
@@ -466,7 +511,9 @@ describe('GET /auth/callback', () => {
     );
 
     const app = createApp();
-    await app.request(`/auth/callback?code=test&state=${encodeURIComponent(validState)}`);
+    await app.request(`/auth/callback?code=test&state=${encodeURIComponent(validState)}`, {
+      headers: cookieFor(validState),
+    });
 
     const [, options] = mockFetch.mock.calls[0];
     expect(options.headers).toEqual({
@@ -490,6 +537,7 @@ describe('GET /auth/callback', () => {
     const app = createApp();
     const res = await app.request(
       `/auth/callback?code=invalid&state=${encodeURIComponent(validState)}`,
+      { headers: cookieFor(validState) },
     );
 
     expect(res.status).toBe(302);
@@ -504,6 +552,7 @@ describe('GET /auth/callback', () => {
     const app = createApp();
     const res = await app.request(
       `/auth/callback?code=test&state=${encodeURIComponent(validState)}`,
+      { headers: cookieFor(validState) },
     );
 
     expect(res.status).toBe(302);
@@ -575,6 +624,7 @@ describe('GET /auth/callback', () => {
     const app = createApp();
     const res = await app.request(
       `/auth/callback?code=abc123&state=${encodeURIComponent(validState)}`,
+      { headers: cookieFor(validState) },
     );
 
     expect(res.status).toBe(302);
@@ -603,6 +653,7 @@ describe('GET /auth/callback', () => {
     const app = createApp();
     const res = await app.request(
       `/auth/callback?code=abc123&state=${encodeURIComponent(validState)}`,
+      { headers: cookieFor(validState) },
     );
 
     expect(res.status).toBe(302);
@@ -637,14 +688,43 @@ describe('GET /auth/callback', () => {
     const app = createApp();
     const res = await app.request(
       `/auth/callback?code=abc123&state=${encodeURIComponent(validState)}`,
+      { headers: cookieFor(validState) },
     );
 
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known response
     const location = res.headers.get('Location')!;
     // Token should be after the # (in fragment), not in server-visible query params
     expect(location).toContain('/#/auth/callback?token=gho_fragment-test');
     // The URL before # should NOT contain the token
     const [beforeHash] = location.split('#');
     expect(beforeHash).not.toContain('token=');
+  });
+
+  it('rejects a valid state with NO browser-binding cookie (SEC-002 login-CSRF)', async () => {
+    // An attacker-crafted callback the victim never initiated: the victim's
+    // browser has no matching cookie, so the flow is refused before exchange.
+    const app = createApp();
+    const res = await app.request(
+      `/auth/callback?code=abc123&state=${encodeURIComponent(validState)}`,
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe(
+      `${DASHBOARD_URL}/#/auth/callback?error=invalid_state`,
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a valid state whose cookie nonce does not match (SEC-002)', async () => {
+    const app = createApp();
+    const res = await app.request(
+      `/auth/callback?code=abc123&state=${encodeURIComponent(validState)}`,
+      { headers: { Cookie: 'ghagga_oauth_state=00000000000000000000000000000000' } },
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('Location')).toBe(
+      `${DASHBOARD_URL}/#/auth/callback?error=invalid_state`,
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

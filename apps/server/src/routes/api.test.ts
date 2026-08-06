@@ -7,18 +7,21 @@
 
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { RunnerCreationError } from '../github/runner.js';
 import { createApiRouter } from './api.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
 const mockGetReviewsByDay = vi.fn();
 const mockGetReviewsByRepoId = vi.fn();
+const mockCountReviewsByRepoId = vi.fn();
+const mockGetReviewsByInstallationIds = vi.fn();
+const mockCountReviewsByInstallationIds = vi.fn();
 const mockGetReviewStats = vi.fn();
 const mockGetRepoByFullName = vi.fn();
 const mockGetReposByInstallationId = vi.fn();
 const mockUpdateRepoSettings = vi.fn();
 const mockGetInstallationSettings = vi.fn();
+const mockGetInstallationSettingsBatch = vi.fn();
 const mockUpsertInstallationSettings = vi.fn();
 const mockGetInstallationById = vi.fn();
 const mockGetSessionById = vi.fn();
@@ -35,17 +38,24 @@ const mockDeleteReviewsByIds = vi.fn();
 const mockDeleteReviewsByRepoId = vi.fn();
 const mockDeleteMemorySession = vi.fn();
 const mockClearEmptyMemorySessions = vi.fn();
+const mockGetRepositoryById = vi.fn();
+const mockUpdateWorkflowStatus = vi.fn();
 
 vi.mock('ghagga-db', () => ({
   getReviewsByDay: (...args: unknown[]) => mockGetReviewsByDay(...args),
   getReviewsByRepoId: (...args: unknown[]) => mockGetReviewsByRepoId(...args),
+  countReviewsByRepoId: (...args: unknown[]) => mockCountReviewsByRepoId(...args),
+  getReviewsByInstallationIds: (...args: unknown[]) => mockGetReviewsByInstallationIds(...args),
+  countReviewsByInstallationIds: (...args: unknown[]) => mockCountReviewsByInstallationIds(...args),
   getReviewStats: (...args: unknown[]) => mockGetReviewStats(...args),
   getRepoByFullName: (...args: unknown[]) => mockGetRepoByFullName(...args),
   getReposByInstallationId: (...args: unknown[]) => mockGetReposByInstallationId(...args),
   updateRepoSettings: (...args: unknown[]) => mockUpdateRepoSettings(...args),
   getInstallationSettings: (...args: unknown[]) => mockGetInstallationSettings(...args),
+  getInstallationSettingsBatch: (...args: unknown[]) => mockGetInstallationSettingsBatch(...args),
   upsertInstallationSettings: (...args: unknown[]) => mockUpsertInstallationSettings(...args),
   getInstallationById: (...args: unknown[]) => mockGetInstallationById(...args),
+  getRepositoryById: (...args: unknown[]) => mockGetRepositoryById(...args),
   getSessionById: (...args: unknown[]) => mockGetSessionById(...args),
   getSessionsByProject: (...args: unknown[]) => mockGetSessionsByProject(...args),
   getObservationsBySession: (...args: unknown[]) => mockGetObservationsBySession(...args),
@@ -61,6 +71,7 @@ vi.mock('ghagga-db', () => ({
   deleteReviewsByRepoId: (...args: unknown[]) => mockDeleteReviewsByRepoId(...args),
   deleteMemorySession: (...args: unknown[]) => mockDeleteMemorySession(...args),
   clearEmptyMemorySessions: (...args: unknown[]) => mockClearEmptyMemorySessions(...args),
+  updateWorkflowStatus: (...args: unknown[]) => mockUpdateWorkflowStatus(...args),
   DEFAULT_REPO_SETTINGS: {
     enableSemgrep: true,
     enableTrivy: true,
@@ -119,26 +130,22 @@ vi.mock('../lib/logger.js', () => ({
   },
 }));
 
-// Mock runner functions
-const mockDiscoverRunnerRepo = vi.fn();
-const mockCreateRunnerRepo = vi.fn();
-const mockSetRunnerSecret = vi.fn();
+// Mock workflow injection
+const mockInjectWorkflow = vi.fn();
 
 vi.mock('../github/runner.js', () => ({
-  discoverRunnerRepo: (...args: unknown[]) => mockDiscoverRunnerRepo(...args),
-  createRunnerRepo: (...args: unknown[]) => mockCreateRunnerRepo(...args),
-  setRunnerSecret: (...args: unknown[]) => mockSetRunnerSecret(...args),
-  RunnerCreationError: class RunnerCreationError extends Error {
-    constructor(
-      public code: string,
-      message: string,
-      public retryAfter?: number,
-      public repoFullName?: string,
-    ) {
-      super(message);
-      this.name = 'RunnerCreationError';
-    }
-  },
+  injectWorkflow: (...args: unknown[]) => mockInjectWorkflow(...args),
+}));
+
+// Mock GitHub client
+const mockGetInstallationToken = vi.fn();
+
+vi.mock('../github/client.js', () => ({
+  getInstallationToken: (...args: unknown[]) => mockGetInstallationToken(...args),
+  verifyWebhookSignature: vi.fn(),
+  postComment: vi.fn(),
+  addCommentReaction: vi.fn(),
+  fetchPRDetails: vi.fn(),
 }));
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -171,9 +178,7 @@ const FAKE_REPO = {
   useGlobalSettings: false,
   aiReviewEnabled: true,
   reviewMode: 'simple',
-  providerChain: [
-    { provider: 'anthropic', model: 'claude-sonnet-4-20250514', encryptedApiKey: 'enc-key-1' },
-  ],
+  providerChain: [{ provider: 'gateway', model: 'auto', encryptedApiKey: 'enc-key-1' }],
   settings: {
     enableSemgrep: true,
     enableTrivy: true,
@@ -197,41 +202,208 @@ beforeEach(() => {
 // GET /api/reviews
 // ═══════════════════════════════════════════════════════════════════
 
+/**
+ * Builds a full `reviews` DB row as the query layer returns it (storage shape:
+ * repositoryId instead of repo, nullable summary/findings, Date createdAt,
+ * internal columns like tokensUsed). The route maps this to the wire Review.
+ */
+function fakeDbReviewRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 1,
+    repositoryId: 42,
+    prNumber: 10,
+    status: 'PASSED',
+    mode: 'simple',
+    // Defaults mirror the REAL storage state: both columns are nullable and
+    // rows commonly carry NULL — tests asserting non-null values opt in
+    // explicitly via overrides.
+    summary: null,
+    findings: null,
+    tokensUsed: 100,
+    executionTimeMs: 1200,
+    metadata: null,
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    ...overrides,
+  };
+}
+
 describe('GET /api/reviews', () => {
-  it('returns paginated reviews for an accessible repo', async () => {
+  it('returns paginated reviews mapped to the wire Review contract (repo populated)', async () => {
     mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
-    const fakeReviews = [
-      { id: 1, prNumber: 10, status: 'PASSED' },
-      { id: 2, prNumber: 11, status: 'FAILED' },
-    ];
-    mockGetReviewsByRepoId.mockResolvedValueOnce(fakeReviews);
+    mockGetReviewsByRepoId.mockResolvedValueOnce([
+      fakeDbReviewRow({
+        id: 1,
+        prNumber: 10,
+        status: 'PASSED',
+        summary: 'All good',
+        findings: [],
+        // New rows carry coverageComplete inside the metadata jsonb blob
+        // (folded in by the review queue) — the DTO surfaces it on the wire.
+        metadata: { mode: 'simple', coverageComplete: true },
+      }),
+      fakeDbReviewRow({ id: 2, prNumber: 11, status: 'FAILED', summary: null, findings: null }),
+    ]);
+    mockCountReviewsByRepoId.mockResolvedValueOnce(2);
 
     const app = createApp();
     const res = await app.request('/api/reviews?repo=owner/repo&page=1&limit=10');
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.data).toEqual(fakeReviews);
-    expect(json.pagination).toEqual({ page: 1, limit: 10, offset: 0 });
+    expect(json.data).toEqual([
+      {
+        id: 1,
+        repo: 'owner/repo',
+        prNumber: 10,
+        status: 'PASSED',
+        mode: 'simple',
+        summary: 'All good',
+        findings: [],
+        createdAt: '2026-01-01T00:00:00.000Z',
+        coverageComplete: true,
+      },
+      {
+        id: 2,
+        repo: 'owner/repo',
+        prNumber: 11,
+        status: 'FAILED',
+        mode: 'simple',
+        // DB nullables are normalized so the contract's non-null fields hold.
+        summary: '',
+        findings: [],
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+    // Contract pin: EXACTLY the Review keys — no storage columns leak
+    // (repositoryId, tokensUsed, executionTimeMs, metadata) and no fullName.
+    // `coverageComplete` is emitted ONLY when the row's metadata blob carries
+    // a boolean (row 1 here); legacy/SKIPPED rows omit the key entirely.
+    expect(Object.keys(json.data[0]).sort()).toEqual([
+      'coverageComplete',
+      'createdAt',
+      'findings',
+      'id',
+      'mode',
+      'prNumber',
+      'repo',
+      'status',
+      'summary',
+    ]);
+    expect(Object.keys(json.data[1])).not.toContain('coverageComplete');
+    expect(json.pagination).toEqual({ page: 1, limit: 10, offset: 0, total: 2 });
 
     expect(mockGetReviewsByRepoId).toHaveBeenCalledWith(mockDb, 42, { limit: 10, offset: 0 });
+    expect(mockCountReviewsByRepoId).toHaveBeenCalledWith(mockDb, 42);
   });
 
-  it('uses default pagination when params not provided', async () => {
+  it('projects findings to the wire shape — strips AI-internal fields, keeps labels', async () => {
     mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
-    mockGetReviewsByRepoId.mockResolvedValueOnce([]);
+    mockGetReviewsByRepoId.mockResolvedValueOnce([
+      fakeDbReviewRow({
+        id: 3,
+        findings: [
+          {
+            severity: 'high',
+            category: 'security',
+            file: 'src/db.ts',
+            line: 42,
+            message: 'Vulnerable dependency',
+            suggestion: 'Upgrade lodash',
+            source: 'trivy',
+            aiPriority: 8,
+            aiFiltered: false,
+            exploitability: 'exploitable',
+            usageLabel: 'in-use',
+            // AI-internal fields the wire MUST drop (raw LLM reasoning + repo paths):
+            filterReason: 'LLM reasoning: looks like a real reachable sink',
+            exploitabilityDetail: {
+              label: 'exploitable',
+              packageName: 'lodash',
+              importSites: ['src/internal/secret-path.ts'],
+              reachableFrom: ['src/server/boot.ts'],
+              reason: 'reachable from the request handler',
+            },
+            usageDetail: {
+              usageLabel: 'in-use',
+              importedSymbols: ['merge'],
+              calledSymbols: ['merge'],
+              filesScanned: ['src/internal/secret-path.ts'],
+              reason: 'called in two modules',
+            },
+          },
+        ],
+      }),
+    ]);
+    mockCountReviewsByRepoId.mockResolvedValueOnce(1);
 
     const app = createApp();
     const res = await app.request('/api/reviews?repo=owner/repo');
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.pagination).toEqual({ page: 1, limit: 50, offset: 0 });
+    const finding = json.data[0].findings[0];
+
+    // Internal detail fields are stripped from the wire.
+    expect(finding).not.toHaveProperty('filterReason');
+    expect(finding).not.toHaveProperty('exploitabilityDetail');
+    expect(finding).not.toHaveProperty('usageDetail');
+    // Defense in depth: no internal repo path leaks anywhere in the finding.
+    expect(JSON.stringify(finding)).not.toContain('secret-path');
+
+    // Labels and signals are kept.
+    expect(finding).toMatchObject({
+      severity: 'high',
+      category: 'security',
+      file: 'src/db.ts',
+      line: 42,
+      message: 'Vulnerable dependency',
+      suggestion: 'Upgrade lodash',
+      source: 'trivy',
+      aiPriority: 8,
+      aiFiltered: false,
+      exploitability: 'exploitable',
+      usageLabel: 'in-use',
+    });
+  });
+
+  it('uses default pagination when params not provided', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockGetReviewsByRepoId.mockResolvedValueOnce([]);
+    mockCountReviewsByRepoId.mockResolvedValueOnce(0);
+
+    const app = createApp();
+    const res = await app.request('/api/reviews?repo=owner/repo');
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.pagination).toEqual({ page: 1, limit: 50, offset: 0, total: 0 });
+  });
+
+  // FIX A (DSH-A2): pagination.total reflects the FULL count, not the page
+  // length. With more reviews than fit on a page, total must exceed data.length
+  // so the dashboard can compute totalPages and reach pages beyond the first.
+  it('returns pagination.total reflecting full count beyond the current page', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockGetReviewsByRepoId.mockResolvedValueOnce([
+      fakeDbReviewRow({ id: 1, prNumber: 10, status: 'PASSED' }),
+      fakeDbReviewRow({ id: 2, prNumber: 11, status: 'FAILED' }),
+    ]);
+    mockCountReviewsByRepoId.mockResolvedValueOnce(137);
+
+    const app = createApp();
+    const res = await app.request('/api/reviews?repo=owner/repo&page=1&limit=50');
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toHaveLength(2);
+    expect(json.pagination.total).toBe(137);
+    expect(json.pagination.total).not.toBe(json.data.length);
   });
 
   it('caps limit at 100', async () => {
     mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
     mockGetReviewsByRepoId.mockResolvedValueOnce([]);
+    mockCountReviewsByRepoId.mockResolvedValueOnce(0);
 
     const app = createApp();
     const res = await app.request('/api/reviews?repo=owner/repo&limit=500');
@@ -244,23 +416,14 @@ describe('GET /api/reviews', () => {
   it('calculates correct offset for page 3', async () => {
     mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
     mockGetReviewsByRepoId.mockResolvedValueOnce([]);
+    mockCountReviewsByRepoId.mockResolvedValueOnce(0);
 
     const app = createApp();
     const res = await app.request('/api/reviews?repo=owner/repo&page=3&limit=20');
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.pagination).toEqual({ page: 3, limit: 20, offset: 40 });
-  });
-
-  it('returns 400 when repo param is missing', async () => {
-    const app = createApp();
-    const res = await app.request('/api/reviews');
-
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toBe('VALIDATION_ERROR');
-    expect(json.message).toContain('Missing required query parameter: repo');
+    expect(json.pagination).toEqual({ page: 3, limit: 20, offset: 40, total: 0 });
   });
 
   it('returns 404 when repo is not found', async () => {
@@ -301,6 +464,210 @@ describe('GET /api/reviews', () => {
     expect(json.error).toBe('FETCH_FAILED');
     expect(json.message).toBe('Failed to fetch reviews');
     expect(json).toHaveProperty('errorId');
+    expect(json.errorId).toHaveLength(8);
+  });
+
+  // PR #185 follow-up M3: PARTIAL roundtrip — verify that a DB row with the
+  // PARTIAL status survives the pipeline → DB → API → wire contract chain
+  // without being rewritten, stripped, or coerced. This is the lightweight
+  // integration test that replaces a full e2e (DB + frontend runner) until a
+  // broader e2e harness exists.
+  it('passes PARTIAL status through verbatim in the API response', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    const partialRow = fakeDbReviewRow({
+      id: 99,
+      prNumber: 42,
+      status: 'PARTIAL' as const,
+      summary: 'Static analysis ran but the AI agent failed midway.',
+      // A PARTIAL review always degraded at least one step → the queue
+      // folds coverageComplete: false into the metadata blob. Pin that the
+      // wire emits it alongside the verbatim PARTIAL status.
+      metadata: { mode: 'simple', coverageComplete: false },
+    });
+    mockGetReviewsByRepoId.mockResolvedValueOnce([partialRow]);
+    mockCountReviewsByRepoId.mockResolvedValueOnce(1);
+
+    const app = createApp();
+    const res = await app.request('/api/reviews?repo=owner/repo');
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toHaveLength(1);
+    expect(json.data[0].status).toBe('PARTIAL');
+    expect(json.data[0]).toEqual({
+      id: 99,
+      repo: 'owner/repo',
+      prNumber: 42,
+      status: 'PARTIAL',
+      mode: 'simple',
+      summary: 'Static analysis ran but the AI agent failed midway.',
+      findings: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      coverageComplete: false,
+    });
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// GET /api/reviews — "All repositories" (no repo param)  [FIX B / DSH-A3]
+// ═══════════════════════════════════════════════════════════════════
+
+describe('GET /api/reviews (no repo → all caller installations)', () => {
+  it('lists reviews across the caller installations and never another tenant', async () => {
+    // Caller owns installations 100 and 200. The query layer is responsible
+    // for excluding foreign tenants; we assert the route passes EXACTLY the
+    // caller's installationIds down and returns the scoped rows unchanged.
+    const user = { ...DEFAULT_USER, installationIds: [100, 200] };
+    // Joined rows: each carries its repository fullName (storage shape).
+    mockGetReviewsByInstallationIds.mockResolvedValueOnce([
+      fakeDbReviewRow({
+        id: 1,
+        repositoryId: 42,
+        prNumber: 10,
+        fullName: 'owner/repo-a',
+        // coverageComplete travels inside the metadata jsonb blob (see the
+        // per-repo path test) — pinned here for the cross-installation path.
+        metadata: { mode: 'simple', coverageComplete: false },
+      }),
+      fakeDbReviewRow({
+        id: 2,
+        repositoryId: 77,
+        prNumber: 11,
+        status: 'FAILED',
+        fullName: 'owner/repo-b',
+      }),
+    ]);
+    mockCountReviewsByInstallationIds.mockResolvedValueOnce(2);
+
+    const app = createApp(user);
+    const res = await app.request('/api/reviews');
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    // The join's fullName is mapped into the wire `repo` field per row.
+    expect(json.data.map((r: { id: number; repo: string }) => [r.id, r.repo])).toEqual([
+      [1, 'owner/repo-a'],
+      [2, 'owner/repo-b'],
+    ]);
+    // Contract pin: EXACTLY the Review keys — no storage columns leak
+    // (repositoryId, tokensUsed, executionTimeMs, metadata) and no fullName.
+    // `coverageComplete` is emitted ONLY when the row's metadata blob carries
+    // a boolean (row 1 here); legacy/SKIPPED rows omit the key entirely.
+    expect(Object.keys(json.data[0]).sort()).toEqual([
+      'coverageComplete',
+      'createdAt',
+      'findings',
+      'id',
+      'mode',
+      'prNumber',
+      'repo',
+      'status',
+      'summary',
+    ]);
+    expect(json.data[0].coverageComplete).toBe(false);
+    expect(Object.keys(json.data[1])).not.toContain('coverageComplete');
+    // Authz: the query layer is invoked with the caller's installations ONLY.
+    expect(mockGetReviewsByInstallationIds).toHaveBeenCalledWith(mockDb, [100, 200], {
+      limit: 50,
+      offset: 0,
+    });
+    expect(mockCountReviewsByInstallationIds).toHaveBeenCalledWith(mockDb, [100, 200]);
+    // The per-repo single-repo path must NOT have been touched.
+    expect(mockGetRepoByFullName).not.toHaveBeenCalled();
+    expect(mockGetReviewsByRepoId).not.toHaveBeenCalled();
+    // No row belongs to a foreign tenant repo.
+    expect(json.data.every((r: { repo: string }) => r.repo.startsWith('owner/'))).toBe(true);
+  });
+
+  it('strips AI-internal finding fields and drops malformed entries (cross-installation path)', async () => {
+    const user = { ...DEFAULT_USER, installationIds: [100] };
+    mockGetReviewsByInstallationIds.mockResolvedValueOnce([
+      fakeDbReviewRow({
+        id: 5,
+        repositoryId: 42,
+        prNumber: 9,
+        fullName: 'owner/repo-a',
+        findings: [
+          {
+            severity: 'high',
+            category: 'security',
+            file: 'src/db.ts',
+            message: 'Vulnerable dependency',
+            source: 'trivy',
+            exploitability: 'exploitable',
+            // AI-internal fields the wire MUST drop on this path too:
+            filterReason: 'LLM reasoning',
+            exploitabilityDetail: { importSites: ['src/internal/secret-path.ts'] },
+            usageDetail: { filesScanned: ['src/internal/secret-path.ts'] },
+          },
+          // Corrupt jsonb entry — must be dropped, never spread to the wire.
+          'not-an-object',
+        ],
+      }),
+    ]);
+    mockCountReviewsByInstallationIds.mockResolvedValueOnce(1);
+
+    const app = createApp(user);
+    const res = await app.request('/api/reviews');
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    // The malformed entry is dropped → exactly one finding survives.
+    expect(json.data[0].findings).toHaveLength(1);
+    const finding = json.data[0].findings[0];
+    expect(finding).not.toHaveProperty('filterReason');
+    expect(finding).not.toHaveProperty('exploitabilityDetail');
+    expect(finding).not.toHaveProperty('usageDetail');
+    expect(JSON.stringify(json.data[0])).not.toContain('secret-path');
+    // Labels kept.
+    expect(finding.exploitability).toBe('exploitable');
+  });
+
+  it('returns pagination.total reflecting the full cross-installation count', async () => {
+    const user = { ...DEFAULT_USER, installationIds: [100] };
+    mockGetReviewsByInstallationIds.mockResolvedValueOnce([
+      fakeDbReviewRow({ id: 1, repositoryId: 42, prNumber: 10, fullName: 'owner/repo-a' }),
+    ]);
+    mockCountReviewsByInstallationIds.mockResolvedValueOnce(83);
+
+    const app = createApp(user);
+    const res = await app.request('/api/reviews?page=2&limit=50');
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.pagination).toEqual({ page: 2, limit: 50, offset: 50, total: 83 });
+    expect(json.pagination.total).not.toBe(json.data.length);
+    expect(mockGetReviewsByInstallationIds).toHaveBeenCalledWith(mockDb, [100], {
+      limit: 50,
+      offset: 50,
+    });
+  });
+
+  it('returns 200 with empty data + total 0 when caller has no installations', async () => {
+    const user = { ...DEFAULT_USER, installationIds: [] };
+
+    const app = createApp(user);
+    const res = await app.request('/api/reviews');
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual([]);
+    expect(json.pagination).toEqual({ page: 1, limit: 50, offset: 0, total: 0 });
+    // No query should run for an empty-installation caller.
+    expect(mockGetReviewsByInstallationIds).not.toHaveBeenCalled();
+    expect(mockCountReviewsByInstallationIds).not.toHaveBeenCalled();
+  });
+
+  it('returns 500 with errorId when the cross-installation query fails', async () => {
+    mockGetReviewsByInstallationIds.mockRejectedValueOnce(new Error('DB error'));
+
+    const app = createApp();
+    const res = await app.request('/api/reviews');
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('FETCH_FAILED');
+    expect(json.message).toBe('Failed to fetch reviews');
     expect(json.errorId).toHaveLength(8);
   });
 });
@@ -740,8 +1107,8 @@ describe('GET /api/installation-settings', () => {
     });
     mockGetInstallationSettings.mockResolvedValueOnce({
       providerChain: [
-        { provider: 'anthropic', model: 'claude-sonnet-4-20250514', encryptedApiKey: 'enc-key' },
-        { provider: 'github', model: 'gpt-4o', encryptedApiKey: null },
+        { provider: 'gateway', model: 'claude-sonnet-4-20250514', encryptedApiKey: 'enc-key' },
+        { provider: 'cli-bridge', model: 'gpt-4o', encryptedApiKey: null },
       ],
       aiReviewEnabled: true,
       reviewMode: 'consensus',
@@ -862,9 +1229,7 @@ describe('PUT /api/installation-settings', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         installationId: 100,
-        providerChain: [
-          { provider: 'anthropic', model: 'claude-sonnet-4-20250514', apiKey: 'sk-ant-new-key' },
-        ],
+        providerChain: [{ provider: 'gateway', model: 'auto', apiKey: 'sk-gw-new-key' }],
         aiReviewEnabled: false,
         reviewMode: 'consensus',
         enableSemgrep: false,
@@ -881,13 +1246,13 @@ describe('PUT /api/installation-settings', () => {
     expect(json.data.message).toBe('Installation settings updated');
 
     // Verify encrypt was called with the new key
-    expect(mockEncrypt).toHaveBeenCalledWith('sk-ant-new-key');
+    expect(mockEncrypt).toHaveBeenCalledWith('sk-gw-new-key');
 
     // Verify upsert was called with correct args
     expect(mockUpsertInstallationSettings).toHaveBeenCalledOnce();
     const [_db, installId, updates] = mockUpsertInstallationSettings.mock.calls[0];
     expect(installId).toBe(100);
-    expect(updates.providerChain[0].encryptedApiKey).toBe('encrypted-sk-ant-new-key');
+    expect(updates.providerChain[0].encryptedApiKey).toBe('encrypted-sk-gw-new-key');
     expect(updates.aiReviewEnabled).toBe(false);
     expect(updates.reviewMode).toBe('consensus');
     expect(updates.settings.enableSemgrep).toBe(false);
@@ -899,8 +1264,8 @@ describe('PUT /api/installation-settings', () => {
     mockGetInstallationSettings.mockResolvedValueOnce({
       providerChain: [
         {
-          provider: 'anthropic',
-          model: 'claude-sonnet-4-20250514',
+          provider: 'gateway',
+          model: 'auto',
           encryptedApiKey: 'existing-enc-key',
         },
       ],
@@ -923,7 +1288,7 @@ describe('PUT /api/installation-settings', () => {
       body: JSON.stringify({
         installationId: 100,
         providerChain: [
-          { provider: 'anthropic', model: 'claude-sonnet-4-20250514' }, // No apiKey
+          { provider: 'gateway', model: 'auto' }, // No apiKey
         ],
       }),
     });
@@ -933,25 +1298,6 @@ describe('PUT /api/installation-settings', () => {
 
     const [, , updates] = mockUpsertInstallationSettings.mock.calls[0];
     expect(updates.providerChain[0].encryptedApiKey).toBe('existing-enc-key');
-  });
-
-  it('sets null encryptedApiKey for github provider', async () => {
-    mockGetInstallationSettings.mockResolvedValueOnce(null);
-    mockUpsertInstallationSettings.mockResolvedValueOnce({});
-
-    const app = createApp();
-    const res = await app.request('/api/installation-settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        installationId: 100,
-        providerChain: [{ provider: 'github', model: 'gpt-4o' }],
-      }),
-    });
-
-    expect(res.status).toBe(200);
-    const [, , updates] = mockUpsertInstallationSettings.mock.calls[0];
-    expect(updates.providerChain[0].encryptedApiKey).toBeNull();
   });
 
   it('returns 400 for invalid JSON body', async () => {
@@ -1030,9 +1376,7 @@ describe('PUT /api/installation-settings', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         installationId: 100,
-        providerChain: [
-          { provider: 'anthropic', model: 'claude-sonnet-4-20250514', apiKey: 'key' },
-        ],
+        providerChain: [{ provider: 'gateway', model: 'auto', apiKey: 'key' }],
       }),
     });
 
@@ -1054,7 +1398,7 @@ describe('GET /api/settings', () => {
     mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
     // Global settings for reference
     mockGetInstallationSettings.mockResolvedValueOnce({
-      providerChain: [{ provider: 'openai', model: 'gpt-4o', encryptedApiKey: 'global-enc-key' }],
+      providerChain: [{ provider: 'gateway', model: 'auto', encryptedApiKey: 'global-enc-key' }],
       aiReviewEnabled: true,
       reviewMode: 'simple',
       settings: {
@@ -1088,7 +1432,7 @@ describe('GET /api/settings', () => {
 
     // Provider chain: keys are masked
     expect(data.providerChain).toHaveLength(1);
-    expect(data.providerChain[0].provider).toBe('anthropic');
+    expect(data.providerChain[0].provider).toBe('gateway');
     expect(data.providerChain[0].hasApiKey).toBe(true);
     expect(data.providerChain[0].maskedApiKey).toBeDefined();
     // No encryptedApiKey exposed
@@ -1096,7 +1440,7 @@ describe('GET /api/settings', () => {
 
     // Global settings reference
     expect(data.globalSettings).toBeDefined();
-    expect(data.globalSettings.providerChain[0].provider).toBe('openai');
+    expect(data.globalSettings.providerChain[0].provider).toBe('gateway');
     expect(data.globalSettings.providerChain[0].hasApiKey).toBe(true);
   });
 
@@ -1184,6 +1528,13 @@ describe('GET /api/settings', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('PUT /api/settings', () => {
+  // Bug 2 fix: PUT /api/settings now calls getInstallationSettings to fetch the global
+  // provider chain as a fallback when the repo has no key for a provider.
+  // Default to returning null (no global settings) for all tests unless overridden.
+  beforeEach(() => {
+    mockGetInstallationSettings.mockResolvedValue(null);
+  });
+
   it('updates repo settings with encrypted new API keys', async () => {
     mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
     mockUpdateRepoSettings.mockResolvedValueOnce(undefined);
@@ -1194,7 +1545,7 @@ describe('PUT /api/settings', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         repoFullName: 'owner/repo',
-        providerChain: [{ provider: 'openai', model: 'gpt-4o', apiKey: 'sk-new-openai-key' }],
+        providerChain: [{ provider: 'gateway', model: 'auto', apiKey: 'sk-new-gw-key' }],
         aiReviewEnabled: true,
         reviewMode: 'workflow',
         enableSemgrep: true,
@@ -1211,13 +1562,13 @@ describe('PUT /api/settings', () => {
     const json = await res.json();
     expect(json.data.message).toBe('Settings updated');
 
-    expect(mockEncrypt).toHaveBeenCalledWith('sk-new-openai-key');
+    expect(mockEncrypt).toHaveBeenCalledWith('sk-new-gw-key');
     expect(mockUpdateRepoSettings).toHaveBeenCalledOnce();
 
     const [_db, repoId, updates] = mockUpdateRepoSettings.mock.calls[0];
     expect(repoId).toBe(42);
-    expect(updates.providerChain[0].provider).toBe('openai');
-    expect(updates.providerChain[0].encryptedApiKey).toBe('encrypted-sk-new-openai-key');
+    expect(updates.providerChain[0].provider).toBe('gateway');
+    expect(updates.providerChain[0].encryptedApiKey).toBe('encrypted-sk-new-gw-key');
     expect(updates.aiReviewEnabled).toBe(true);
     expect(updates.reviewMode).toBe('workflow');
     expect(updates.useGlobalSettings).toBe(false);
@@ -1225,6 +1576,59 @@ describe('PUT /api/settings', () => {
     expect(updates.settings.enableTrivy).toBe(false);
     expect(updates.settings.customRules).toEqual(['my-rule-1', 'my-rule-2']);
     expect(updates.settings.ignorePatterns).toEqual(['*.md', '*.txt']);
+  });
+
+  it('rejects persisting a gateway entry with a private gatewayUrl (SSRF guard)', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        providerChain: [
+          {
+            provider: 'gateway',
+            model: 'auto',
+            apiKey: 'sk-new-gw-key',
+            gatewayUrl: 'http://127.0.0.1:6379',
+          },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+    // Generic message only — no IP/range details leaked to the client
+    expect(json.message).toBe('Gateway URL not allowed');
+    expect(mockUpdateRepoSettings).not.toHaveBeenCalled();
+  });
+
+  it('accepts persisting a gateway entry with a public gatewayUrl', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockUpdateRepoSettings.mockResolvedValueOnce(undefined);
+
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        providerChain: [
+          {
+            provider: 'gateway',
+            model: 'auto',
+            apiKey: 'sk-new-gw-key',
+            gatewayUrl: 'https://8.8.8.8/v1',
+          },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockUpdateRepoSettings).toHaveBeenCalledOnce();
   });
 
   it('preserves existing encrypted key when no new key provided', async () => {
@@ -1238,7 +1642,7 @@ describe('PUT /api/settings', () => {
       body: JSON.stringify({
         repoFullName: 'owner/repo',
         providerChain: [
-          { provider: 'anthropic', model: 'claude-sonnet-4-20250514' }, // No apiKey
+          { provider: 'gateway', model: 'auto' }, // No apiKey
         ],
       }),
     });
@@ -1249,26 +1653,6 @@ describe('PUT /api/settings', () => {
     const [, , updates] = mockUpdateRepoSettings.mock.calls[0];
     // Should preserve existing encryptedApiKey from FAKE_REPO's providerChain
     expect(updates.providerChain[0].encryptedApiKey).toBe('enc-key-1');
-  });
-
-  it('sets null encryptedApiKey for github provider without key', async () => {
-    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
-    mockUpdateRepoSettings.mockResolvedValueOnce(undefined);
-
-    const app = createApp();
-    const res = await app.request('/api/settings', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        repoFullName: 'owner/repo',
-        providerChain: [{ provider: 'github', model: 'gpt-4o-mini' }],
-      }),
-    });
-
-    expect(res.status).toBe(200);
-    const [, , updates] = mockUpdateRepoSettings.mock.calls[0];
-    expect(updates.providerChain[0].provider).toBe('github');
-    expect(updates.providerChain[0].encryptedApiKey).toBeNull();
   });
 
   it('sets null for provider with no existing key and no new key', async () => {
@@ -1282,7 +1666,7 @@ describe('PUT /api/settings', () => {
       body: JSON.stringify({
         repoFullName: 'owner/repo',
         providerChain: [
-          { provider: 'google', model: 'gemini-2.0-flash' }, // No existing key in FAKE_REPO
+          { provider: 'cli-bridge', model: 'auto' }, // No existing key in FAKE_REPO (FAKE_REPO uses gateway)
         ],
       }),
     });
@@ -1532,6 +1916,146 @@ describe('PUT /api/settings', () => {
     // so the request succeeds (no settings fields to validate).
     expect(res.status).toBe(200);
   });
+
+  // ── Bug 2: fallback to global chain when repo has no key ──────
+
+  it('copies encrypted key from global chain when repo has no key for provider (Bug 2 fix)', async () => {
+    // Repo with no key for 'cli-bridge' (only has 'gateway')
+    const repoWithoutCliBridgeKey = {
+      ...FAKE_REPO,
+      providerChain: [{ provider: 'gateway', model: 'auto', encryptedApiKey: 'enc-key-1' }],
+    };
+    mockGetRepoByFullName.mockResolvedValueOnce(repoWithoutCliBridgeKey);
+    mockUpdateRepoSettings.mockResolvedValueOnce(undefined);
+
+    // Global installation settings DO have a cli-bridge key
+    mockGetInstallationSettings.mockResolvedValueOnce({
+      providerChain: [{ provider: 'cli-bridge', model: 'auto', encryptedApiKey: 'enc-global-cli' }],
+    });
+
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        providerChain: [
+          // User pre-filled from global — no apiKey sent (only hasExistingKey was shown)
+          { provider: 'cli-bridge', model: 'auto' },
+        ],
+        useGlobalSettings: false,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockEncrypt).not.toHaveBeenCalled(); // No new key was encrypted
+
+    const [, , updates] = mockUpdateRepoSettings.mock.calls[0];
+    // Key should be copied from global chain, NOT silently set to null
+    expect(updates.providerChain[0].provider).toBe('cli-bridge');
+    expect(updates.providerChain[0].encryptedApiKey).toBe('enc-global-cli');
+  });
+
+  it('still returns null when neither repo nor global chain has a key for the provider', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
+    mockUpdateRepoSettings.mockResolvedValueOnce(undefined);
+    // Global chain also has no key for 'cli-bridge' (null from beforeEach is already set)
+
+    const app = createApp();
+    const res = await app.request('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repoFullName: 'owner/repo',
+        providerChain: [{ provider: 'cli-bridge', model: 'auto' }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const [, , updates] = mockUpdateRepoSettings.mock.calls[0];
+    expect(updates.providerChain[0].encryptedApiKey).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// GET /api/providers/keys
+// ═══════════════════════════════════════════════════════════════════
+
+describe('GET /api/providers/keys', () => {
+  // Endpoint now uses getInstallationSettingsBatch (single query) instead of
+  // N individual getInstallationSettings calls.
+  it('returns masked keys grouped by provider from installation settings', async () => {
+    mockGetInstallationSettingsBatch.mockResolvedValueOnce([
+      {
+        providerChain: [
+          { provider: 'gateway', model: 'claude-sonnet-4-20250514', encryptedApiKey: 'enc-gw' },
+          { provider: 'cli-bridge', model: 'gpt-4o', encryptedApiKey: 'enc-cli' },
+        ],
+      },
+    ]);
+
+    const app = createApp();
+    const res = await app.request('/api/providers/keys');
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toHaveProperty('gateway');
+    expect(json.data).toHaveProperty('cli-bridge');
+    // Keys must be masked, not raw/encrypted
+    expect(json.data.gateway.maskedApiKey).toMatch(/\.\.\./);
+    expect(json.data.gateway.source).toBe('global');
+    // Verify single batch query was called (not N individual queries)
+    expect(mockGetInstallationSettingsBatch).toHaveBeenCalledOnce();
+    expect(mockGetInstallationSettings).not.toHaveBeenCalled();
+  });
+
+  it('returns empty object when no installations have saved keys', async () => {
+    mockGetInstallationSettingsBatch.mockResolvedValueOnce([]);
+
+    const app = createApp();
+    const res = await app.request('/api/providers/keys');
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({});
+  });
+
+  it('skips providers without encrypted keys (e.g., cli-bridge)', async () => {
+    mockGetInstallationSettingsBatch.mockResolvedValueOnce([
+      {
+        providerChain: [
+          { provider: 'cli-bridge', model: 'gpt-4o-mini', encryptedApiKey: null },
+          { provider: 'gateway', model: 'gpt-4o', encryptedApiKey: 'enc-gw' },
+        ],
+      },
+    ]);
+
+    const app = createApp();
+    const res = await app.request('/api/providers/keys');
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).not.toHaveProperty('cli-bridge');
+    expect(json.data).toHaveProperty('gateway');
+  });
+
+  it('never exposes raw or encrypted key values', async () => {
+    mockGetInstallationSettingsBatch.mockResolvedValueOnce([
+      {
+        providerChain: [
+          { provider: 'gateway', model: 'claude-sonnet-4-20250514', encryptedApiKey: 'enc-gw' },
+        ],
+      },
+    ]);
+
+    const app = createApp();
+    const res = await app.request('/api/providers/keys');
+    const json = await res.json();
+
+    const body = JSON.stringify(json);
+    expect(body).not.toContain('enc-gw');
+    expect(json.data.gateway.maskedApiKey).toBeDefined();
+  });
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1539,66 +2063,6 @@ describe('PUT /api/settings', () => {
 // ═══════════════════════════════════════════════════════════════════
 
 describe('POST /api/providers/validate', () => {
-  it('validates an anthropic API key successfully', async () => {
-    mockValidateProviderKey.mockResolvedValueOnce({
-      valid: true,
-      models: ['claude-sonnet-4-20250514', 'claude-3-5-haiku-20241022'],
-    });
-
-    const app = createApp();
-    const res = await app.request('/api/providers/validate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: 'anthropic', apiKey: 'sk-ant-key' }),
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.valid).toBe(true);
-    expect(json.models).toHaveLength(2);
-
-    expect(mockValidateProviderKey).toHaveBeenCalledWith('anthropic', 'sk-ant-key');
-  });
-
-  it('validates openai key', async () => {
-    mockValidateProviderKey.mockResolvedValueOnce({
-      valid: true,
-      models: ['gpt-4o'],
-    });
-
-    const app = createApp();
-    const res = await app.request('/api/providers/validate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: 'openai', apiKey: 'sk-openai-key' }),
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.valid).toBe(true);
-  });
-
-  it('uses user session token for github provider', async () => {
-    mockValidateProviderKey.mockResolvedValueOnce({
-      valid: true,
-      models: ['gpt-4o-mini'],
-    });
-
-    const app = createApp();
-    const res = await app.request('/api/providers/validate', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ghp-user-token',
-      },
-      body: JSON.stringify({ provider: 'github' }),
-    });
-
-    expect(res.status).toBe(200);
-    // Should use the Bearer token, not body.apiKey
-    expect(mockValidateProviderKey).toHaveBeenCalledWith('github', 'ghp-user-token');
-  });
-
   it('returns 400 for invalid JSON body', async () => {
     const app = createApp();
     const res = await app.request('/api/providers/validate', {
@@ -1655,34 +2119,65 @@ describe('POST /api/providers/validate', () => {
     expect(json.message).toContain('Unknown provider');
   });
 
-  it('returns 400 when apiKey missing for non-GitHub provider', async () => {
-    const app = createApp();
-    const res = await app.request('/api/providers/validate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: 'anthropic' }), // No apiKey
-    });
+  // ── SSRF guard on gateway health check ──
 
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toBe('VALIDATION_ERROR');
-    expect(json.message).toBe('Missing apiKey for non-GitHub provider');
-  });
-
-  it('returns error result when validateProviderKey throws', async () => {
-    mockValidateProviderKey.mockRejectedValueOnce(new Error('Network error'));
+  it('rejects a private gateway URL without fetching it (SSRF guard)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
 
     const app = createApp();
     const res = await app.request('/api/providers/validate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider: 'anthropic', apiKey: 'sk-key' }),
+      body: JSON.stringify({
+        provider: 'gateway',
+        gatewayUrl: 'http://169.254.169.254/latest/meta-data',
+      }),
     });
 
-    expect(res.status).toBe(200); // Returns 200 with error in body
+    expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.valid).toBe(false);
-    expect(json.error).toBe('Validation request failed');
+    expect(json.error).toBe('Gateway URL not allowed');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('returns generic "Gateway unreachable" on fetch failure (no err.message echo)', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new Error('connect ECONNREFUSED 8.8.8.8:443 internal-details'));
+
+    const app = createApp();
+    const res = await app.request('/api/providers/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'gateway', gatewayUrl: 'https://8.8.8.8' }),
+    });
+
+    const json = await res.json();
+    expect(json.valid).toBe(false);
+    expect(json.error).toBe('Gateway unreachable');
+    expect(JSON.stringify(json)).not.toContain('ECONNREFUSED');
+    fetchSpy.mockRestore();
+  });
+
+  it('returns generic "Gateway unreachable" on non-OK health status (no status echo)', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('forbidden', { status: 403 }));
+
+    const app = createApp();
+    const res = await app.request('/api/providers/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider: 'gateway', gatewayUrl: 'https://8.8.8.8' }),
+    });
+
+    const json = await res.json();
+    expect(json.valid).toBe(false);
+    expect(json.error).toBe('Gateway unreachable');
+    expect(JSON.stringify(json)).not.toContain('403');
+    fetchSpy.mockRestore();
   });
 });
 
@@ -1847,7 +2342,7 @@ describe('maskApiKey (via GET /api/settings)', () => {
     mockGetRepoByFullName.mockResolvedValueOnce({
       ...FAKE_REPO,
       providerChain: [
-        { provider: 'anthropic', model: 'claude-sonnet-4-20250514', encryptedApiKey: 'enc' },
+        { provider: 'gateway', model: 'claude-sonnet-4-20250514', encryptedApiKey: 'enc' },
       ],
     });
     mockGetInstallationSettings.mockResolvedValueOnce(null);
@@ -1868,7 +2363,7 @@ describe('maskApiKey (via GET /api/settings)', () => {
     mockGetRepoByFullName.mockResolvedValueOnce({
       ...FAKE_REPO,
       providerChain: [
-        { provider: 'anthropic', model: 'claude-sonnet-4-20250514', encryptedApiKey: 'enc' },
+        { provider: 'gateway', model: 'claude-sonnet-4-20250514', encryptedApiKey: 'enc' },
       ],
     });
     mockGetInstallationSettings.mockResolvedValueOnce(null);
@@ -1886,7 +2381,7 @@ describe('maskApiKey (via GET /api/settings)', () => {
     mockGetRepoByFullName.mockResolvedValueOnce({
       ...FAKE_REPO,
       providerChain: [
-        { provider: 'anthropic', model: 'claude-sonnet-4-20250514', encryptedApiKey: 'enc' },
+        { provider: 'gateway', model: 'claude-sonnet-4-20250514', encryptedApiKey: 'enc' },
       ],
     });
     mockGetInstallationSettings.mockResolvedValueOnce(null);
@@ -1900,813 +2395,243 @@ describe('maskApiKey (via GET /api/settings)', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// GET /api/runner/status
+// GET /api/runner/install-workflow/status/:owner/:repo
 // ═══════════════════════════════════════════════════════════════════
 
-describe('GET /api/runner/status', () => {
-  it('returns exists: true when runner repo is found', async () => {
-    mockDiscoverRunnerRepo.mockResolvedValueOnce({
-      repoId: 999,
-      fullName: 'testuser/ghagga-runner',
-      isPrivate: false,
+describe('GET /api/runner/install-workflow/status/:owner/:repo', () => {
+  it('returns installed: false when workflow not installed', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce({
+      id: 1,
+      fullName: 'testuser/test-repo',
+      installationId: 100,
+      workflowInstalledAt: null,
+      workflowSha: null,
     });
 
     const app = createApp();
-    const res = await app.request('/api/runner/status', {
+    const res = await app.request('/api/runner/install-workflow/status/testuser/test-repo', {
       headers: { Authorization: 'Bearer test-token' },
     });
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.data).toEqual({
-      exists: true,
-      repoFullName: 'testuser/ghagga-runner',
-    });
-    expect(mockDiscoverRunnerRepo).toHaveBeenCalledWith('testuser', 'test-token');
+    expect(json.data).toEqual({ installed: false, workflowInstalledAt: null, workflowSha: null });
   });
 
-  it('returns exists: false when runner repo is not found', async () => {
-    mockDiscoverRunnerRepo.mockResolvedValueOnce(null);
+  it('returns installed: true when workflow is installed', async () => {
+    const installedAt = new Date('2026-01-15T10:00:00Z');
+    mockGetRepoByFullName.mockResolvedValueOnce({
+      id: 1,
+      fullName: 'testuser/test-repo',
+      installationId: 100,
+      workflowInstalledAt: installedAt,
+      workflowSha: 'abc123sha',
+    });
 
     const app = createApp();
-    const res = await app.request('/api/runner/status', {
+    const res = await app.request('/api/runner/install-workflow/status/testuser/test-repo', {
       headers: { Authorization: 'Bearer test-token' },
     });
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.data).toEqual({ exists: false });
+    expect(json.data.installed).toBe(true);
+    expect(json.data.workflowSha).toBe('abc123sha');
   });
 
-  it('returns isPrivate and warning for private repo', async () => {
-    mockDiscoverRunnerRepo.mockResolvedValueOnce({
-      repoId: 999,
-      fullName: 'testuser/ghagga-runner',
-      isPrivate: true,
-    });
-
-    const app = createApp();
-    const res = await app.request('/api/runner/status', {
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data.exists).toBe(true);
-    expect(json.data.isPrivate).toBe(true);
-    expect(json.data.warning).toContain('private');
-  });
-
-  it('returns 502 when GitHub API fails', async () => {
-    mockDiscoverRunnerRepo.mockRejectedValueOnce(new Error('GitHub API timeout'));
-
-    const app = createApp();
-    const res = await app.request('/api/runner/status', {
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(502);
-    const json = await res.json();
-    expect(json.error).toBe('RUNNER_ERROR');
-    expect(json.message).toBe('Could not check runner status. Please try again.');
-  });
-
-  it('extracts token from Authorization header', async () => {
-    mockDiscoverRunnerRepo.mockResolvedValueOnce(null);
-
-    const app = createApp();
-    await app.request('/api/runner/status', {
-      headers: { Authorization: 'Bearer my-oauth-token-123' },
-    });
-
-    expect(mockDiscoverRunnerRepo).toHaveBeenCalledWith('testuser', 'my-oauth-token-123');
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// POST /api/runner/create
-// ═══════════════════════════════════════════════════════════════════
-
-describe('POST /api/runner/create', () => {
-  const originalEnv = process.env.GHAGGA_WEBHOOK_SECRET;
-
-  beforeEach(() => {
-    process.env.GHAGGA_WEBHOOK_SECRET = 'test-webhook-secret';
-  });
-
-  afterEach(() => {
-    if (originalEnv !== undefined) {
-      process.env.GHAGGA_WEBHOOK_SECRET = originalEnv;
-    } else {
-      delete process.env.GHAGGA_WEBHOOK_SECRET;
-    }
-  });
-
-  it('returns 201 with created: true on success', async () => {
-    mockCreateRunnerRepo.mockResolvedValueOnce({
-      created: true,
-      repoFullName: 'testuser/ghagga-runner',
-      isPrivate: false,
-      secretConfigured: true,
-    });
-
-    const app = createApp();
-    const res = await app.request('/api/runner/create', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(201);
-    const json = await res.json();
-    expect(json.data).toEqual({
-      created: true,
-      repoFullName: 'testuser/ghagga-runner',
-      secretConfigured: true,
-      isPrivate: false,
-    });
-    expect(mockCreateRunnerRepo).toHaveBeenCalledWith({
-      ownerLogin: 'testuser',
-      token: 'test-token',
-      callbackSecretValue: 'test-webhook-secret',
-    });
-  });
-
-  it('returns 201 with warning for private repo', async () => {
-    mockCreateRunnerRepo.mockResolvedValueOnce({
-      created: true,
-      repoFullName: 'testuser/ghagga-runner',
-      isPrivate: true,
-      secretConfigured: true,
-    });
-
-    const app = createApp();
-    const res = await app.request('/api/runner/create', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(201);
-    const json = await res.json();
-    expect(json.data.isPrivate).toBe(true);
-    expect(json.data.warning).toContain('private');
-  });
-
-  it('returns 409 for already_exists error', async () => {
-    mockCreateRunnerRepo.mockRejectedValueOnce(
-      new RunnerCreationError(
-        'already_exists',
-        'Repo already exists',
-        undefined,
-        'testuser/ghagga-runner',
-      ),
-    );
-
-    const app = createApp();
-    const res = await app.request('/api/runner/create', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(409);
-    const json = await res.json();
-    expect(json.error).toBe('RUNNER_ERROR');
-    expect(json.repoFullName).toBe('testuser/ghagga-runner');
-  });
-
-  it('returns 403 for insufficient_scope error', async () => {
-    mockCreateRunnerRepo.mockRejectedValueOnce(
-      new RunnerCreationError('insufficient_scope', 'Token lacks public_repo scope'),
-    );
-
-    const app = createApp();
-    const res = await app.request('/api/runner/create', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(403);
-    const json = await res.json();
-    expect(json.error).toBe('RUNNER_ERROR');
-  });
-
-  it('returns 429 for rate_limited error with retryAfter', async () => {
-    mockCreateRunnerRepo.mockRejectedValueOnce(
-      new RunnerCreationError('rate_limited', 'Rate limited', 120),
-    );
-
-    const app = createApp();
-    const res = await app.request('/api/runner/create', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(429);
-    const json = await res.json();
-    expect(json.error).toBe('RUNNER_ERROR');
-    expect(json.retryAfter).toBe(120);
-  });
-
-  it('returns 502 for template_unavailable error', async () => {
-    mockCreateRunnerRepo.mockRejectedValueOnce(
-      new RunnerCreationError('template_unavailable', 'Template not found'),
-    );
-
-    const app = createApp();
-    const res = await app.request('/api/runner/create', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(502);
-    const json = await res.json();
-    expect(json.error).toBe('RUNNER_ERROR');
-  });
-
-  it('returns 403 for org_permission_denied error', async () => {
-    mockCreateRunnerRepo.mockRejectedValueOnce(
-      new RunnerCreationError('org_permission_denied', 'Org does not allow repo creation'),
-    );
-
-    const app = createApp();
-    const res = await app.request('/api/runner/create', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(403);
-    const json = await res.json();
-    expect(json.error).toBe('RUNNER_ERROR');
-  });
-
-  it('returns 502 for creation_timeout error', async () => {
-    mockCreateRunnerRepo.mockRejectedValueOnce(
-      new RunnerCreationError('creation_timeout', 'Timed out waiting for repo'),
-    );
-
-    const app = createApp();
-    const res = await app.request('/api/runner/create', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(502);
-    const json = await res.json();
-    expect(json.error).toBe('RUNNER_ERROR');
-    expect(json.message).toContain('timed out');
-  });
-
-  it('returns 201 with secretConfigured: false for secret_failed error', async () => {
-    mockCreateRunnerRepo.mockRejectedValueOnce(
-      new RunnerCreationError(
-        'secret_failed',
-        'Failed to set secret',
-        undefined,
-        'testuser/ghagga-runner',
-      ),
-    );
-
-    const app = createApp();
-    const res = await app.request('/api/runner/create', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(201);
-    const json = await res.json();
-    expect(json.data.created).toBe(true);
-    expect(json.data.secretConfigured).toBe(false);
-    expect(json.data.repoFullName).toBe('testuser/ghagga-runner');
-  });
-
-  it('returns 502 for generic errors', async () => {
-    mockCreateRunnerRepo.mockRejectedValueOnce(new Error('Unexpected failure'));
-
-    const app = createApp();
-    const res = await app.request('/api/runner/create', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(502);
-    const json = await res.json();
-    expect(json.error).toBe('RUNNER_ERROR');
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// DELETE /api/memory/observations/:id
-// ═══════════════════════════════════════════════════════════════════
-
-describe('DELETE /api/memory/observations/:id', () => {
-  it('returns 200 with deleted:true when observation is deleted (S9)', async () => {
-    mockDeleteMemoryObservation.mockResolvedValueOnce(true);
-
-    const app = createApp();
-    const res = await app.request('/api/memory/observations/42', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual({ deleted: true });
-    expect(mockDeleteMemoryObservation).toHaveBeenCalledWith(mockDb, 100, 42);
-  });
-
-  it('returns 404 when observation is not found (S11)', async () => {
-    mockDeleteMemoryObservation.mockResolvedValueOnce(false);
-
-    const app = createApp();
-    const res = await app.request('/api/memory/observations/999', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(404);
-    const json = await res.json();
-    expect(json.error).toBe('NOT_FOUND');
-    expect(json.message).toBe('Observation not found');
-  });
-
-  it('returns 400 for invalid observation ID (S12)', async () => {
-    const app = createApp();
-    const res = await app.request('/api/memory/observations/abc', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toBe('VALIDATION_ERROR');
-    expect(json.message).toBe('Invalid observation ID');
-  });
-
-  it('tries each installationId until observation is found', async () => {
-    mockDeleteMemoryObservation
-      .mockResolvedValueOnce(false) // installation 100 — not found
-      .mockResolvedValueOnce(true); // installation 200 — found
-
-    const multiInstallUser = {
-      githubUserId: 1,
-      githubLogin: 'testuser',
-      installationIds: [100, 200],
-    };
-
-    const app = createApp(multiInstallUser);
-    const res = await app.request('/api/memory/observations/42', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual({ deleted: true });
-    expect(mockDeleteMemoryObservation).toHaveBeenCalledTimes(2);
-    expect(mockDeleteMemoryObservation).toHaveBeenCalledWith(mockDb, 100, 42);
-    expect(mockDeleteMemoryObservation).toHaveBeenCalledWith(mockDb, 200, 42);
-  });
-
-  it('returns 500 with errorId when an error occurs', async () => {
-    mockDeleteMemoryObservation.mockRejectedValueOnce(new Error('DB error'));
-
-    const app = createApp();
-    const res = await app.request('/api/memory/observations/42', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(500);
-    const json = await res.json();
-    expect(json.error).toBe('DELETE_FAILED');
-    expect(json.message).toBe('Failed to delete memory observation');
-    expect(json).toHaveProperty('errorId');
-    expect(json.errorId).toHaveLength(8);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// DELETE /api/memory/projects/:project/observations
-// ═══════════════════════════════════════════════════════════════════
-
-describe('DELETE /api/memory/projects/:project/observations', () => {
-  it('returns 200 with cleared count when observations are cleared (S13)', async () => {
-    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
-    mockClearMemoryObservationsByProject.mockResolvedValueOnce(15);
-
-    const app = createApp();
-    const res = await app.request('/api/memory/projects/owner%2Frepo/observations', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual({ cleared: 15 });
-    expect(mockClearMemoryObservationsByProject).toHaveBeenCalledWith(mockDb, 100, 'owner/repo');
-  });
-
-  it('returns 404 when repository is not found (S15)', async () => {
+  it('returns 404 when repo is not tracked', async () => {
     mockGetRepoByFullName.mockResolvedValueOnce(null);
 
     const app = createApp();
-    const res = await app.request('/api/memory/projects/unknown%2Frepo/observations', {
-      method: 'DELETE',
+    const res = await app.request('/api/runner/install-workflow/status/unknown/repo', {
+      headers: { Authorization: 'Bearer test-token' },
     });
 
     expect(res.status).toBe(404);
-    const json = await res.json();
-    expect(json.error).toBe('NOT_FOUND');
-    expect(json.message).toBe('Repository not found');
   });
 
-  it('returns 403 when user does not own the installation (S16)', async () => {
-    const otherRepo = { ...FAKE_REPO, installationId: 999 };
-    mockGetRepoByFullName.mockResolvedValueOnce(otherRepo);
+  it('returns 404 (identical to not-tracked) when repo belongs to another installation', async () => {
+    // Anti-enumeration: a foreign repo must be indistinguishable from an
+    // untracked repo, so the guard returns 404 instead of 403.
+    mockGetRepoByFullName.mockResolvedValueOnce({
+      id: 1,
+      fullName: 'victim/repo',
+      installationId: 999, // NOT in DEFAULT_USER.installationIds ([100])
+      workflowInstalledAt: null,
+      workflowSha: null,
+    });
 
     const app = createApp();
-    const res = await app.request('/api/memory/projects/owner%2Frepo/observations', {
-      method: 'DELETE',
+    const res = await app.request('/api/runner/install-workflow/status/victim/repo', {
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(404);
+    const forbiddenBody = await res.json();
+
+    // Body must be byte-identical to the genuine not-found response
+    mockGetRepoByFullName.mockResolvedValueOnce(null);
+    const notFoundRes = await app.request('/api/runner/install-workflow/status/unknown/repo', {
+      headers: { Authorization: 'Bearer test-token' },
+    });
+    expect(notFoundRes.status).toBe(404);
+    expect(forbiddenBody).toEqual(await notFoundRes.json());
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// POST /api/runner/install-workflow/:owner/:repo
+// ═══════════════════════════════════════════════════════════════════
+
+describe('POST /api/runner/install-workflow/:owner/:repo', () => {
+  beforeEach(() => {
+    process.env.GITHUB_APP_ID = 'test-app-id';
+    process.env.GITHUB_PRIVATE_KEY = 'test-private-key';
+  });
+
+  afterEach(() => {
+    delete process.env.GITHUB_APP_ID;
+    delete process.env.GITHUB_PRIVATE_KEY;
+  });
+
+  it('installs workflow and returns result', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce({
+      id: 1,
+      fullName: 'testuser/test-repo',
+      installationId: 100,
+      workflowInstalledAt: null,
+      workflowSha: null,
+    });
+    mockGetInstallationToken.mockResolvedValueOnce('ghp_installation-token');
+    mockInjectWorkflow.mockResolvedValueOnce({ sha: 'newsha123', created: true });
+    mockUpdateWorkflowStatus.mockResolvedValueOnce(undefined);
+
+    const app = createApp();
+    const res = await app.request('/api/runner/install-workflow/testuser/test-repo', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toEqual({ installed: true, sha: 'newsha123', created: true });
+  });
+
+  it('returns 404 when repo is not tracked', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request('/api/runner/install-workflow/unknown/repo', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(404);
+  });
+
+  it('returns 404 (identical to not-tracked) when repo belongs to another installation', async () => {
+    // Cross-tenant attack: user from installation 100 tries to inject a
+    // workflow into a repo owned by installation 999. The guard must block
+    // BEFORE any token is minted or workflow injected, and the response must
+    // be indistinguishable from "repo not tracked" (anti-enumeration 404).
+    mockGetRepoByFullName.mockResolvedValueOnce({
+      id: 1,
+      fullName: 'victim/repo',
+      installationId: 999, // NOT in DEFAULT_USER.installationIds ([100])
+      workflowInstalledAt: null,
+      workflowSha: null,
+    });
+
+    const app = createApp();
+    const res = await app.request('/api/runner/install-workflow/victim/repo', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(404);
+    const forbiddenBody = await res.json();
+
+    // No installation token minted, no workflow injected, no DB write
+    expect(mockGetInstallationToken).not.toHaveBeenCalled();
+    expect(mockInjectWorkflow).not.toHaveBeenCalled();
+    expect(mockUpdateWorkflowStatus).not.toHaveBeenCalled();
+
+    // Body must be byte-identical to the genuine not-found response
+    mockGetRepoByFullName.mockResolvedValueOnce(null);
+    const notFoundRes = await app.request('/api/runner/install-workflow/unknown/repo', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+    expect(notFoundRes.status).toBe(404);
+    expect(forbiddenBody).toEqual(await notFoundRes.json());
+  });
+
+  it('allows an authorized user from the repo installation', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce({
+      id: 1,
+      fullName: 'testuser/test-repo',
+      installationId: 100, // matches DEFAULT_USER.installationIds
+      workflowInstalledAt: null,
+      workflowSha: null,
+    });
+    mockGetInstallationToken.mockResolvedValueOnce('ghp_installation-token');
+    mockInjectWorkflow.mockResolvedValueOnce({ sha: 'authzsha', created: true });
+    mockUpdateWorkflowStatus.mockResolvedValueOnce(undefined);
+
+    const app = createApp();
+    const res = await app.request('/api/runner/install-workflow/testuser/test-repo', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockInjectWorkflow).toHaveBeenCalled();
+  });
+
+  it('returns 403 when branch protection blocks injection', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce({
+      id: 1,
+      fullName: 'testuser/protected-repo',
+      installationId: 100,
+      workflowInstalledAt: null,
+      workflowSha: null,
+    });
+    mockGetInstallationToken.mockResolvedValueOnce('ghp_installation-token');
+    mockInjectWorkflow.mockRejectedValueOnce(
+      new Error('branch_protection: cannot write workflow file'),
+    );
+
+    const app = createApp();
+    const res = await app.request('/api/runner/install-workflow/testuser/protected-repo', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token' },
     });
 
     expect(res.status).toBe(403);
     const json = await res.json();
-    expect(json.error).toBe('FORBIDDEN');
-    expect(json.message).toBe('Forbidden');
+    expect(json.error).toBe('BRANCH_PROTECTION');
   });
 
-  it('returns 200 with cleared:0 when no observations exist (S17)', async () => {
-    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
-    mockClearMemoryObservationsByProject.mockResolvedValueOnce(0);
+  it('returns 502 on unexpected GitHub API error', async () => {
+    mockGetRepoByFullName.mockResolvedValueOnce({
+      id: 1,
+      fullName: 'testuser/test-repo',
+      installationId: 100,
+      workflowInstalledAt: null,
+      workflowSha: null,
+    });
+    mockGetInstallationToken.mockResolvedValueOnce('ghp_installation-token');
+    mockInjectWorkflow.mockRejectedValueOnce(new Error('GitHub API timeout'));
 
     const app = createApp();
-    const res = await app.request('/api/memory/projects/owner%2Frepo/observations', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual({ cleared: 0 });
-  });
-
-  it('URL-decodes the project parameter', async () => {
-    mockGetRepoByFullName.mockResolvedValueOnce(FAKE_REPO);
-    mockClearMemoryObservationsByProject.mockResolvedValueOnce(5);
-
-    const app = createApp();
-    await app.request('/api/memory/projects/owner%2Frepo/observations', {
-      method: 'DELETE',
-    });
-
-    expect(mockGetRepoByFullName).toHaveBeenCalledWith(mockDb, 'owner/repo');
-  });
-
-  it('returns 500 with errorId when an error occurs', async () => {
-    mockGetRepoByFullName.mockRejectedValueOnce(new Error('DB error'));
-
-    const app = createApp();
-    const res = await app.request('/api/memory/projects/owner%2Frepo/observations', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(500);
-    const json = await res.json();
-    expect(json.error).toBe('DELETE_FAILED');
-    expect(json.message).toBe('Failed to clear project memory observations');
-    expect(json).toHaveProperty('errorId');
-    expect(json.errorId).toHaveLength(8);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// DELETE /api/memory/observations (purge-all)
-// ═══════════════════════════════════════════════════════════════════
-
-describe('DELETE /api/memory/observations (purge-all)', () => {
-  it('returns 200 with total cleared count (S18)', async () => {
-    mockClearAllMemoryObservations.mockResolvedValueOnce(30);
-
-    const app = createApp();
-    const res = await app.request('/api/memory/observations', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual({ cleared: 30 });
-    expect(mockClearAllMemoryObservations).toHaveBeenCalledWith(mockDb, 100);
-  });
-
-  it('returns 200 with cleared:0 when no observations exist (S20)', async () => {
-    mockClearAllMemoryObservations.mockResolvedValueOnce(0);
-
-    const app = createApp();
-    const res = await app.request('/api/memory/observations', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual({ cleared: 0 });
-  });
-
-  it('sums counts across multiple installations (S21)', async () => {
-    mockClearAllMemoryObservations
-      .mockResolvedValueOnce(30) // installation 100
-      .mockResolvedValueOnce(20); // installation 200
-
-    const multiInstallUser = {
-      githubUserId: 1,
-      githubLogin: 'testuser',
-      installationIds: [100, 200],
-    };
-
-    const app = createApp(multiInstallUser);
-    const res = await app.request('/api/memory/observations', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual({ cleared: 50 });
-    expect(mockClearAllMemoryObservations).toHaveBeenCalledTimes(2);
-    expect(mockClearAllMemoryObservations).toHaveBeenCalledWith(mockDb, 100);
-    expect(mockClearAllMemoryObservations).toHaveBeenCalledWith(mockDb, 200);
-  });
-
-  it('returns 500 with errorId when an error occurs', async () => {
-    mockClearAllMemoryObservations.mockRejectedValueOnce(new Error('DB error'));
-
-    const app = createApp();
-    const res = await app.request('/api/memory/observations', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(500);
-    const json = await res.json();
-    expect(json.error).toBe('DELETE_FAILED');
-    expect(json.message).toBe('Failed to purge all memory observations');
-    expect(json).toHaveProperty('errorId');
-    expect(json.errorId).toHaveLength(8);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// DELETE /api/memory/sessions/empty
-// ═══════════════════════════════════════════════════════════════════
-
-describe('DELETE /api/memory/sessions/empty', () => {
-  it('returns 200 with deletedCount when empty sessions are cleaned up', async () => {
-    mockClearEmptyMemorySessions.mockResolvedValueOnce({ deletedCount: 5 });
-
-    const app = createApp();
-    const res = await app.request('/api/memory/sessions/empty', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual({ deletedCount: 5 });
-    expect(mockClearEmptyMemorySessions).toHaveBeenCalledWith(mockDb, 100, undefined);
-  });
-
-  it('passes project query parameter when provided', async () => {
-    mockClearEmptyMemorySessions.mockResolvedValueOnce({ deletedCount: 2 });
-
-    const app = createApp();
-    const res = await app.request('/api/memory/sessions/empty?project=owner/repo', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual({ deletedCount: 2 });
-    expect(mockClearEmptyMemorySessions).toHaveBeenCalledWith(mockDb, 100, 'owner/repo');
-  });
-
-  it('returns 200 with deletedCount:0 when no empty sessions exist', async () => {
-    mockClearEmptyMemorySessions.mockResolvedValueOnce({ deletedCount: 0 });
-
-    const app = createApp();
-    const res = await app.request('/api/memory/sessions/empty', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual({ deletedCount: 0 });
-  });
-
-  it('sums counts across multiple installations', async () => {
-    mockClearEmptyMemorySessions
-      .mockResolvedValueOnce({ deletedCount: 3 }) // installation 100
-      .mockResolvedValueOnce({ deletedCount: 2 }); // installation 200
-
-    const multiInstallUser = {
-      githubUserId: 1,
-      githubLogin: 'testuser',
-      installationIds: [100, 200],
-    };
-
-    const app = createApp(multiInstallUser);
-    const res = await app.request('/api/memory/sessions/empty', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual({ deletedCount: 5 });
-    expect(mockClearEmptyMemorySessions).toHaveBeenCalledTimes(2);
-  });
-
-  it('returns 500 with errorId when an error occurs', async () => {
-    mockClearEmptyMemorySessions.mockRejectedValueOnce(new Error('DB error'));
-
-    const app = createApp();
-    const res = await app.request('/api/memory/sessions/empty', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(500);
-    const json = await res.json();
-    expect(json.error).toBe('DELETE_FAILED');
-    expect(json.message).toBe('Failed to cleanup empty memory sessions');
-    expect(json).toHaveProperty('errorId');
-    expect(json.errorId).toHaveLength(8);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// DELETE /api/memory/sessions/:id
-// ═══════════════════════════════════════════════════════════════════
-
-describe('DELETE /api/memory/sessions/:id', () => {
-  it('returns 200 with deleted:true when session is deleted', async () => {
-    mockDeleteMemorySession.mockResolvedValueOnce({ deleted: true });
-
-    const app = createApp();
-    const res = await app.request('/api/memory/sessions/10', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual({ deleted: true });
-    expect(mockDeleteMemorySession).toHaveBeenCalledWith(mockDb, 100, 10);
-  });
-
-  it('returns 404 when session is not found', async () => {
-    mockDeleteMemorySession.mockResolvedValueOnce({ deleted: false });
-
-    const app = createApp();
-    const res = await app.request('/api/memory/sessions/999', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(404);
-    const json = await res.json();
-    expect(json.error).toBe('NOT_FOUND');
-    expect(json.message).toBe('Session not found');
-  });
-
-  it('returns 400 for invalid session ID', async () => {
-    const app = createApp();
-    const res = await app.request('/api/memory/sessions/abc', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toBe('VALIDATION_ERROR');
-    expect(json.message).toBe('Invalid session ID');
-  });
-
-  it('tries each installationId until session is found', async () => {
-    mockDeleteMemorySession
-      .mockResolvedValueOnce({ deleted: false }) // installation 100 — not found
-      .mockResolvedValueOnce({ deleted: true }); // installation 200 — found
-
-    const multiInstallUser = {
-      githubUserId: 1,
-      githubLogin: 'testuser',
-      installationIds: [100, 200],
-    };
-
-    const app = createApp(multiInstallUser);
-    const res = await app.request('/api/memory/sessions/10', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual({ deleted: true });
-    expect(mockDeleteMemorySession).toHaveBeenCalledTimes(2);
-    expect(mockDeleteMemorySession).toHaveBeenCalledWith(mockDb, 100, 10);
-    expect(mockDeleteMemorySession).toHaveBeenCalledWith(mockDb, 200, 10);
-  });
-
-  it('returns 500 with errorId when an error occurs', async () => {
-    mockDeleteMemorySession.mockRejectedValueOnce(new Error('DB error'));
-
-    const app = createApp();
-    const res = await app.request('/api/memory/sessions/10', {
-      method: 'DELETE',
-    });
-
-    expect(res.status).toBe(500);
-    const json = await res.json();
-    expect(json.error).toBe('DELETE_FAILED');
-    expect(json.message).toBe('Failed to delete memory session');
-    expect(json).toHaveProperty('errorId');
-    expect(json.errorId).toHaveLength(8);
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// POST /api/runner/configure-secret
-// ═══════════════════════════════════════════════════════════════════
-
-describe('POST /api/runner/configure-secret', () => {
-  const originalEnv = process.env.GHAGGA_WEBHOOK_SECRET;
-
-  beforeEach(() => {
-    process.env.GHAGGA_WEBHOOK_SECRET = 'test-webhook-secret';
-  });
-
-  afterEach(() => {
-    if (originalEnv !== undefined) {
-      process.env.GHAGGA_WEBHOOK_SECRET = originalEnv;
-    } else {
-      delete process.env.GHAGGA_WEBHOOK_SECRET;
-    }
-  });
-
-  it('returns 200 with configured: true on success', async () => {
-    mockDiscoverRunnerRepo.mockResolvedValueOnce({
-      repoId: 999,
-      fullName: 'testuser/ghagga-runner',
-      isPrivate: false,
-    });
-    mockSetRunnerSecret.mockResolvedValueOnce(undefined);
-
-    const app = createApp();
-    const res = await app.request('/api/runner/configure-secret', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.data).toEqual({ configured: true });
-    expect(mockSetRunnerSecret).toHaveBeenCalledWith(
-      'testuser/ghagga-runner',
-      'GHAGGA_CALLBACK_SECRET',
-      'test-webhook-secret',
-      'test-token',
-    );
-  });
-
-  it('returns 404 when runner repo not found', async () => {
-    mockDiscoverRunnerRepo.mockResolvedValueOnce(null);
-
-    const app = createApp();
-    const res = await app.request('/api/runner/configure-secret', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(404);
-    const json = await res.json();
-    expect(json.error).toBe('NOT_FOUND');
-    expect(json.message).toBe('Runner repo not found. Create it first.');
-  });
-
-  it('returns 502 when secret set fails', async () => {
-    mockDiscoverRunnerRepo.mockResolvedValueOnce({
-      repoId: 999,
-      fullName: 'testuser/ghagga-runner',
-      isPrivate: false,
-    });
-    mockSetRunnerSecret.mockRejectedValueOnce(new Error('GitHub API error'));
-
-    const app = createApp();
-    const res = await app.request('/api/runner/configure-secret', {
+    const res = await app.request('/api/runner/install-workflow/testuser/test-repo', {
       method: 'POST',
       headers: { Authorization: 'Bearer test-token' },
     });
 
     expect(res.status).toBe(502);
     const json = await res.json();
-    expect(json.error).toBe('RUNNER_ERROR');
-    expect(json.message).toBe('Failed to configure runner secret.');
-  });
-
-  it('returns 502 when discoverRunnerRepo throws', async () => {
-    mockDiscoverRunnerRepo.mockRejectedValueOnce(new Error('Network error'));
-
-    const app = createApp();
-    const res = await app.request('/api/runner/configure-secret', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer test-token' },
-    });
-
-    expect(res.status).toBe(502);
-    const json = await res.json();
-    expect(json.error).toBe('RUNNER_ERROR');
-    expect(json.message).toBe('Failed to configure runner secret.');
+    expect(json.error).toBe('WORKFLOW_ERROR');
   });
 });
 
@@ -3331,5 +3256,119 @@ describe('PUT /api/settings — tool fields', () => {
     // Should preserve existing disabledTools since we didn't send it
     expect(updates.settings.disabledTools).toEqual(['cpd', 'markdownlint']);
     expect(updates.settings.enableMemory).toBe(false);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// POST /api/settings/copy-to-global
+// ═══════════════════════════════════════════════════════════════════
+
+describe('POST /api/settings/copy-to-global', () => {
+  it('copies repo settings to installation-level global settings', async () => {
+    mockGetRepositoryById.mockResolvedValueOnce(FAKE_REPO);
+    mockUpsertInstallationSettings.mockResolvedValueOnce({});
+
+    const app = createApp();
+    const res = await app.request('/api/settings/copy-to-global', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repoId: 42 }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data.message).toBe('Settings copied to global');
+
+    // Verify upsertInstallationSettings was called with the repo's config
+    expect(mockUpsertInstallationSettings).toHaveBeenCalledWith(
+      mockDb,
+      100, // installationId from FAKE_REPO
+      expect.objectContaining({
+        providerChain: FAKE_REPO.providerChain,
+        aiReviewEnabled: FAKE_REPO.aiReviewEnabled,
+        reviewMode: FAKE_REPO.reviewMode,
+        settings: expect.objectContaining({
+          enableSemgrep: true,
+          enableTrivy: true,
+          enableCpd: false,
+          enableMemory: true,
+        }),
+      }),
+    );
+  });
+
+  it('returns 400 when repoId is missing', async () => {
+    const app = createApp();
+    const res = await app.request('/api/settings/copy-to-global', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+  });
+
+  it('returns 400 for invalid JSON body', async () => {
+    const app = createApp();
+    const res = await app.request('/api/settings/copy-to-global', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'not-json',
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('VALIDATION_ERROR');
+  });
+
+  it('returns 404 when repo does not exist', async () => {
+    mockGetRepositoryById.mockResolvedValueOnce(null);
+
+    const app = createApp();
+    const res = await app.request('/api/settings/copy-to-global', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repoId: 999 }),
+    });
+
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toBe('NOT_FOUND');
+  });
+
+  it('returns 403 when user does not own the installation', async () => {
+    mockGetRepositoryById.mockResolvedValueOnce({
+      ...FAKE_REPO,
+      installationId: 999, // Different installation
+    });
+
+    const app = createApp();
+    const res = await app.request('/api/settings/copy-to-global', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repoId: 42 }),
+    });
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe('FORBIDDEN');
+  });
+
+  it('returns 500 when upsert fails', async () => {
+    mockGetRepositoryById.mockResolvedValueOnce(FAKE_REPO);
+    mockUpsertInstallationSettings.mockRejectedValueOnce(new Error('DB error'));
+
+    const app = createApp();
+    const res = await app.request('/api/settings/copy-to-global', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repoId: 42 }),
+    });
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('COPY_FAILED');
   });
 });

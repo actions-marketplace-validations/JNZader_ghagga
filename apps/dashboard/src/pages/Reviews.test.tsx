@@ -227,6 +227,65 @@ describe('Reviews — empty state', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════
+// Error state (query failed — NOT the same as empty success)
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Reviews — error state', () => {
+  it('shows an error message instead of "No reviews found." when the query fails', () => {
+    mockUseReviews.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    });
+
+    renderReviews();
+
+    expect(screen.getByText('Failed to load reviews. Please try again.')).toBeInTheDocument();
+    expect(screen.queryByText('No reviews found.')).not.toBeInTheDocument();
+  });
+
+  it('still shows "No reviews found." for a successful empty response', () => {
+    mockUseReviews.mockReturnValue({
+      data: { reviews: [], total: 0, page: 1, pageSize: 20 },
+      isLoading: false,
+      isError: false,
+    });
+
+    renderReviews();
+
+    expect(screen.getByText('No reviews found.')).toBeInTheDocument();
+    expect(screen.queryByText('Failed to load reviews. Please try again.')).not.toBeInTheDocument();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// All repositories (no repo selected → cross-installation listing)
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Reviews — All repositories', () => {
+  it('queries without a repo and renders each row with its repo label', () => {
+    mockUseSelectedRepo.mockReturnValue({
+      selectedRepo: '',
+      setSelectedRepo: vi.fn(),
+    });
+    mockReviewsData(MULTI_REVIEWS);
+
+    renderReviews();
+
+    // No repo selected → useReviews is called with undefined repo (no-repo endpoint).
+    // A trailing `undefined` filter-options arg is always passed positionally
+    // (see PRODOPS-005 — Reviews.tsx), even when no filter is active.
+    expect(mockUseReviews).toHaveBeenCalledWith(undefined, 1, undefined);
+
+    // Every row shows the repo it belongs to (mapped from the server fullName)
+    expect(screen.getByText('acme/app')).toBeInTheDocument();
+    expect(screen.getByText('acme/api')).toBeInTheDocument();
+    expect(screen.getByText('acme/web')).toBeInTheDocument();
+    expect(screen.getByText('acme/lib')).toBeInTheDocument();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
 // Table rendering with multiple reviews
 // ═══════════════════════════════════════════════════════════════════
 
@@ -265,6 +324,25 @@ describe('Reviews — table rendering', () => {
     expect(screen.getAllByText('Failed').length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('Needs Review').length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('Skipped').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('shows the coverage indicator only for rows with coverageComplete false', () => {
+    // Real page integration (not the isolated CoverageIndicator unit test):
+    // the indicator must reach the table row next to the status badge.
+    mockReviewsData([
+      makeReview({ id: 1, repo: 'acme/app', prNumber: 10, coverageComplete: false }),
+      makeReview({ id: 2, repo: 'acme/api', prNumber: 20, coverageComplete: true }),
+      makeReview({ id: 3, repo: 'acme/web', prNumber: 30 }), // legacy row — key absent
+    ]);
+
+    renderReviews();
+
+    const indicators = screen.getAllByRole('img', {
+      name: 'Incomplete coverage — some pipeline steps degraded',
+    });
+    expect(indicators).toHaveLength(1);
+    // The single indicator belongs to the coverageComplete: false row.
+    expect(indicators[0].closest('tr')).toHaveTextContent('acme/app');
   });
 
   it('renders formatted dates', () => {
@@ -476,6 +554,31 @@ describe('Reviews — pagination', () => {
     expect(screen.getByText('Page 1 of 3 (50 total)')).toBeInTheDocument();
   });
 
+  it('renders controls from server total (120/50) and Next advances the page param', () => {
+    mockUseReviews.mockReturnValue({
+      data: {
+        reviews: [makeReview()],
+        total: 120,
+        page: 1,
+        pageSize: 50,
+      },
+      isLoading: false,
+    });
+
+    renderReviews();
+
+    // ceil(120 / 50) = 3 pages — controls must render
+    expect(screen.getByText('Page 1 of 3 (120 total)')).toBeInTheDocument();
+    expect(screen.getByText('Previous')).toBeInTheDocument();
+    expect(screen.getByText('Next')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Next'));
+
+    // The page state drives the page param sent to useReviews → refetch
+    const lastCall = mockUseReviews.mock.calls[mockUseReviews.mock.calls.length - 1];
+    expect(lastCall![1]).toBe(2);
+  });
+
   it('Previous button is disabled on the first page', () => {
     mockUseReviews.mockReturnValue({
       data: {
@@ -512,7 +615,6 @@ describe('Reviews — pagination', () => {
     // The component calls useReviews(selectedRepo || undefined, page)
     // After clicking Next, the page state becomes 2
     const lastCall = mockUseReviews.mock.calls[mockUseReviews.mock.calls.length - 1];
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     expect(lastCall![1]).toBe(2);
   });
 
@@ -536,8 +638,127 @@ describe('Reviews — pagination', () => {
     fireEvent.click(screen.getByText('Previous'));
 
     const lastCall = mockUseReviews.mock.calls[mockUseReviews.mock.calls.length - 1];
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     expect(lastCall![1]).toBe(1);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Page reset & clamp (FF-1)
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Reviews — page reset & clamp', () => {
+  it('resets to page 1 when the selected repo changes', () => {
+    const setSelectedRepo = vi.fn();
+    mockUseSelectedRepo.mockReturnValue({ selectedRepo: '', setSelectedRepo });
+    mockUseRepositories.mockReturnValue({
+      data: [{ id: 1, fullName: 'acme/app' }],
+      isLoading: false,
+    });
+    mockUseReviews.mockReturnValue({
+      data: { reviews: MULTI_REVIEWS, total: 120, page: 1, pageSize: 20 },
+      isLoading: false,
+    });
+
+    const queryClient = createTestQueryClient();
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <Reviews />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    // Advance to page 2
+    fireEvent.click(screen.getByText('Next'));
+    expect(mockUseReviews.mock.calls[mockUseReviews.mock.calls.length - 1]?.[1]).toBe(2);
+
+    // Selected repo changes by an external path (context update)
+    mockUseSelectedRepo.mockReturnValue({ selectedRepo: 'acme/app', setSelectedRepo });
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <Reviews />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    // The effect on [selectedRepo] resets page → useReviews called with page 1
+    expect(mockUseReviews.mock.calls[mockUseReviews.mock.calls.length - 1]?.[1]).toBe(1);
+  });
+
+  it('clamps the page when totalPages shrinks below the current page', () => {
+    // Start on a multi-page result; navigate to page 3.
+    mockUseReviews.mockReturnValue({
+      data: { reviews: MULTI_REVIEWS, total: 120, page: 1, pageSize: 20 },
+      isLoading: false,
+    });
+
+    const queryClient = createTestQueryClient();
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <Reviews />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByText('Next')); // → page 2
+    fireEvent.click(screen.getByText('Next')); // → page 3
+    expect(mockUseReviews.mock.calls[mockUseReviews.mock.calls.length - 1]?.[1]).toBe(3);
+
+    // A delete drops the total to a single page. The clamp effect must pull
+    // page back to totalPages (1) instead of leaving an empty ghost page.
+    mockUseReviews.mockReturnValue({
+      data: { reviews: [makeReview()], total: 1, page: 1, pageSize: 20 },
+      isLoading: false,
+    });
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <Reviews />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    // Clamped to page 1 (valid), not stuck on page 3
+    expect(mockUseReviews.mock.calls[mockUseReviews.mock.calls.length - 1]?.[1]).toBe(1);
+    // And the row is rendered, not the empty state
+    expect(screen.queryByText('No reviews found.')).not.toBeInTheDocument();
+  });
+
+  it('does not force page to 0 when the result is empty (totalPages === 0)', () => {
+    mockUseReviews.mockReturnValue({
+      data: { reviews: [makeReview()], total: 120, page: 1, pageSize: 20 },
+      isLoading: false,
+    });
+
+    const queryClient = createTestQueryClient();
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <Reviews />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByText('Next')); // → page 2
+
+    // Result becomes empty (total 0 → totalPages 0). Guard prevents page → 0.
+    mockUseReviews.mockReturnValue({
+      data: { reviews: [], total: 0, page: 1, pageSize: 20 },
+      isLoading: false,
+    });
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <Reviews />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    // page param sent to the server must stay >= 1 (never 0)
+    const lastPage = mockUseReviews.mock.calls[mockUseReviews.mock.calls.length - 1]?.[1];
+    expect(lastPage).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -584,6 +805,29 @@ describe('Reviews — detail modal', () => {
     expect(screen.getByText('Unused variable')).toBeInTheDocument();
     expect(screen.getByText('quality')).toBeInTheDocument();
     expect(screen.getByText('src/utils.ts:10')).toBeInTheDocument();
+  });
+
+  it('renders only the file (no ":undefined") when a finding has no line', () => {
+    const reviewNoLine = makeReview({
+      id: 11,
+      findings: [
+        {
+          severity: 'low',
+          category: 'docs',
+          file: 'README.md',
+          message: 'Missing setup section',
+        },
+      ],
+    });
+    mockReviewsData([reviewNoLine]);
+
+    renderReviews();
+
+    fireEvent.click(screen.getByText('acme/app'));
+
+    // Location cell shows just the file — never "README.md:undefined".
+    expect(screen.getByText('README.md')).toBeInTheDocument();
+    expect(screen.queryByText('README.md:undefined')).not.toBeInTheDocument();
   });
 
   it('displays "—" when a finding has no suggestion', () => {
@@ -672,6 +916,184 @@ describe('Reviews — combined filters', () => {
     // Only the FAILED acme/api should be visible
     expect(screen.getByText('acme/api')).toBeInTheDocument();
     expect(screen.queryByText('acme/app')).not.toBeInTheDocument();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PRODOPS-005 — filters must widen the fetch window and totals must
+// reflect the filtered set, not the server's unfiltered page total.
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Reviews — filter fetch window and totals (PRODOPS-005)', () => {
+  it('requests a wide fetch window (not the default page) once a status filter is active', () => {
+    mockReviewsData(MULTI_REVIEWS);
+
+    renderReviews();
+
+    const statusSelect = screen.getByDisplayValue('All statuses');
+    fireEvent.change(statusSelect, { target: { value: 'FAILED' } });
+
+    const lastCall = mockUseReviews.mock.calls[mockUseReviews.mock.calls.length - 1];
+    // (repo, page, options) — page pinned to 1, options carries a wide limit
+    // plus the active filter values, forward-compatible with server-side
+    // filtering and keyed correctly in the query cache.
+    expect(lastCall![1]).toBe(1);
+    expect(lastCall![2]).toMatchObject({ limit: 100, status: 'FAILED' });
+  });
+
+  it('requests a wide fetch window once a search filter is active', () => {
+    mockReviewsData(MULTI_REVIEWS);
+
+    renderReviews();
+
+    const searchInput = screen.getByPlaceholderText('Search reviews...');
+    fireEvent.change(searchInput, { target: { value: 'acme/api' } });
+
+    const lastCall = mockUseReviews.mock.calls[mockUseReviews.mock.calls.length - 1];
+    expect(lastCall![2]).toMatchObject({ limit: 100, search: 'acme/api' });
+  });
+
+  it('does not request a wide window when no filter is active', () => {
+    mockReviewsData(MULTI_REVIEWS);
+
+    renderReviews();
+
+    const lastCall = mockUseReviews.mock.calls[mockUseReviews.mock.calls.length - 1];
+    expect(lastCall![2]).toBeUndefined();
+  });
+
+  it('shows the total of matching results, not the server unfiltered total, once filtered', () => {
+    // Server reports 4 total reviews for the repo (unfiltered), but the
+    // fetched window only contains 1 FAILED review once we filter client-side.
+    mockUseReviews.mockReturnValue({
+      data: { reviews: MULTI_REVIEWS, total: 4, page: 1, pageSize: 20 },
+      isLoading: false,
+    });
+
+    renderReviews();
+
+    const statusSelect = screen.getByDisplayValue('All statuses');
+    fireEvent.change(statusSelect, { target: { value: 'FAILED' } });
+
+    // Pagination footer is hidden for a single-result filtered set, so assert
+    // via the absence of the stale "4 total" and correctness of the visible
+    // rows instead (Reviews with >1 page would render "Page 1 of N (X total)").
+    expect(screen.getByText('acme/api')).toBeInTheDocument();
+    expect(screen.queryByText(/\(4 total\)/)).not.toBeInTheDocument();
+  });
+
+  it('never shows a false "No reviews found" for a match outside the default page size', () => {
+    // Simulate the server having returned a wide filtered window (as if
+    // FILTER_FETCH_LIMIT were honored) containing a match beyond what a
+    // single default-size page (20) would have carried.
+    const manyReviews = Array.from({ length: 25 }, (_, i) =>
+      makeReview({ id: i + 1, repo: 'acme/app', prNumber: i, status: 'PASSED' }),
+    );
+    manyReviews[24] = makeReview({
+      id: 999,
+      repo: 'acme/needle',
+      prNumber: 999,
+      status: 'PASSED',
+    });
+    mockUseReviews.mockReturnValue({
+      data: { reviews: manyReviews, total: 25, page: 1, pageSize: 20 },
+      isLoading: false,
+    });
+
+    renderReviews();
+
+    const searchInput = screen.getByPlaceholderText('Search reviews...');
+    fireEvent.change(searchInput, { target: { value: 'acme/needle' } });
+
+    expect(screen.getByText('acme/needle')).toBeInTheDocument();
+    expect(screen.queryByText('No reviews found.')).not.toBeInTheDocument();
+  });
+
+  it('warns when the filtered window may not cover every match (server total exceeds fetched rows)', () => {
+    // The fetch window (reviews.length) is smaller than the server's
+    // unfiltered total for the repo — there could be matches beyond it.
+    mockUseReviews.mockReturnValue({
+      data: { reviews: MULTI_REVIEWS, total: 150, page: 1, pageSize: 20 },
+      isLoading: false,
+    });
+
+    renderReviews();
+
+    const statusSelect = screen.getByDisplayValue('All statuses');
+    fireEvent.change(statusSelect, { target: { value: 'FAILED' } });
+
+    expect(screen.getByText(/out of 150 total/)).toBeInTheDocument();
+  });
+
+  it('does not warn about a truncated window when no filter is active', () => {
+    mockUseReviews.mockReturnValue({
+      data: { reviews: MULTI_REVIEWS, total: 150, page: 1, pageSize: 20 },
+      isLoading: false,
+    });
+
+    renderReviews();
+
+    expect(screen.queryByText(/out of 150 total/)).not.toBeInTheDocument();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// PRODOPS-008 — keyboard access to review row detail
+// ═══════════════════════════════════════════════════════════════════
+
+describe('Reviews — row keyboard accessibility (PRODOPS-008)', () => {
+  it('exposes each row as a focusable, labeled interactive element', () => {
+    mockReviewsData([makeReview({ repo: 'acme/app', prNumber: 42 })]);
+
+    renderReviews();
+
+    const row = screen.getByLabelText('View details for acme/app #42');
+    expect(row.tagName).toBe('TR');
+    expect(row).toHaveAttribute('tabIndex', '0');
+  });
+
+  it('opens the detail modal on Enter key', () => {
+    mockReviewsData([REVIEW_WITH_FINDINGS]);
+
+    renderReviews();
+
+    const row = screen.getByLabelText(`View details for acme/app #55`);
+    fireEvent.keyDown(row, { key: 'Enter' });
+
+    expect(screen.getByText('Found critical issues')).toBeInTheDocument();
+  });
+
+  it('opens the detail modal on Space key', () => {
+    mockReviewsData([REVIEW_WITH_FINDINGS]);
+
+    renderReviews();
+
+    const row = screen.getByLabelText(`View details for acme/app #55`);
+    fireEvent.keyDown(row, { key: ' ' });
+
+    expect(screen.getByText('Found critical issues')).toBeInTheDocument();
+  });
+
+  it('does not open the detail modal on unrelated keys', () => {
+    mockReviewsData([REVIEW_WITH_FINDINGS]);
+
+    renderReviews();
+
+    const row = screen.getByLabelText(`View details for acme/app #55`);
+    fireEvent.keyDown(row, { key: 'a' });
+
+    expect(screen.queryByText('Found critical issues')).not.toBeInTheDocument();
+  });
+
+  it('preserves table row semantics (still exposed with role "row")', () => {
+    mockReviewsData([makeReview({ repo: 'acme/app', prNumber: 42 })]);
+
+    renderReviews();
+
+    // getAllByRole('row') must include the header row + the data row —
+    // overriding role="button" on <tr> would strip it from this query.
+    const rows = screen.getAllByRole('row');
+    expect(rows.length).toBe(2);
   });
 });
 

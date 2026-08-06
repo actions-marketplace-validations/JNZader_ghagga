@@ -117,7 +117,7 @@ const AI_REVIEW_RESULT: ReviewResult = {
   memoryContext: null,
   metadata: {
     mode: 'simple',
-    provider: 'anthropic',
+    provider: 'gateway',
     model: 'claude-sonnet-4-20250514',
     tokensUsed: 1250,
     executionTimeMs: 800,
@@ -145,7 +145,7 @@ const STATIC_WITH_FINDINGS = {
   cpd: { status: 'skipped' as const, findings: [], executionTimeMs: 0 },
 };
 
-const SKIPPED_STATIC = {
+const _SKIPPED_STATIC = {
   semgrep: { status: 'skipped' as const, findings: [], error: 'not installed', executionTimeMs: 0 },
   trivy: { status: 'skipped' as const, findings: [], error: 'not installed', executionTimeMs: 0 },
   cpd: { status: 'skipped' as const, findings: [], error: 'not installed', executionTimeMs: 0 },
@@ -155,7 +155,7 @@ function makeInput(overrides: Partial<ReviewInput> = {}): ReviewInput {
   return {
     diff: REALISTIC_DIFF,
     mode: 'simple',
-    provider: 'anthropic',
+    provider: 'gateway',
     model: 'claude-sonnet-4-20250514',
     apiKey: 'test-api-key',
     settings: {
@@ -215,17 +215,15 @@ describe('integration: core review pipeline', () => {
 
     const aiFinding = result.findings.find((f) => f.source === 'ai');
     expect(aiFinding).toBeDefined();
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     expect(aiFinding!.message).toContain('rate limiting');
 
     const semgrepFinding = result.findings.find((f) => f.source === 'semgrep');
     expect(semgrepFinding).toBeDefined();
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     expect(semgrepFinding!.message).toContain('timing attack');
 
     // Metadata reflects the full pipeline
     expect(result.metadata.mode).toBe('simple');
-    expect(result.metadata.provider).toBe('anthropic');
+    expect(result.metadata.provider).toBe('gateway');
     expect(result.metadata.executionTimeMs).toBeGreaterThanOrEqual(0);
     expect(result.metadata.toolsRun).toContain('semgrep');
 
@@ -233,14 +231,13 @@ describe('integration: core review pipeline', () => {
     expect(runSimpleReview).toHaveBeenCalledWith(
       expect.objectContaining({
         staticContext: expect.stringContaining('Semgrep'),
-        provider: 'anthropic',
+        provider: 'gateway',
         model: 'claude-sonnet-4-20250514',
         apiKey: 'test-api-key',
       }),
     );
 
     // Verify the diff was parsed and truncated (agent received non-empty diff)
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const agentArgs = (runSimpleReview as MockedFunction<typeof runSimpleReview>).mock.calls[0]![0];
     expect(agentArgs.diff.length).toBeGreaterThan(0);
     expect(agentArgs.diff).toContain('auth.ts');
@@ -310,8 +307,8 @@ describe('integration: core review pipeline', () => {
 
     const result = await reviewPipeline(makeInput());
 
-    // Pipeline should still complete via AI agent
-    expect(result.status).toBe('PASSED');
+    // Pipeline completes but marks as PARTIAL due to failed static analysis step
+    expect(result.status).toBe('PARTIAL');
     expect(runSimpleReview).toHaveBeenCalledOnce();
 
     // Static analysis should be in error state

@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { REDIRECT_KEY, useAuth } from '@/lib/auth';
+import { REDIRECT_KEY, safeInternalPath, useAuth } from '@/lib/auth';
 import { API_URL, isServerAvailable } from '@/lib/oauth';
 
 export function Login() {
@@ -10,8 +10,28 @@ export function Login() {
 
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/';
 
+  // Single, sanitized post-login destination used by EVERY navigate/setter below.
+  // Prefer the router `from` (set by ProtectedRoute); when we arrived without
+  // router state (error/expiry path) `from` collapses to '/', so fall back to
+  // any destination already stashed in REDIRECT_KEY (e.g. '/settings' saved by
+  // ProtectedRoute or the 401 handler). safeInternalPath guarantees we never
+  // navigate off-site, since REDIRECT_KEY is attacker-controllable sessionStorage.
+  const dest = safeInternalPath(from !== '/' ? from : sessionStorage.getItem(REDIRECT_KEY) || '/');
+
   // If navigated from AuthCallback with showPat flag, start with PAT form
   const showPatFromState = (location.state as { showPat?: boolean })?.showPat === true;
+
+  // Check if the user was redirected here due to an expired session
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('expired') === '1') {
+      setSessionExpired(true);
+      // Clean the URL parameter so it doesn't persist on refresh
+      navigate('/login', { replace: true });
+    }
+  }, [location.search, navigate]);
 
   // Server availability (determines which login method to show)
   const [serverOnline, setServerOnline] = useState<boolean | null>(null);
@@ -27,14 +47,17 @@ export function Login() {
   // Redirect when authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      navigate(from, { replace: true });
+      navigate(dest, { replace: true });
     }
-  }, [isAuthenticated, from, navigate]);
+  }, [isAuthenticated, dest, navigate]);
 
   // Web Flow: redirect to server's /auth/login
   const handleWebFlowLogin = () => {
-    // Store the intended destination before leaving
-    sessionStorage.setItem(REDIRECT_KEY, from);
+    // Persist the (already sanitized) destination so the callback returns the
+    // user where they were headed. `dest` keeps any previously-stashed value
+    // (e.g. '/settings') instead of clobbering it with '/' on an error/expiry
+    // retry, and never points off-site.
+    sessionStorage.setItem(REDIRECT_KEY, dest);
     window.location.href = `${API_URL}/auth/login`;
   };
 
@@ -46,7 +69,9 @@ export function Login() {
     setPatValidating(true);
     try {
       await loginWithToken(patInput.trim());
-      navigate(from, { replace: true });
+      // PAT login now preserves the stashed destination too (DSH-A9 only fixed
+      // the Web Flow path). `dest` is sanitized, so this navigate is safe.
+      navigate(dest, { replace: true });
     } catch {
       // Error is set in auth context
     } finally {
@@ -68,6 +93,13 @@ export function Login() {
 
         {/* Login Card */}
         <div className="rounded-lg border border-surface-border bg-surface-card p-6">
+          {/* ─── Session Expired Banner ──────────────────────── */}
+          {sessionExpired && (
+            <div className="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+              Your session has expired. Please log in again.
+            </div>
+          )}
+
           {/* ─── Main Login (Web Flow or PAT when server offline) ─ */}
           {!showPatFallback && (
             <>
@@ -191,7 +223,8 @@ export function Login() {
 
 function GitHubIcon() {
   return (
-    <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+    <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-label="GitHub" role="img">
+      <title>GitHub</title>
       <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
     </svg>
   );

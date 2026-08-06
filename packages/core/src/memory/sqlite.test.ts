@@ -1,7 +1,14 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { EmbeddingProvider } from '../embed.js';
+import { EmbeddingProviderError, LocalEmbeddingProvider } from '../embed.js';
+import {
+  DEDUP_SCORE_THRESHOLD,
+  findIssueDuplicates,
+  ISSUE_TRIAGE_OBSERVATION_TYPE,
+} from './search.js';
 import { SqliteMemoryStorage } from './sqlite.js';
 
 // ─── Test Setup ─────────────────────────────────────────────────
@@ -74,6 +81,155 @@ describe('SqliteMemoryStorage', () => {
         "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_obs_%'",
       );
       expect(indexes[0]?.values.length).toBeGreaterThanOrEqual(3);
+
+      await storage.close();
+    });
+
+    it('migrates a legacy DB (no last_accessed_at column) that already has rows', async () => {
+      // Build a pre-migration database: observations table WITHOUT severity /
+      // last_accessed_at / embedding, with the FTS index populated via trigger,
+      // and one existing row. SQLite forbids non-constant defaults in
+      // ALTER TABLE ADD COLUMN, so the old migration always failed here.
+      const sqlJsModule = (await import('fts5-sql-bundle')).default;
+      const initSqlJs =
+        typeof sqlJsModule === 'function'
+          ? sqlJsModule
+          : (sqlJsModule as unknown as { initSqlJs: typeof sqlJsModule }).initSqlJs;
+      const SQL = await initSqlJs();
+      const legacy = new SQL.Database();
+      legacy.run(`
+        CREATE TABLE memory_observations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id INTEGER,
+          project TEXT NOT NULL,
+          type TEXT NOT NULL,
+          title TEXT NOT NULL,
+          content TEXT NOT NULL,
+          topic_key TEXT,
+          file_paths TEXT DEFAULT '[]',
+          content_hash TEXT,
+          revision_count INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE VIRTUAL TABLE memory_observations_fts
+          USING fts5(title, content, content='memory_observations', content_rowid='id');
+        CREATE TRIGGER obs_fts_insert AFTER INSERT ON memory_observations BEGIN
+          INSERT INTO memory_observations_fts(rowid, title, content)
+            VALUES (new.id, new.title, new.content);
+        END;
+        INSERT INTO memory_observations (project, type, title, content, updated_at)
+          VALUES ('owner/repo', 'pattern', 'Legacy auth note',
+                  'JWT auth validation pattern.', datetime('now', '-1 day'));
+      `);
+      writeFileSync(dbPath, Buffer.from(legacy.export()));
+      legacy.close();
+
+      // Opening with the current backend must add the column and backfill it
+      const storage = await SqliteMemoryStorage.create(dbPath);
+      // biome-ignore lint/suspicious/noExplicitAny: test access to private db
+      const db = (storage as any).db;
+
+      const col = db.exec(
+        "SELECT name FROM pragma_table_info('memory_observations') WHERE name = 'last_accessed_at'",
+      );
+      expect(col).toHaveLength(1);
+
+      // Backfill: last_accessed_at must equal updated_at for the legacy row
+      const row = db.exec('SELECT last_accessed_at, updated_at FROM memory_observations')[0]
+        ?.values[0];
+      expect(row?.[0]).not.toBeNull();
+      expect(row?.[0]).toBe(row?.[1]);
+
+      // Queries referencing the migrated column must work (this used to throw)
+      const results = await storage.searchObservations('owner/repo', 'auth');
+      expect(results).toHaveLength(1);
+      expect(results[0]?.title).toBe('Legacy auth note');
+
+      await storage.close();
+    });
+
+    it('adds embedding_model/embedding_dim columns to a legacy DB with existing rows, both NULL, no error', async () => {
+      // Build a pre-migration database: observations table WITHOUT
+      // embedding_model / embedding_dim, with one existing row.
+      const sqlJsModule = (await import('fts5-sql-bundle')).default;
+      const initSqlJs =
+        typeof sqlJsModule === 'function'
+          ? sqlJsModule
+          : (sqlJsModule as unknown as { initSqlJs: typeof sqlJsModule }).initSqlJs;
+      const SQL = await initSqlJs();
+      const legacy = new SQL.Database();
+      legacy.run(`
+        CREATE TABLE memory_observations (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id INTEGER,
+          project TEXT NOT NULL,
+          type TEXT NOT NULL,
+          title TEXT NOT NULL,
+          content TEXT NOT NULL,
+          severity TEXT,
+          topic_key TEXT,
+          file_paths TEXT DEFAULT '[]',
+          content_hash TEXT,
+          revision_count INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          last_accessed_at TEXT NOT NULL DEFAULT (datetime('now')),
+          embedding BLOB
+        );
+        CREATE VIRTUAL TABLE memory_observations_fts
+          USING fts5(title, content, content='memory_observations', content_rowid='id');
+        CREATE TRIGGER obs_fts_insert AFTER INSERT ON memory_observations BEGIN
+          INSERT INTO memory_observations_fts(rowid, title, content)
+            VALUES (new.id, new.title, new.content);
+        END;
+        INSERT INTO memory_observations (project, type, title, content)
+          VALUES ('owner/repo', 'pattern', 'Pre-embedding note', 'Some note before metadata columns existed.');
+      `);
+      writeFileSync(dbPath, Buffer.from(legacy.export()));
+      legacy.close();
+
+      // Opening with the current backend must add both columns without error
+      const storage = await SqliteMemoryStorage.create(dbPath);
+      // biome-ignore lint/suspicious/noExplicitAny: test access to private db
+      const db = (storage as any).db;
+
+      const cols = db.exec(
+        "SELECT name FROM pragma_table_info('memory_observations') WHERE name IN ('embedding_model', 'embedding_dim')",
+      );
+      expect(cols[0]?.values.map((v: unknown[]) => v[0]).sort()).toEqual([
+        'embedding_dim',
+        'embedding_model',
+      ]);
+
+      // Existing row reads back with both new columns NULL
+      const row = db.exec(
+        'SELECT embedding_model, embedding_dim FROM memory_observations WHERE title = ?',
+        ['Pre-embedding note'],
+      )[0]?.values[0];
+      expect(row?.[0]).toBeNull();
+      expect(row?.[1]).toBeNull();
+
+      // Queries against the table still work post-migration
+      const results = await storage.searchObservations('owner/repo', 'note');
+      expect(results).toHaveLength(1);
+      expect(results[0]?.title).toBe('Pre-embedding note');
+
+      await storage.close();
+    });
+
+    it('creates embedding_model/embedding_dim as NULL on a fresh DB', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
+      const db = (storage as any).db;
+
+      const row = await storage.saveObservation(makeObservationData());
+
+      const result = db.exec(
+        `SELECT embedding_model, embedding_dim FROM memory_observations WHERE id = ${row.id}`,
+      )[0]?.values[0];
+      expect(result?.[0]).toBeNull();
+      expect(result?.[1]).toBeNull();
 
       await storage.close();
     });
@@ -447,9 +603,477 @@ describe('SqliteMemoryStorage', () => {
         content: 'Middleware handles auth validation.',
         filePaths: ['src/auth.ts', 'src/middleware.ts'],
         severity: null,
+        strength: expect.any(Number),
+        // Additive: keyword relevance surfaced from FTS5 bm25, bounded to [0,1].
+        relevanceScore: expect.any(Number),
       });
 
       await storage.close();
+    });
+
+    it('surfaces a bounded [0,1] relevanceScore from real FTS5 bm25', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Webhook retry timeout',
+          content: 'The webhook retry logic times out under load.',
+        }),
+      );
+
+      const results = await storage.searchObservations('owner/repo', 'webhook retry timeout');
+
+      expect(results).toHaveLength(1);
+      const score = results[0]?.relevanceScore;
+      expect(score).toBeGreaterThan(0);
+      expect(score).toBeLessThanOrEqual(1);
+    });
+  });
+
+  // ── Hybrid Search (BM25 + semantic) ──
+  //
+  // Real round-trip tests: no DB mocks. Embeddings are serialized into the
+  // sql.js BLOB column on save and deserialized from Uint8Array on search,
+  // so these tests cover both the deserialization path and the BM25
+  // normalization (FTS5 bm25() is MORE NEGATIVE = BETTER).
+
+  describe('hybrid search (real round-trip)', () => {
+    /** Deterministic embedding provider: vector depends only on the text */
+    function makeEmbeddingProvider(vectorFor: (text: string) => number[]): EmbeddingProvider {
+      const dimension = vectorFor('probe').length;
+      return {
+        dimension,
+        embed: async (text: string) => vectorFor(text),
+        embedBatch: async (texts: string[]) => texts.map(vectorFor),
+      };
+    }
+
+    it('semantic match outranks a stronger keyword match (cosine contributes)', async () => {
+      // Texts containing 'rotate' (and the query itself) share one vector;
+      // everything else is orthogonal — so cosine only rewards the rotate doc.
+      const vectorFor = (text: string) => (text.includes('rotate') ? [1, 0, 0] : [0, 1, 0]);
+      const storage = await SqliteMemoryStorage.create(dbPath, {
+        embeddingProvider: makeEmbeddingProvider(vectorFor),
+      });
+
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Credential rotation policy',
+          content: 'We rotate secrets regularly.',
+        }),
+      );
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'token validation',
+          content: 'token token token token parsing and token checks.',
+        }),
+      );
+      // Unrelated filler so FTS5 idf is non-degenerate
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Database indexing notes',
+          content: 'Indexes speed up reads.',
+        }),
+      );
+
+      // Query matches 'token' (keyword-best doc) AND embeds to the rotate vector
+      const hybridResults = await storage.searchObservations('owner/repo', 'token rotate');
+
+      expect(hybridResults.length).toBeGreaterThanOrEqual(2);
+      // 0.7 * cosine dominates: the semantic match must rank first even though
+      // the token-spam doc is the far better keyword match
+      expect(hybridResults[0]?.title).toBe('Credential rotation policy');
+
+      await storage.close();
+
+      // Control: keyword-only search over the SAME data ranks the token doc
+      // first — proving cosine (i.e. embedding deserialization) changed the order
+      const keywordStorage = await SqliteMemoryStorage.create(dbPath);
+      const keywordResults = await keywordStorage.searchObservations('owner/repo', 'token rotate');
+      expect(keywordResults[0]?.title).toBe('token validation');
+      await keywordStorage.close();
+    });
+
+    it('best BM25 match ranks first when cosine ties (normalization not inverted)', async () => {
+      // Both keyword-matching texts embed to the same vector → cosine ties
+      // between them and ranking is decided by the positional-rank keyword
+      // score (design D5). The filler doc embeds orthogonally so it is a
+      // valid (but lowest-scoring) cosine-union candidate, not a tie — this
+      // also exercises the union surfacing a lexically-disjoint doc (R5.7)
+      // without disturbing the original tie-break assertion below.
+      const vectorFor = (text: string) => (text.includes('token') ? [1, 0, 0] : [0, 1, 0]);
+      const storage = await SqliteMemoryStorage.create(dbPath, {
+        embeddingProvider: makeEmbeddingProvider(vectorFor),
+      });
+
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'token heavy',
+          content: 'token token token token token everywhere.',
+        }),
+      );
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'token light',
+          content: 'a single token mention.',
+        }),
+      );
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Unrelated filler',
+          content: 'Nothing relevant here.',
+        }),
+      );
+
+      const results = await storage.searchObservations('owner/repo', 'token');
+
+      // The union brings in all 3 (filler now reachable as a vector-only
+      // candidate), but its orthogonal embedding + zero keyword score put it
+      // last, deterministically.
+      expect(results.length).toBe(3);
+      // FTS5 bm25() is MORE NEGATIVE = BETTER: the heavy doc must map to the
+      // best positional rank (1), not the worst (the old formula gave the
+      // best match the WORST normalized score)
+      expect(results[0]?.title).toBe('token heavy');
+      expect(results[1]?.title).toBe('token light');
+      expect(results[2]?.title).toBe('Unrelated filler');
+
+      await storage.close();
+    });
+
+    it('skips cosine on dimension mismatch and falls back to BM25 order', async () => {
+      // Save with a 3-dim provider...
+      const storage3d = await SqliteMemoryStorage.create(dbPath, {
+        embeddingProvider: makeEmbeddingProvider(() => [1, 0, 0]),
+      });
+      await storage3d.saveObservation(
+        makeObservationData({
+          title: 'token heavy',
+          content: 'token token token token token everywhere.',
+        }),
+      );
+      await storage3d.saveObservation(
+        makeObservationData({
+          title: 'token light',
+          content: 'a single token mention.',
+        }),
+      );
+      await storage3d.close();
+
+      // ...then search with a 4-dim provider: stored vectors must be skipped
+      const storage4d = await SqliteMemoryStorage.create(dbPath, {
+        embeddingProvider: makeEmbeddingProvider(() => [1, 0, 0, 0]),
+      });
+      const results = await storage4d.searchObservations('owner/repo', 'token');
+
+      // No throw, and order falls back to BM25 (cosine contributed 0 for all)
+      expect(results[0]?.title).toBe('token heavy');
+      await storage4d.close();
+    });
+  });
+
+  // ── Cosine Union (Phase 3 — spec R5.7-R5.11, design D3-D5) ──
+  //
+  // Unlike the "hybrid search" re-rank tests above, these exercise the
+  // bounded cosine CANDIDATE query itself: a lexically-disjoint observation
+  // (no FTS5 match at all) must still be retrievable when it clears the
+  // cosine bar, and the `none`-parity acceptance gate proves the keyword-only
+  // path never runs the union logic.
+
+  describe('cosine union (Phase 3)', () => {
+    function makeEmbeddingProvider(vectorFor: (text: string) => number[]): EmbeddingProvider {
+      const dimension = vectorFor('probe').length;
+      return {
+        dimension,
+        embed: async (text: string) => vectorFor(text),
+        embedBatch: async (texts: string[]) => texts.map(vectorFor),
+      };
+    }
+
+    it('[3.7 acceptance gate] none provider: output/order/last_accessed_at identical to the pre-union keyword-only path', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath); // no embeddingProvider
+
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Alpha token match',
+          content: 'token token token strong match.',
+        }),
+      );
+      await storage.saveObservation(
+        makeObservationData({ title: 'Beta token match', content: 'a single token mention.' }),
+      );
+      // Lexically disjoint from the query — must stay unreachable without a
+      // provider, proving no cosine candidate set is ever computed (R5.11).
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Gamma unrelated',
+          content: 'Completely unrelated content, zero overlap.',
+        }),
+      );
+
+      const results = await storage.searchObservations('owner/repo', 'token');
+
+      // Exact row/order/shape match — only the two lexical matches, BM25-ordered.
+      expect(results).toEqual([
+        {
+          id: expect.any(Number),
+          type: 'pattern',
+          title: 'Alpha token match',
+          content: 'token token token strong match.',
+          filePaths: [],
+          severity: null,
+          strength: 1,
+          relevanceScore: expect.any(Number),
+        },
+        {
+          id: expect.any(Number),
+          type: 'pattern',
+          title: 'Beta token match',
+          content: 'a single token mention.',
+          filePaths: [],
+          severity: null,
+          strength: 1,
+          relevanceScore: expect.any(Number),
+        },
+      ]);
+
+      // last_accessed_at updated ONLY for the two returned (lexically matched) rows
+      // biome-ignore lint/suspicious/noExplicitAny: test access to private db
+      const db = (storage as any).db;
+      const unchanged = db.exec(
+        "SELECT updated_at, last_accessed_at FROM memory_observations WHERE title = 'Gamma unrelated'",
+      )[0]?.values[0];
+      expect(unchanged?.[1]).toBe(unchanged?.[0]); // last_accessed_at still equals its initial value
+
+      await storage.close();
+    });
+
+    it('[3.8] surfaces a lexically-disjoint semantic match via the cosine union', async () => {
+      const vectorFor = (text: string) =>
+        text.includes('credential') || text.includes('secret') ? [1, 0, 0] : [0, 1, 0];
+      const storage = await SqliteMemoryStorage.create(dbPath, {
+        embeddingProvider: makeEmbeddingProvider(vectorFor),
+      });
+
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Credential exposure in logs',
+          content: 'Application logs printed raw credential values in plaintext.',
+        }),
+      );
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Unrelated filler',
+          content: 'Completely unrelated content about database indexing.',
+        }),
+      );
+
+      // No literal token overlap with either doc — only reachable via cosine.
+      // Both docs are embedded (so both are in the bounded cosine candidate
+      // set), but 'Credential exposure' ties the query vector while 'Unrelated
+      // filler' is orthogonal (cosineSim 0) — it must rank strictly first.
+      const results = await storage.searchObservations('owner/repo', 'secret leakage');
+
+      expect(results.some((r) => r.title === 'Credential exposure in logs')).toBe(true);
+      expect(results[0]?.title).toBe('Credential exposure in logs');
+
+      await storage.close();
+    });
+
+    it('[3.8] dedups a candidate present in both keyword and cosine sets, using its real keyword score', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath, {
+        embeddingProvider: makeEmbeddingProvider(() => [1, 0, 0]), // all docs tie on cosine
+      });
+
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Overlap doc',
+          content: 'overlap keyword and cosine both match this doc.',
+        }),
+      );
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Vector-only doc',
+          content: 'no lexical overlap here at all.',
+        }),
+      );
+
+      const results = await storage.searchObservations('owner/repo', 'overlap');
+
+      // Exactly 2 rows (no duplicate for the doc matched by both sources)
+      expect(results).toHaveLength(2);
+      // 'Overlap doc' matches keyword AND cosine → real keyword score (1),
+      // not the vector-only 0 → higher finalScore → ranks first
+      expect(results[0]?.title).toBe('Overlap doc');
+      expect(results[1]?.title).toBe('Vector-only doc');
+
+      await storage.close();
+    });
+
+    it('[3.8] excludes mixed-dimension rows from the cosine candidate set without error', async () => {
+      // Save with a 3-dim provider — this doc has NO lexical overlap with the query
+      const storage3d = await SqliteMemoryStorage.create(dbPath, {
+        embeddingProvider: makeEmbeddingProvider(() => [1, 0, 0]),
+      });
+      await storage3d.saveObservation(
+        makeObservationData({
+          title: 'Vector-only 3d doc',
+          content: 'photonic entanglement drift ratio measurements.',
+        }),
+      );
+      await storage3d.close();
+
+      // Search with a 4-dim provider: the stored 3-dim embedding must be
+      // excluded from the cosine candidate set entirely — never surfaced,
+      // never thrown (task 3.2 read guard). Query shares no literal token
+      // with the doc, so it cannot be reached via the keyword path either.
+      const storage4d = await SqliteMemoryStorage.create(dbPath, {
+        embeddingProvider: makeEmbeddingProvider(() => [1, 0, 0, 0]),
+      });
+      const results = await storage4d.searchObservations('owner/repo', 'zephyr cascade unrelated');
+
+      expect(results).toHaveLength(0);
+      await storage4d.close();
+    });
+
+    it('[3.8] returns correctly with a partial-backfill mix of NULL and embedded rows', async () => {
+      const vectorFor = (text: string) =>
+        text.includes('alpha-trigger') || text.includes('beta-trigger') ? [1, 0, 0] : [0, 1, 0];
+      const storage = await SqliteMemoryStorage.create(dbPath, {
+        embeddingProvider: makeEmbeddingProvider(vectorFor),
+      });
+
+      // Embedded row: no literal token overlap with the query — only reachable via cosine
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Vectorized doc',
+          content: 'contains the beta-trigger marker only.',
+        }),
+      );
+
+      // Simulate a NULL-embedding row (pre-backfill state) that DOES share a
+      // literal keyword with the query — reachable only via the keyword path.
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Legacy keyword doc',
+          content: 'this legacy row matches on plainkeyword.',
+        }),
+      );
+      // biome-ignore lint/suspicious/noExplicitAny: test access to private db
+      const db = (storage as any).db;
+      db.run(
+        "UPDATE memory_observations SET embedding = NULL, embedding_model = NULL, embedding_dim = NULL WHERE title = 'Legacy keyword doc'",
+      );
+
+      const results = await storage.searchObservations('owner/repo', 'alpha-trigger plainkeyword');
+
+      const titles = results.map((r) => r.title).sort();
+      expect(titles).toEqual(['Legacy keyword doc', 'Vectorized doc']);
+
+      await storage.close();
+    });
+  });
+
+  // ── Graceful Degradation on Provider Failure (Defects 1 & 2) ──
+  //
+  // Defect 1: a degraded LocalEmbeddingProvider must THROW on the save path,
+  // so the row is persisted with a NULL embedding (backfillable) rather than a
+  // zero vector (which would MATCH model/dim and be invisible to backfill).
+  // Defect 2: a provider that throws at QUERY time must degrade the search to
+  // keyword-only, byte-for-byte matching the none-provider ranking — never crash.
+
+  describe('graceful degradation on provider failure', () => {
+    function makeEmbeddingProvider(vectorFor: (text: string) => number[]): EmbeddingProvider {
+      const dimension = vectorFor('probe').length;
+      return {
+        dimension,
+        embed: async (text: string) => vectorFor(text),
+        embedBatch: async (texts: string[]) => texts.map(vectorFor),
+      };
+    }
+
+    it('[defect 1] degraded local provider on SAVE persists a NULL embedding, then backfill picks it up', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      // Loader always throws → the provider is degraded and embed() throws.
+      const degraded = new LocalEmbeddingProvider({ model: 'degraded-model', dimension: 384 }, () =>
+        Promise.reject(new Error('@xenova/transformers not installed')),
+      );
+      const storage = await SqliteMemoryStorage.create(dbPath, {
+        embeddingProvider: degraded,
+        embeddingModel: 'degraded-model',
+      });
+
+      const saved = await storage.saveObservation(
+        makeObservationData({ title: 'Degraded save doc', content: 'body of the degraded save.' }),
+      );
+
+      // The row was saved (non-fatal) but WITHOUT a zero vector: embedding is NULL.
+      // biome-ignore lint/suspicious/noExplicitAny: test access to private db
+      const db = (storage as any).db;
+      const stored = db.exec(
+        `SELECT embedding, embedding_model, embedding_dim FROM memory_observations WHERE id = ${saved.id}`,
+      )[0]?.values[0];
+      expect(stored?.[0]).toBeNull(); // embedding
+      expect(stored?.[1]).toBeNull(); // embedding_model
+      expect(stored?.[2]).toBeNull(); // embedding_dim
+
+      // A NULL-embedding row IS recoverable via backfill (embedding IS NULL match).
+      const needing = await storage.listObservationsNeedingEmbedding({
+        afterId: 0,
+        limit: 10,
+        activeModel: 'degraded-model',
+        activeDim: 384,
+        includeMismatched: false,
+      });
+      expect(needing.map((r) => r.id)).toContain(saved.id);
+
+      await storage.close();
+      warnSpy.mockRestore();
+    });
+
+    it('[defect 2] provider that throws on embed(query) degrades search to keyword-only (no crash)', async () => {
+      // Seed rows WITH embeddings using a working provider.
+      const working = makeEmbeddingProvider((text) =>
+        text.includes('rotate') ? [1, 0, 0] : [0, 1, 0],
+      );
+      const seed = await SqliteMemoryStorage.create(dbPath, { embeddingProvider: working });
+      await seed.saveObservation(
+        makeObservationData({ title: 'token doc', content: 'token token token match.' }),
+      );
+      await seed.saveObservation(
+        makeObservationData({ title: 'rotate doc', content: 'we rotate token secrets.' }),
+      );
+      await seed.saveObservation(
+        makeObservationData({ title: 'filler', content: 'unrelated indexing notes.' }),
+      );
+      await seed.close();
+
+      const throwingProvider: EmbeddingProvider = {
+        dimension: 3,
+        embed: async () => {
+          throw new EmbeddingProviderError('query embed boom');
+        },
+        embedBatch: async () => {
+          throw new EmbeddingProviderError('query embed boom');
+        },
+      };
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const storageThrow = await SqliteMemoryStorage.create(dbPath, {
+        embeddingProvider: throwingProvider,
+      });
+      // No crash — resolves to keyword-only results.
+      const resultsThrow = await storageThrow.searchObservations('owner/repo', 'token rotate');
+      await storageThrow.close();
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+
+      // none-parity: same DB searched with NO provider yields identical titles/order.
+      const storageNone = await SqliteMemoryStorage.create(dbPath); // no provider
+      const resultsNone = await storageNone.searchObservations('owner/repo', 'token rotate');
+      await storageNone.close();
+
+      expect(resultsThrow.map((r) => r.title)).toEqual(resultsNone.map((r) => r.title));
+      expect(resultsThrow.length).toBeGreaterThan(0);
     });
   });
 
@@ -1034,5 +1658,242 @@ describe('SqliteMemoryStorage', () => {
 
       await storage2.close();
     });
+  });
+
+  // ── Memory Decay ──
+
+  describe('memory decay', () => {
+    it('returns strength=1.0 for freshly created observations', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Fresh finding',
+          content: 'This is a fresh finding about authentication.',
+        }),
+      );
+
+      const results = await storage.searchObservations('owner/repo', 'authentication');
+      expect(results).toHaveLength(1);
+      expect(results[0]?.strength).toBe(1.0);
+
+      await storage.close();
+    });
+
+    it('filters out observations past clearance threshold', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath, {
+        decayConfig: {
+          dormancyDays: 1,
+          decayDays: 5,
+          clearanceDays: 10,
+          minStrength: 0.1,
+        },
+      });
+
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Old authentication finding',
+          content: 'A stale authentication finding.',
+        }),
+      );
+
+      // Manually backdate the last_accessed_at to 15 days ago
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
+      const db = (storage as any).db;
+      db.run("UPDATE memory_observations SET last_accessed_at = datetime('now', '-15 days')");
+
+      const results = await storage.searchObservations('owner/repo', 'authentication');
+      expect(results).toHaveLength(0);
+
+      await storage.close();
+    });
+
+    it('returns decayed strength for observations in decay window', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath, {
+        decayConfig: {
+          dormancyDays: 0,
+          decayDays: 10,
+          clearanceDays: 10,
+          minStrength: 0.0,
+        },
+      });
+
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Decaying zeppelin observation',
+          content: 'A zeppelin observation in the decay window.',
+        }),
+      );
+
+      // Backdate to 5 days ago — should be ~0.5 strength
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
+      const db = (storage as any).db;
+      db.run("UPDATE memory_observations SET last_accessed_at = datetime('now', '-5 days')");
+
+      const results = await storage.searchObservations('owner/repo', 'zeppelin');
+      expect(results).toHaveLength(1);
+      expect(results[0]?.strength).toBeGreaterThan(0.3);
+      expect(results[0]?.strength).toBeLessThan(0.7);
+
+      await storage.close();
+    });
+
+    it('updates last_accessed_at when observation is returned in search', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      await storage.saveObservation(
+        makeObservationData({
+          title: 'Access tracking quasar',
+          content: 'Quasar observation for access tracking test.',
+        }),
+      );
+
+      // Backdate last_accessed_at
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
+      const db = (storage as any).db;
+      db.run("UPDATE memory_observations SET last_accessed_at = datetime('now', '-2 days')");
+
+      // Capture the old value
+      const before = db.exec('SELECT last_accessed_at FROM memory_observations LIMIT 1');
+      const oldValue = before[0]?.values[0]?.[0] as string;
+
+      // Search should update last_accessed_at
+      await storage.searchObservations('owner/repo', 'quasar');
+
+      // Verify last_accessed_at changed (is newer than the old backdated value)
+      const after = db.exec('SELECT last_accessed_at FROM memory_observations LIMIT 1');
+      const newValue = after[0]?.values[0]?.[0] as string;
+      expect(newValue).not.toBe(oldValue);
+      expect(new Date(newValue).getTime()).toBeGreaterThan(new Date(oldValue).getTime());
+
+      await storage.close();
+    });
+
+    it('topic upsert resets last_accessed_at', async () => {
+      const storage = await SqliteMemoryStorage.create(dbPath);
+
+      await storage.saveObservation(
+        makeObservationData({
+          topicKey: 'decay-topic',
+          content: 'Version 1 content',
+        }),
+      );
+
+      // Backdate
+      // biome-ignore lint/suspicious/noExplicitAny: mock cast
+      const db = (storage as any).db;
+      db.run("UPDATE memory_observations SET last_accessed_at = datetime('now', '-30 days')");
+
+      // Capture the old value
+      const before = db.exec('SELECT last_accessed_at FROM memory_observations LIMIT 1');
+      const oldValue = before[0]?.values[0]?.[0] as string;
+
+      // Upsert should reset last_accessed_at
+      await storage.saveObservation(
+        makeObservationData({
+          topicKey: 'decay-topic',
+          content: 'Version 2 content',
+        }),
+      );
+
+      const after = db.exec('SELECT last_accessed_at FROM memory_observations LIMIT 1');
+      const newValue = after[0]?.values[0]?.[0] as string;
+      expect(new Date(newValue).getTime()).toBeGreaterThan(new Date(oldValue).getTime());
+
+      await storage.close();
+    });
+  });
+});
+
+// ─── Integration: findIssueDuplicates over the REAL SQLite adapter ──────────
+//
+// Exercises the end-to-end relevance/dedup path against a live (in-memory,
+// file-backed) SQLite store: save real issue-triage observations, then run
+// findIssueDuplicates so the backend-agnostic keyword overlap is validated
+// against actual stored rows + real FTS5 retrieval — not just mocked arithmetic.
+
+describe('findIssueDuplicates (real SQLite adapter, integration)', () => {
+  it('flags a genuinely-similar prior issue and skips an unrelated recent one', async () => {
+    const storage = await SqliteMemoryStorage.create(dbPath);
+
+    // A prior triaged issue that closely matches the incoming one.
+    await storage.saveObservation({
+      project: 'owner/repo',
+      type: ISSUE_TRIAGE_OBSERVATION_TYPE,
+      title: 'Login button throws TypeError on Safari',
+      content: 'The login button throws a TypeError on Safari browsers.',
+    });
+    // A recent but unrelated triaged issue (false-positive bait for the old
+    // recency-gated code).
+    await storage.saveObservation({
+      project: 'owner/repo',
+      type: ISSUE_TRIAGE_OBSERVATION_TYPE,
+      title: 'Database migration timeout during deploy',
+      content: 'Migration step times out on large tables during deploy.',
+    });
+
+    // A genuine duplicate: the incoming issue's distinctive keywords are a
+    // subset of (or equal to) the prior issue's, so overlap clears the bar.
+    // (Overlap normalizes by the QUERY's term set, so a verbose unrelated body
+    // would correctly DILUTE the score — that conservatism is covered in the
+    // unit tests; here we model a true re-report.)
+    const dup = await findIssueDuplicates(
+      storage,
+      'owner/repo',
+      'Login button throws TypeError on Safari',
+      '',
+    );
+
+    expect(dup.isDuplicate).toBe(true);
+    expect(dup.matches.length).toBeGreaterThan(0);
+    expect(dup.matches[0]?.score).toBeGreaterThanOrEqual(DEDUP_SCORE_THRESHOLD);
+    expect(dup.matches[0]?.title).toContain('Login button');
+
+    // FALSE-POSITIVE PREVENTION (explicit): the same store also holds the
+    // unrelated "Database migration timeout during deploy" bait. Query it with
+    // its OWN distinctive terms — it WILL retrieve that bait row, but the
+    // INCOMING issue here is a genuinely different one ("connection pool
+    // exhausted under load") that shares NO distinctive keywords with either
+    // stored issue. The overlap must stay below the threshold so a real new
+    // issue is never auto-suppressed. (Exercises the prevention path directly,
+    // rather than only implying it via the positive case above.)
+    const notDup = await findIssueDuplicates(
+      storage,
+      'owner/repo',
+      'Connection pool exhausted under heavy concurrent load',
+      'The service rejects requests once the connection pool saturates.',
+    );
+    expect(notDup.isDuplicate).toBe(false);
+    // Whatever (if anything) FTS surfaces, no candidate clears the gate.
+    for (const m of notDup.matches) {
+      expect(m.score).toBeLessThan(DEDUP_SCORE_THRESHOLD);
+    }
+
+    await storage.close();
+  });
+
+  it('returns empty (no dup) when the only stored memory is a DIFFERENT type', async () => {
+    const storage = await SqliteMemoryStorage.create(dbPath);
+
+    // Same keywords, but stored under a NON-issue-triage type → must be excluded
+    // by the type filter so dedup does not match arbitrary memory.
+    await storage.saveObservation({
+      project: 'owner/repo',
+      type: 'pattern',
+      title: 'Login button throws TypeError on Safari',
+      content: 'A coding pattern note that happens to share keywords.',
+    });
+
+    const dup = await findIssueDuplicates(
+      storage,
+      'owner/repo',
+      'Login button throws TypeError on Safari',
+      '',
+    );
+
+    expect(dup.isDuplicate).toBe(false);
+    expect(dup.matches).toEqual([]);
+
+    await storage.close();
   });
 });

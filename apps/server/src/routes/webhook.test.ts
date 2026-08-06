@@ -7,7 +7,16 @@
 
 import { createHmac } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createWebhookRouter } from './webhook.js';
+import {
+  buildBoundedTriagePayload,
+  createWebhookRouter,
+  MAX_TRIAGE_BODY_BYTES,
+  MAX_TRIAGE_COMMENT_BYTES,
+  MAX_TRIAGE_COMMENTS,
+  MAX_TRIAGE_LABELS,
+  MAX_TRIAGE_TOTAL_BYTES,
+  parseCommentCommand,
+} from './webhook.js';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
@@ -31,16 +40,25 @@ vi.mock('ghagga-db', () => ({
     mockDeleteMappingsByInstallationId(...args),
 }));
 
-// Mock inngest client
-const mockInngestSend = vi.fn();
-vi.mock('../inngest/client.js', () => ({
-  inngest: { send: (...args: unknown[]) => mockInngestSend(...args) },
+// Mock BullMQ review queue
+const mockEnqueueReview = vi.fn();
+vi.mock('../queues/review.js', () => ({
+  enqueueReview: (...args: unknown[]) => mockEnqueueReview(...args),
+}));
+
+// Mock BullMQ issue-analysis queue (issue-triage path). Importing the real
+// module would construct a live BullMQ Queue + ioredis connection at import time.
+const mockEnqueueIssueAnalysis = vi.fn();
+vi.mock('../queues/issue-analysis.js', () => ({
+  enqueueIssueAnalysis: (...args: unknown[]) => mockEnqueueIssueAnalysis(...args),
 }));
 
 // Mock GitHub client functions used by issue_comment handler
 const mockAddCommentReaction = vi.fn();
 const mockGetInstallationToken = vi.fn();
 const mockFetchPRDetails = vi.fn();
+const mockGetIssue = vi.fn();
+const mockListIssueComments = vi.fn();
 vi.mock('../github/client.js', async (importOriginal) => {
   const original = await importOriginal<typeof import('../github/client.js')>();
   return {
@@ -48,6 +66,8 @@ vi.mock('../github/client.js', async (importOriginal) => {
     addCommentReaction: (...args: unknown[]) => mockAddCommentReaction(...args),
     getInstallationToken: (...args: unknown[]) => mockGetInstallationToken(...args),
     fetchPRDetails: (...args: unknown[]) => mockFetchPRDetails(...args),
+    getIssue: (...args: unknown[]) => mockGetIssue(...args),
+    listIssueComments: (...args: unknown[]) => mockListIssueComments(...args),
   };
 });
 
@@ -128,6 +148,9 @@ beforeEach(() => {
   mockAddCommentReaction.mockResolvedValue(undefined);
   mockGetInstallationToken.mockResolvedValue('fake-installation-token');
   mockFetchPRDetails.mockResolvedValue({ headSha: 'pr-head-sha-abc', baseBranch: 'main' });
+  mockGetIssue.mockResolvedValue({ title: 'Bug: thing broken', body: 'It crashes', labels: [] });
+  mockListIssueComments.mockResolvedValue([]);
+  mockEnqueueIssueAnalysis.mockResolvedValue({ id: 'mock-triage-job-id' });
   mockGetEffectiveRepoSettings.mockResolvedValue({
     providerChain: [],
     aiReviewEnabled: true,
@@ -143,7 +166,7 @@ beforeEach(() => {
     },
     source: 'repo',
   });
-  mockInngestSend.mockResolvedValue(undefined);
+  mockEnqueueReview.mockResolvedValue({ id: 'mock-job-id' });
 });
 
 afterEach(() => {
@@ -246,12 +269,13 @@ describe('pull_request event handling', () => {
       number: 42,
       head: { sha: 'abc123' },
       base: { ref: 'main' },
+      user: { login: 'pr-author' },
     },
     repository: { id: 12345, full_name: 'owner/repo' },
     installation: { id: 999 },
   };
 
-  it('dispatches review via Inngest for opened PR', async () => {
+  it('dispatches review via BullMQ for opened PR', async () => {
     mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
     const body = JSON.stringify(prPayload);
     const req = makeRequest(body, 'pull_request');
@@ -266,14 +290,16 @@ describe('pull_request event handling', () => {
     expect(json).toHaveProperty('reviewId');
     expect(json.reviewId).toHaveLength(8);
 
-    expect(mockInngestSend).toHaveBeenCalledOnce();
-    const sendArg = mockInngestSend.mock.calls[0]?.[0];
-    expect(sendArg.name).toBe('ghagga/review.requested');
-    expect(sendArg.data.installationId).toBe(999);
-    expect(sendArg.data.repoFullName).toBe('owner/repo');
-    expect(sendArg.data.prNumber).toBe(42);
-    // reviewId propagated to Inngest event
-    expect(sendArg.data.reviewId).toBe(json.reviewId);
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
+    const jobData = mockEnqueueReview.mock.calls[0]?.[0];
+    expect(jobData.installationId).toBe(999);
+    expect(jobData.repoFullName).toBe('owner/repo');
+    expect(jobData.prNumber).toBe(42);
+    // IMMUTABLE numeric GitHub repo id threaded for FREE from the webhook payload
+    // (payload.repository.id) → worker uses it for RepoRef.nativeId, no DB/API call.
+    expect(jobData.githubRepoId).toBe(12345);
+    // reviewId propagated to BullMQ job
+    expect(jobData.reviewId).toBe(json.reviewId);
   });
 
   it('dispatches review for synchronize action', async () => {
@@ -282,7 +308,7 @@ describe('pull_request event handling', () => {
     const req = makeRequest(body, 'pull_request');
     const res = await router.fetch(req);
     expect(res.status).toBe(202);
-    expect(mockInngestSend).toHaveBeenCalledOnce();
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
   });
 
   it('dispatches review for reopened action', async () => {
@@ -291,7 +317,7 @@ describe('pull_request event handling', () => {
     const req = makeRequest(body, 'pull_request');
     const res = await router.fetch(req);
     expect(res.status).toBe(202);
-    expect(mockInngestSend).toHaveBeenCalledOnce();
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
   });
 
   it('ignores non-reviewable actions (closed, edited, labeled)', async () => {
@@ -303,7 +329,7 @@ describe('pull_request event handling', () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.message).toContain('ignored');
-      expect(mockInngestSend).not.toHaveBeenCalled();
+      expect(mockEnqueueReview).not.toHaveBeenCalled();
     }
   });
 
@@ -324,23 +350,26 @@ describe('pull_request event handling', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.message).toContain('not tracked');
-    expect(mockInngestSend).not.toHaveBeenCalled();
+    expect(mockEnqueueReview).not.toHaveBeenCalled();
   });
 
-  it('passes repo settings to Inngest event data', async () => {
+  it('passes repo settings to BullMQ job data', async () => {
     mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
     const body = JSON.stringify(prPayload);
     const req = makeRequest(body, 'pull_request');
     await router.fetch(req);
 
-    const sendArg = mockInngestSend.mock.calls[0]?.[0];
-    expect(sendArg.data.settings.enableSemgrep).toBe(true);
-    expect(sendArg.data.settings.enableTrivy).toBe(true);
-    expect(sendArg.data.settings.enableCpd).toBe(false);
-    expect(sendArg.data.settings.enableMemory).toBe(true);
-    expect(sendArg.data.settings.ignorePatterns).toEqual(['*.md']);
-    expect(sendArg.data.encryptedApiKey).toBe('encrypted-key-123');
-    expect(sendArg.data.llmProvider).toBe('anthropic');
+    const jobData = mockEnqueueReview.mock.calls[0]?.[0];
+    expect(jobData.settings.enableSemgrep).toBe(true);
+    expect(jobData.settings.enableTrivy).toBe(true);
+    expect(jobData.settings.enableCpd).toBe(false);
+    expect(jobData.settings.enableMemory).toBe(true);
+    expect(jobData.settings.ignorePatterns).toEqual(['*.md']);
+    // SECURITY: encrypted credentials must NOT be enqueued — the worker
+    // re-fetches them from the DB by repositoryId at processing time.
+    expect(jobData.encryptedApiKey).toBeUndefined();
+    expect(jobData.providerChain).toBeUndefined();
+    expect(jobData.llmProvider).toBe('anthropic');
   });
 });
 
@@ -485,15 +514,16 @@ describe('issue_comment event handling', () => {
     expect(json).toHaveProperty('reviewId');
     expect(json.reviewId).toHaveLength(8);
 
-    expect(mockInngestSend).toHaveBeenCalledOnce();
-    const sendArg = mockInngestSend.mock.calls[0]?.[0];
-    expect(sendArg.name).toBe('ghagga/review.requested');
-    expect(sendArg.data.prNumber).toBe(42);
-    expect(sendArg.data.triggerCommentId).toBe(777);
-    expect(sendArg.data.headSha).toBe('pr-head-sha-abc');
-    expect(sendArg.data.baseBranch).toBe('main');
-    // reviewId propagated to Inngest event
-    expect(sendArg.data.reviewId).toBe(json.reviewId);
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
+    const jobData = mockEnqueueReview.mock.calls[0]?.[0];
+    expect(jobData.prNumber).toBe(42);
+    expect(jobData.triggerCommentId).toBe(777);
+    expect(jobData.headSha).toBe('pr-head-sha-abc');
+    expect(jobData.baseBranch).toBe('main');
+    // IMMUTABLE numeric GitHub repo id threaded for FREE from payload.repository.id.
+    expect(jobData.githubRepoId).toBe(12345);
+    // reviewId propagated to BullMQ job
+    expect(jobData.reviewId).toBe(json.reviewId);
   });
 
   it('fetches PR details to include headSha and baseBranch', async () => {
@@ -504,9 +534,9 @@ describe('issue_comment event handling', () => {
     await router.fetch(req);
 
     expect(mockFetchPRDetails).toHaveBeenCalledWith('owner', 'repo', 42, 'fake-installation-token');
-    const sendArg = mockInngestSend.mock.calls[0]?.[0];
-    expect(sendArg.data.headSha).toBe('def456');
-    expect(sendArg.data.baseBranch).toBe('develop');
+    const jobData = mockEnqueueReview.mock.calls[0]?.[0];
+    expect(jobData.headSha).toBe('def456');
+    expect(jobData.baseBranch).toBe('develop');
   });
 
   it('dispatches review without headSha when PR details fetch fails', async () => {
@@ -518,10 +548,10 @@ describe('issue_comment event handling', () => {
 
     // Should still dispatch the review without headSha/baseBranch
     expect(res.status).toBe(202);
-    expect(mockInngestSend).toHaveBeenCalledOnce();
-    const sendArg = mockInngestSend.mock.calls[0]?.[0];
-    expect(sendArg.data.headSha).toBeUndefined();
-    expect(sendArg.data.baseBranch).toBeUndefined();
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
+    const jobData = mockEnqueueReview.mock.calls[0]?.[0];
+    expect(jobData.headSha).toBeUndefined();
+    expect(jobData.baseBranch).toBeUndefined();
   });
 
   it('adds 👀 reaction to acknowledge the trigger', async () => {
@@ -542,17 +572,20 @@ describe('issue_comment event handling', () => {
 
   it('triggers on case-insensitive "GHAGGA REVIEW"', async () => {
     mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    // Leading-line form (command must lead the line); case-insensitivity preserved.
     const body = JSON.stringify({
       ...commentPayload,
-      comment: { ...commentPayload.comment, body: 'Please GHAGGA REVIEW this PR' },
+      comment: { ...commentPayload.comment, body: 'GHAGGA REVIEW' },
     });
     const req = makeRequest(body, 'issue_comment');
     const res = await router.fetch(req);
     expect(res.status).toBe(202);
-    expect(mockInngestSend).toHaveBeenCalledOnce();
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
   });
 
-  it('triggers when keyword is embedded in longer text', async () => {
+  it('does NOT trigger when keyword is embedded mid-sentence (anchored to line start)', async () => {
+    // BEHAVIOR CHANGE: the trigger is now anchored to the line start to prevent
+    // quoting-injection, so a command buried in prose no longer fires.
     mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
     const body = JSON.stringify({
       ...commentPayload,
@@ -563,8 +596,8 @@ describe('issue_comment event handling', () => {
     });
     const req = makeRequest(body, 'issue_comment');
     const res = await router.fetch(req);
-    expect(res.status).toBe(202);
-    expect(mockInngestSend).toHaveBeenCalledOnce();
+    expect(res.status).toBe(200);
+    expect(mockEnqueueReview).not.toHaveBeenCalled();
   });
 
   it('ignores comments without the trigger keyword', async () => {
@@ -577,7 +610,7 @@ describe('issue_comment event handling', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.message).toContain('No review trigger keyword');
-    expect(mockInngestSend).not.toHaveBeenCalled();
+    expect(mockEnqueueReview).not.toHaveBeenCalled();
   });
 
   it('ignores bot comments (self-trigger prevention)', async () => {
@@ -590,7 +623,7 @@ describe('issue_comment event handling', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.message).toContain('Bot comment ignored');
-    expect(mockInngestSend).not.toHaveBeenCalled();
+    expect(mockEnqueueReview).not.toHaveBeenCalled();
   });
 
   it('ignores edited or deleted comment actions', async () => {
@@ -602,7 +635,7 @@ describe('issue_comment event handling', () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.message).toContain('ignored');
-      expect(mockInngestSend).not.toHaveBeenCalled();
+      expect(mockEnqueueReview).not.toHaveBeenCalled();
     }
   });
 
@@ -616,7 +649,7 @@ describe('issue_comment event handling', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.message).toContain('not on a pull request');
-    expect(mockInngestSend).not.toHaveBeenCalled();
+    expect(mockEnqueueReview).not.toHaveBeenCalled();
   });
 
   it('rejects users with NONE association', async () => {
@@ -629,7 +662,7 @@ describe('issue_comment event handling', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.message).toContain('Insufficient permissions');
-    expect(mockInngestSend).not.toHaveBeenCalled();
+    expect(mockEnqueueReview).not.toHaveBeenCalled();
   });
 
   it('rejects MANNEQUIN association', async () => {
@@ -640,7 +673,7 @@ describe('issue_comment event handling', () => {
     const req = makeRequest(body, 'issue_comment');
     const res = await router.fetch(req);
     expect(res.status).toBe(200);
-    expect(mockInngestSend).not.toHaveBeenCalled();
+    expect(mockEnqueueReview).not.toHaveBeenCalled();
   });
 
   it('allows OWNER association', async () => {
@@ -652,7 +685,7 @@ describe('issue_comment event handling', () => {
     const req = makeRequest(body, 'issue_comment');
     const res = await router.fetch(req);
     expect(res.status).toBe(202);
-    expect(mockInngestSend).toHaveBeenCalledOnce();
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
   });
 
   it('allows MEMBER association', async () => {
@@ -664,7 +697,7 @@ describe('issue_comment event handling', () => {
     const req = makeRequest(body, 'issue_comment');
     const res = await router.fetch(req);
     expect(res.status).toBe(202);
-    expect(mockInngestSend).toHaveBeenCalledOnce();
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
   });
 
   it('allows FIRST_TIMER association', async () => {
@@ -676,7 +709,7 @@ describe('issue_comment event handling', () => {
     const req = makeRequest(body, 'issue_comment');
     const res = await router.fetch(req);
     expect(res.status).toBe(202);
-    expect(mockInngestSend).toHaveBeenCalledOnce();
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
   });
 
   it('allows FIRST_TIME_CONTRIBUTOR association', async () => {
@@ -688,7 +721,7 @@ describe('issue_comment event handling', () => {
     const req = makeRequest(body, 'issue_comment');
     const res = await router.fetch(req);
     expect(res.status).toBe(202);
-    expect(mockInngestSend).toHaveBeenCalledOnce();
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
   });
 
   it('returns 400 when installation ID is missing', async () => {
@@ -699,7 +732,7 @@ describe('issue_comment event handling', () => {
     const req = makeRequest(body, 'issue_comment');
     const res = await router.fetch(req);
     expect(res.status).toBe(400);
-    expect(mockInngestSend).not.toHaveBeenCalled();
+    expect(mockEnqueueReview).not.toHaveBeenCalled();
   });
 
   it('returns 200 when repository is not tracked', async () => {
@@ -710,7 +743,7 @@ describe('issue_comment event handling', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.message).toContain('not tracked');
-    expect(mockInngestSend).not.toHaveBeenCalled();
+    expect(mockEnqueueReview).not.toHaveBeenCalled();
   });
 
   it('continues dispatching even if reaction fails', async () => {
@@ -722,7 +755,273 @@ describe('issue_comment event handling', () => {
 
     // Should still dispatch the review despite reaction failure
     expect(res.status).toBe(202);
-    expect(mockInngestSend).toHaveBeenCalledOnce();
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
+  });
+
+  it('handles a forge 401 on a freshly-minted token gracefully (BL-WEBHOOK-401-RETRY)', async () => {
+    // A 401/403 on the just-minted installation token is surfaced as a clear,
+    // diagnosable auth error (not retried — the webhook mints fresh per request,
+    // so a re-mint would fail identically) and MUST NOT crash the webhook. Both
+    // forge calls (ack reaction + fetch PR details) reject with a status:401 the
+    // adapter reclassifies to ForgeAuthError. The review still dispatches (202).
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const authError = Object.assign(new Error('GitHub API error: 401 Unauthorized'), {
+      status: 401,
+    });
+    mockAddCommentReaction.mockRejectedValue(authError);
+    mockFetchPRDetails.mockRejectedValue(authError);
+
+    const body = JSON.stringify(commentPayload);
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    // Webhook survives the auth failure (best-effort calls stay non-critical)
+    // and still dispatches the review without headSha/baseBranch.
+    expect(res.status).toBe(202);
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
+    const jobData = mockEnqueueReview.mock.calls[0]?.[0];
+    expect(jobData.headSha).toBeUndefined();
+    expect(jobData.baseBranch).toBeUndefined();
+  });
+});
+
+// ─── parseCommentCommand Unit Tests ───────────────────────────────
+
+describe('parseCommentCommand', () => {
+  it('parses "/ghagga review" with slash prefix', () => {
+    const result = parseCommentCommand('/ghagga review');
+    expect(result).toEqual({ command: 'review', reviewMode: null });
+  });
+
+  it('parses "ghagga review" without slash (backward compat)', () => {
+    const result = parseCommentCommand('ghagga review');
+    expect(result).toEqual({ command: 'review', reviewMode: null });
+  });
+
+  it('parses "/ghagga security" as workflow mode', () => {
+    const result = parseCommentCommand('/ghagga security');
+    expect(result).toEqual({ command: 'security', reviewMode: 'workflow' });
+  });
+
+  it('parses "/ghagga perf" as workflow mode', () => {
+    const result = parseCommentCommand('/ghagga perf');
+    expect(result).toEqual({ command: 'perf', reviewMode: 'workflow' });
+  });
+
+  it('parses "/ghagga describe" as simple mode', () => {
+    const result = parseCommentCommand('/ghagga describe');
+    expect(result).toEqual({ command: 'describe', reviewMode: 'simple' });
+  });
+
+  it('is case-insensitive', () => {
+    expect(parseCommentCommand('/GHAGGA SECURITY')).toEqual({
+      command: 'security',
+      reviewMode: 'workflow',
+    });
+    expect(parseCommentCommand('Ghagga Review')).toEqual({ command: 'review', reviewMode: null });
+  });
+
+  it('does NOT trigger mid-sentence (command must lead the line)', () => {
+    // BEHAVIOR CHANGE: previously this matched. The trigger is now anchored to
+    // the line start to prevent quoting-injection, so a command embedded in
+    // prose no longer fires.
+    expect(parseCommentCommand('Please /ghagga review this PR, thanks!')).toBeNull();
+  });
+
+  it('parses a command on a clean line within a multi-line body', () => {
+    const body = 'Some context paragraph.\n/ghagga review\nThanks!';
+    expect(parseCommentCommand(body)).toEqual({ command: 'review', reviewMode: null });
+  });
+
+  it('allows leading indentation but not a markdown quote', () => {
+    expect(parseCommentCommand('  /ghagga security')).toEqual({
+      command: 'security',
+      reviewMode: 'workflow',
+    });
+  });
+
+  it('captures the hyphenated fan-out command', () => {
+    expect(parseCommentCommand('/ghagga fan-out')).toEqual({
+      command: 'fan-out',
+      reviewMode: 'fan-out',
+    });
+  });
+
+  it('does NOT trigger on quoted, inline, or code-fenced commands (quoting-injection)', () => {
+    expect(parseCommentCommand('> /ghagga review')).toBeNull();
+    expect(parseCommentCommand('> ghagga review')).toBeNull();
+    expect(parseCommentCommand('lorem /ghagga review ipsum')).toBeNull();
+    expect(parseCommentCommand('```/ghagga review```')).toBeNull();
+  });
+
+  it('does NOT trigger on a command on its own line inside a multi-line fenced block', () => {
+    // The command line is a clean line-start, so the anchor alone would match it.
+    // Stripping fenced blocks before matching is what neutralizes this.
+    const body = 'Here is an example:\n```\n/ghagga review\n```\nDo not run it.';
+    expect(parseCommentCommand(body)).toBeNull();
+  });
+
+  it('does NOT trigger when keyword and subcommand are on different lines', () => {
+    expect(parseCommentCommand('/ghagga\nreview')).toBeNull();
+  });
+
+  it('does NOT trigger on a pseudo-line-break with a bare carriage return (Q8)', () => {
+    // A bare \r renders as a line break in some viewers but is NOT a \n: the
+    // scanner splits on \n only, so this stays one logical line and the command
+    // is not at a real line-start.
+    expect(parseCommentCommand('blah\r/ghagga review')).toBeNull();
+  });
+
+  it('does NOT trigger on a pseudo-line-break with a unicode line separator (Q8)', () => {
+    expect(parseCommentCommand('blah /ghagga review')).toBeNull();
+    expect(parseCommentCommand('blah /ghagga review')).toBeNull();
+  });
+
+  it('does NOT trigger inside an UNTERMINATED fenced block (Q7)', () => {
+    // The opening fence is never closed; everything after it stays in-fence.
+    expect(parseCommentCommand('```\n/ghagga review')).toBeNull();
+  });
+
+  it('does NOT trigger inside a terminated fenced block on its own line', () => {
+    const body = 'Example:\n```\n/ghagga review\n```\nDo not run.';
+    expect(parseCommentCommand(body)).toBeNull();
+  });
+
+  it('triggers on a clean (non-fenced) command line within a multi-line body', () => {
+    const body = 'Some context.\n```\nfenced noise\n```\n/ghagga review\nthanks';
+    expect(parseCommentCommand(body)).toEqual({ command: 'review', reviewMode: null });
+  });
+
+  it('handles CRLF line endings (trailing \\r does not break the match)', () => {
+    // The line passed to COMMAND_REGEX is "/ghagga review\r"; [\w-]+ stops before
+    // the \r, so the command captures cleanly as "review".
+    expect(parseCommentCommand('/ghagga review\r\n')).toEqual({
+      command: 'review',
+      reviewMode: null,
+    });
+  });
+
+  it('returns "unknown" for unrecognized command', () => {
+    expect(parseCommentCommand('/ghagga foobar')).toBe('unknown');
+    expect(parseCommentCommand('ghagga deploy')).toBe('unknown');
+  });
+
+  it('returns null when no ghagga mention at all', () => {
+    expect(parseCommentCommand('Looks good to me!')).toBeNull();
+    expect(parseCommentCommand('review this please')).toBeNull();
+  });
+});
+
+// ─── Comment Command Dispatch (integration) ──────────────────────
+
+describe('comment command dispatch', () => {
+  const makeCommentPayload = (body: string) => ({
+    action: 'created',
+    comment: {
+      id: 777,
+      body,
+      user: { login: 'contributor-user', type: 'User' },
+      author_association: 'CONTRIBUTOR',
+    },
+    issue: {
+      number: 42,
+      pull_request: { url: 'https://api.github.com/repos/owner/repo/pulls/42' },
+    },
+    repository: { id: 12345, full_name: 'owner/repo' },
+    installation: { id: 999 },
+  });
+
+  it('dispatches /ghagga security with workflow mode override', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify(makeCommentPayload('/ghagga security'));
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(202);
+    const json = await res.json();
+    expect(json).toHaveProperty('command', 'security');
+
+    const jobData = mockEnqueueReview.mock.calls[0]?.[0];
+    expect(jobData.reviewMode).toBe('workflow');
+  });
+
+  it('dispatches /ghagga perf with workflow mode override', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify(makeCommentPayload('/ghagga perf'));
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(202);
+    const json = await res.json();
+    expect(json).toHaveProperty('command', 'perf');
+
+    const jobData = mockEnqueueReview.mock.calls[0]?.[0];
+    expect(jobData.reviewMode).toBe('workflow');
+  });
+
+  it('dispatches /ghagga describe with simple mode override', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify(makeCommentPayload('/ghagga describe'));
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(202);
+    const json = await res.json();
+    expect(json).toHaveProperty('command', 'describe');
+
+    const jobData = mockEnqueueReview.mock.calls[0]?.[0];
+    expect(jobData.reviewMode).toBe('simple');
+  });
+
+  it('dispatches /ghagga review using repo default mode (no override)', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    mockGetEffectiveRepoSettings.mockResolvedValue({
+      providerChain: [],
+      aiReviewEnabled: true,
+      reviewMode: 'consensus',
+      settings: {
+        enableSemgrep: true,
+        enableTrivy: true,
+        enableCpd: false,
+        enableMemory: true,
+        customRules: [],
+        ignorePatterns: ['*.md'],
+        reviewLevel: 'standard',
+      },
+      source: 'repo',
+    });
+    const body = JSON.stringify(makeCommentPayload('/ghagga review'));
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(202);
+    const json = await res.json();
+    expect(json).toHaveProperty('command', 'review');
+
+    // Should use repo's effective reviewMode, not an override
+    const jobData = mockEnqueueReview.mock.calls[0]?.[0];
+    expect(jobData.reviewMode).toBe('consensus');
+  });
+
+  it('returns 200 with message for unknown command /ghagga foobar', async () => {
+    const body = JSON.stringify(makeCommentPayload('/ghagga foobar'));
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toContain('Unknown ghagga command');
+    expect(mockEnqueueReview).not.toHaveBeenCalled();
+  });
+
+  it('backward compat: "ghagga review" without slash still dispatches', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify(makeCommentPayload('ghagga review'));
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(202);
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
   });
 });
 
@@ -790,5 +1089,405 @@ describe('installation.deleted — mapping cleanup', () => {
     expect(mockDeactivateInstallation).toHaveBeenCalledOnce();
     // Should NOT attempt to delete mappings without internal ID
     expect(mockDeleteMappingsByInstallationId).not.toHaveBeenCalled();
+  });
+});
+
+describe('issue triage command (/ghagga triage)', () => {
+  /** A `/ghagga triage` comment on a PLAIN issue (no pull_request field). */
+  const triagePayload = {
+    action: 'created',
+    comment: {
+      id: 555,
+      body: '/ghagga triage',
+      user: { login: 'maintainer-user', type: 'User' },
+      author_association: 'OWNER',
+    },
+    issue: {
+      number: 88, // No pull_request field → a plain issue
+    },
+    repository: { id: 12345, full_name: 'owner/repo' },
+    installation: { id: 999 },
+  };
+
+  it('enqueues an issue-analysis job for /ghagga triage on a plain issue (not dropped)', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    mockGetIssue.mockResolvedValue({
+      title: 'Login fails',
+      body: 'Steps: click login → 500',
+      labels: ['bug', 'auth'],
+    });
+    mockListIssueComments.mockResolvedValue([{ author: 'alice', body: 'I see it too' }]);
+
+    const req = makeRequest(JSON.stringify(triagePayload), 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(202);
+    const json = await res.json();
+    expect(json).toHaveProperty('message', 'Triage dispatched');
+    expect(json).toHaveProperty('issue', 88);
+    expect(json.reviewId).toHaveLength(8);
+
+    // Routed to the issue-analysis queue, NOT the PR review queue.
+    expect(mockEnqueueReview).not.toHaveBeenCalled();
+    expect(mockEnqueueIssueAnalysis).toHaveBeenCalledOnce();
+
+    const jobData = mockEnqueueIssueAnalysis.mock.calls[0]?.[0];
+    expect(jobData.repositoryId).toBe(FAKE_REPO.id);
+    expect(jobData.issueNumber).toBe(88);
+    expect(jobData.issueTitle).toBe('Login fails');
+    expect(jobData.issueBody).toBe('Steps: click login → 500');
+    expect(jobData.labels).toEqual(['bug', 'auth']);
+    expect(jobData.comments).toEqual([{ author: 'alice', body: 'I see it too' }]);
+    expect(jobData.triggerCommentId).toBe(555);
+    expect(jobData.installationId).toBe(999);
+    expect(jobData.reviewId).toBe(json.reviewId);
+  });
+
+  it('caps the comment fetch COUNT at MAX_TRIAGE_COMMENTS', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const req = makeRequest(JSON.stringify(triagePayload), 'issue_comment');
+    await router.fetch(req);
+
+    // The handler must ask the client to cap the fetch count at the source.
+    expect(mockListIssueComments).toHaveBeenCalledWith(
+      'owner',
+      'repo',
+      88,
+      'fake-installation-token',
+      MAX_TRIAGE_COMMENTS,
+    );
+  });
+
+  it('rejects /ghagga triage from a non-maintainer BEFORE any fetch or enqueue', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify({
+      ...triagePayload,
+      comment: { ...triagePayload.comment, author_association: 'NONE' },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toContain('Insufficient permissions');
+    // Gate runs before fetch + enqueue: nothing expensive happened.
+    expect(mockEnqueueIssueAnalysis).not.toHaveBeenCalled();
+    expect(mockGetIssue).not.toHaveBeenCalled();
+    expect(mockListIssueComments).not.toHaveBeenCalled();
+  });
+
+  it('does NOT enqueue triage for a bot-authored /ghagga triage comment', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify({
+      ...triagePayload,
+      comment: { ...triagePayload.comment, user: { login: 'ghagga[bot]', type: 'Bot' } },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toContain('Bot comment ignored');
+    expect(mockEnqueueIssueAnalysis).not.toHaveBeenCalled();
+    expect(mockGetIssue).not.toHaveBeenCalled();
+    // A bot must trigger ZERO fetches on the triage path — comments too.
+    expect(mockListIssueComments).not.toHaveBeenCalled();
+  });
+
+  it('does not route /ghagga triage on a PR to the issue-analysis queue', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify({
+      ...triagePayload,
+      issue: {
+        number: 88,
+        pull_request: { url: 'https://api.github.com/repos/owner/repo/pulls/88' },
+      },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toContain('only for issues');
+    expect(mockEnqueueIssueAnalysis).not.toHaveBeenCalled();
+    expect(mockEnqueueReview).not.toHaveBeenCalled();
+  });
+
+  it('returns 200 (no enqueue) when the repo is not tracked', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(null);
+    const req = makeRequest(JSON.stringify(triagePayload), 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toContain('not tracked');
+    expect(mockEnqueueIssueAnalysis).not.toHaveBeenCalled();
+  });
+
+  it('STRICT GATE: rejects /ghagga triage from a CONTRIBUTOR (review-allowed, triage-denied)', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const body = JSON.stringify({
+      ...triagePayload,
+      comment: { ...triagePayload.comment, author_association: 'CONTRIBUTOR' },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toContain('Insufficient permissions to trigger triage');
+    // No fetch, no enqueue — rejected before any GitHub read or token spend.
+    expect(mockEnqueueIssueAnalysis).not.toHaveBeenCalled();
+    expect(mockGetIssue).not.toHaveBeenCalled();
+    expect(mockListIssueComments).not.toHaveBeenCalled();
+    expect(mockGetInstallationToken).not.toHaveBeenCalled();
+  });
+
+  it('STRICT GATE: rejects /ghagga triage from FIRST_TIMER and FIRST_TIME_CONTRIBUTOR', async () => {
+    for (const association of ['FIRST_TIMER', 'FIRST_TIME_CONTRIBUTOR']) {
+      vi.clearAllMocks();
+      mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+      const body = JSON.stringify({
+        ...triagePayload,
+        comment: { ...triagePayload.comment, author_association: association },
+      });
+      const req = makeRequest(body, 'issue_comment');
+      const res = await router.fetch(req);
+
+      expect(res.status).toBe(200);
+      expect(mockEnqueueIssueAnalysis).not.toHaveBeenCalled();
+      expect(mockGetIssue).not.toHaveBeenCalled();
+      expect(mockListIssueComments).not.toHaveBeenCalled();
+    }
+  });
+
+  it('STRICT GATE: allows COLLABORATOR and MEMBER (write associations) for triage', async () => {
+    for (const association of ['COLLABORATOR', 'MEMBER']) {
+      vi.clearAllMocks();
+      mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+      mockGetInstallationToken.mockResolvedValue('fake-installation-token');
+      mockGetIssue.mockResolvedValue({ title: 'T', body: 'B', labels: [] });
+      mockListIssueComments.mockResolvedValue([]);
+      const body = JSON.stringify({
+        ...triagePayload,
+        comment: { ...triagePayload.comment, author_association: association },
+      });
+      const req = makeRequest(body, 'issue_comment');
+      const res = await router.fetch(req);
+
+      expect(res.status).toBe(202);
+      expect(mockEnqueueIssueAnalysis).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('REVIEW UNCHANGED: a CONTRIBUTOR /ghagga review on a PR is STILL allowed', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    // A CONTRIBUTOR asking for a review on a PR — the shared lenient gate must
+    // keep working byte-for-byte (the stricter gate is triage-only).
+    const body = JSON.stringify({
+      action: 'created',
+      comment: {
+        id: 777,
+        body: '/ghagga review',
+        user: { login: 'contributor-user', type: 'User' },
+        author_association: 'CONTRIBUTOR',
+      },
+      issue: {
+        number: 42,
+        pull_request: { url: 'https://api.github.com/repos/owner/repo/pulls/42' },
+      },
+      repository: { id: 12345, full_name: 'owner/repo' },
+      installation: { id: 999 },
+    });
+    const req = makeRequest(body, 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(202);
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
+    expect(mockEnqueueIssueAnalysis).not.toHaveBeenCalled();
+  });
+
+  it('ABORTS triage (no enqueue) when the ISSUE fetch fails', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    mockGetIssue.mockRejectedValue(new Error('GitHub API error fetching issue: 404 Not Found'));
+    const req = makeRequest(JSON.stringify(triagePayload), 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toContain('failed to fetch issue');
+    // No useless empty-issue job; comments fetch never even reached.
+    expect(mockEnqueueIssueAnalysis).not.toHaveBeenCalled();
+    expect(mockListIssueComments).not.toHaveBeenCalled();
+  });
+
+  it('DEGRADES (still enqueues) when ONLY the comments fetch fails', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    mockGetIssue.mockResolvedValue({ title: 'Login fails', body: 'desc', labels: ['bug'] });
+    mockListIssueComments.mockRejectedValue(new Error('GitHub API error listing issue comments'));
+    const req = makeRequest(JSON.stringify(triagePayload), 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(202);
+    expect(mockEnqueueIssueAnalysis).toHaveBeenCalledOnce();
+    const jobData = mockEnqueueIssueAnalysis.mock.calls[0]?.[0];
+    // Issue data present; comments degraded to [].
+    expect(jobData.issueTitle).toBe('Login fails');
+    expect(jobData.comments).toEqual([]);
+  });
+
+  it('ABORTS triage (no enqueue) when GitHub App credentials are not configured', async () => {
+    delete process.env.GITHUB_APP_ID;
+    delete process.env.GITHUB_PRIVATE_KEY;
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const req = makeRequest(JSON.stringify(triagePayload), 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.message).toContain('GitHub App not configured');
+    expect(mockEnqueueIssueAnalysis).not.toHaveBeenCalled();
+    expect(mockGetIssue).not.toHaveBeenCalled();
+  });
+
+  it('bounds labels on a label-stuffed issue (count + total budget)', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    const manyLabels = Array.from({ length: 200 }, (_, i) => `label-${i}`);
+    mockGetIssue.mockResolvedValue({ title: 'T', body: 'B', labels: manyLabels });
+    mockListIssueComments.mockResolvedValue([]);
+    const req = makeRequest(JSON.stringify(triagePayload), 'issue_comment');
+    const res = await router.fetch(req);
+
+    expect(res.status).toBe(202);
+    const jobData = mockEnqueueIssueAnalysis.mock.calls[0]?.[0];
+    expect(jobData.labels.length).toBeLessThanOrEqual(MAX_TRIAGE_LABELS);
+  });
+
+  it('bounds a giant issue (huge body + hundreds of comments) into a capped payload', async () => {
+    mockGetRepoByGithubId.mockResolvedValue(FAKE_REPO);
+    // 1 MB body + 300 comments of 10 KB each — a deliberate DoS-shaped issue.
+    const hugeBody = 'A'.repeat(1_000_000);
+    const hugeComments = Array.from({ length: 300 }, (_, i) => ({
+      author: `user${i}`,
+      body: 'B'.repeat(10_000),
+    }));
+    mockGetIssue.mockResolvedValue({ title: 'X'.repeat(2000), body: hugeBody, labels: [] });
+    mockListIssueComments.mockResolvedValue(hugeComments);
+
+    const req = makeRequest(JSON.stringify(triagePayload), 'issue_comment');
+    const res = await router.fetch(req);
+    expect(res.status).toBe(202);
+
+    const jobData = mockEnqueueIssueAnalysis.mock.calls[0]?.[0];
+    // Title byte-capped to EXACTLY 500 (issue_drafts.issueTitle is varchar(500));
+    // the ellipsis is reserved INSIDE the budget so no +1 slack is needed.
+    expect(Buffer.byteLength(jobData.issueTitle, 'utf8')).toBeLessThanOrEqual(500);
+    // Body byte-bounded EXACTLY (ellipsis-inclusive — see truncateToBytes).
+    expect(Buffer.byteLength(jobData.issueBody, 'utf8')).toBeLessThanOrEqual(MAX_TRIAGE_BODY_BYTES);
+    // Comment count bounded.
+    expect(jobData.comments.length).toBeLessThanOrEqual(MAX_TRIAGE_COMMENTS);
+    // Each comment body byte-bounded EXACTLY.
+    for (const cmt of jobData.comments) {
+      expect(Buffer.byteLength(cmt.body, 'utf8')).toBeLessThanOrEqual(MAX_TRIAGE_COMMENT_BYTES);
+    }
+    // Total untrusted bytes (body + comment bodies) within the global budget EXACTLY.
+    const totalBytes =
+      Buffer.byteLength(jobData.issueBody, 'utf8') +
+      jobData.comments.reduce(
+        (sum: number, cmt: { body: string }) => sum + Buffer.byteLength(cmt.body, 'utf8'),
+        0,
+      );
+    expect(totalBytes).toBeLessThanOrEqual(MAX_TRIAGE_TOTAL_BYTES);
+  });
+});
+
+// ─── buildBoundedTriagePayload Unit Tests ─────────────────────────
+
+describe('buildBoundedTriagePayload', () => {
+  it('passes through small inputs unchanged', () => {
+    const out = buildBoundedTriagePayload({
+      issueTitle: 'short title',
+      issueBody: 'short body',
+      labels: ['bug'],
+      comments: [{ author: 'a', body: 'hi' }],
+    });
+    expect(out.issueTitle).toBe('short title');
+    expect(out.issueBody).toBe('short body');
+    expect(out.labels).toEqual(['bug']);
+    expect(out.comments).toEqual([{ author: 'a', body: 'hi' }]);
+  });
+
+  it('truncates an oversize body to EXACTLY the byte budget (ellipsis-inclusive)', () => {
+    const out = buildBoundedTriagePayload({
+      issueTitle: 't',
+      issueBody: 'A'.repeat(MAX_TRIAGE_BODY_BYTES * 2),
+      labels: [],
+      comments: [],
+    });
+    // Contract is ≤ budget exactly — the ellipsis is reserved INSIDE the budget.
+    expect(Buffer.byteLength(out.issueBody, 'utf8')).toBeLessThanOrEqual(MAX_TRIAGE_BODY_BYTES);
+  });
+
+  it('drops comments past MAX_TRIAGE_COMMENTS', () => {
+    const comments = Array.from({ length: MAX_TRIAGE_COMMENTS + 50 }, (_, i) => ({
+      author: `u${i}`,
+      body: 'x',
+    }));
+    const out = buildBoundedTriagePayload({
+      issueTitle: 't',
+      issueBody: 'b',
+      labels: [],
+      comments,
+    });
+    expect(out.comments.length).toBe(MAX_TRIAGE_COMMENTS);
+  });
+
+  it('caps the label COUNT at MAX_TRIAGE_LABELS', () => {
+    const labels = Array.from({ length: MAX_TRIAGE_LABELS + 100 }, (_, i) => `label-${i}`);
+    const out = buildBoundedTriagePayload({
+      issueTitle: 't',
+      issueBody: 'b',
+      labels,
+      comments: [],
+    });
+    expect(out.labels.length).toBe(MAX_TRIAGE_LABELS);
+  });
+
+  it('charges labels to the TOTAL byte budget (label-stuffed issue stays bounded)', () => {
+    // Each label near the per-label cap; the total (body + labels + comments)
+    // must still honor the global ceiling EXACTLY (no slack).
+    const labels = Array.from({ length: MAX_TRIAGE_LABELS }, () => 'L'.repeat(256));
+    const comments = Array.from({ length: MAX_TRIAGE_COMMENTS }, (_, i) => ({
+      author: `u${i}`,
+      body: 'B'.repeat(MAX_TRIAGE_COMMENT_BYTES),
+    }));
+    const out = buildBoundedTriagePayload({
+      issueTitle: 't',
+      issueBody: 'A'.repeat(MAX_TRIAGE_BODY_BYTES),
+      labels,
+      comments,
+    });
+    const total =
+      Buffer.byteLength(out.issueBody, 'utf8') +
+      out.labels.reduce((s, l) => s + Buffer.byteLength(l, 'utf8'), 0) +
+      out.comments.reduce((s, cmt) => s + Buffer.byteLength(cmt.body, 'utf8'), 0);
+    expect(total).toBeLessThanOrEqual(MAX_TRIAGE_TOTAL_BYTES);
+  });
+
+  it('enforces the total byte budget across body + comments EXACTLY', () => {
+    const comments = Array.from({ length: MAX_TRIAGE_COMMENTS }, (_, i) => ({
+      author: `u${i}`,
+      body: 'B'.repeat(MAX_TRIAGE_COMMENT_BYTES),
+    }));
+    const out = buildBoundedTriagePayload({
+      issueTitle: 't',
+      issueBody: 'A'.repeat(MAX_TRIAGE_BODY_BYTES),
+      labels: [],
+      comments,
+    });
+    const total =
+      Buffer.byteLength(out.issueBody, 'utf8') +
+      out.comments.reduce((s, cmt) => s + Buffer.byteLength(cmt.body, 'utf8'), 0);
+    expect(total).toBeLessThanOrEqual(MAX_TRIAGE_TOTAL_BYTES);
   });
 });

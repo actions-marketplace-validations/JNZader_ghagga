@@ -6,7 +6,7 @@
  */
 
 import type { SaaSProvider } from 'ghagga-core';
-import { toolRegistry } from 'ghagga-core';
+import { OPENCODE_ENV_BY_PREFIX, toolRegistry } from 'ghagga-core';
 import type { Database, DbProviderChainEntry, RepoSettings } from 'ghagga-db';
 import {
   DEFAULT_REPO_SETTINGS,
@@ -16,6 +16,7 @@ import {
   upsertInstallationSettings,
 } from 'ghagga-db';
 import { Hono } from 'hono';
+import { validateOutboundUrl } from '../../lib/safe-url.js';
 import type { AuthUser } from '../../middleware/auth.js';
 import { buildProviderChainView, generateErrorId, logger } from './utils.js';
 
@@ -96,6 +97,7 @@ export function createInstallationsRouter(db: Database) {
             ignorePatterns: settings.ignorePatterns ?? [],
             enabledTools: settings.enabledTools ?? [],
             disabledTools: settings.disabledTools ?? [],
+            enableBlastRadius: settings.enableBlastRadius ?? false,
             registeredTools: getRegisteredToolsList(),
           },
         });
@@ -117,6 +119,7 @@ export function createInstallationsRouter(db: Database) {
           ignorePatterns: DEFAULT_REPO_SETTINGS.ignorePatterns,
           enabledTools: [],
           disabledTools: [],
+          enableBlastRadius: false,
           registeredTools: getRegisteredToolsList(),
         },
       });
@@ -162,9 +165,11 @@ export function createInstallationsRouter(db: Database) {
         provider: string;
         model: string;
         apiKey?: string;
+        cliModel?: string;
+        gatewayUrl?: string;
       }>;
 
-      const VALID_SAAS_PROVIDERS = ['anthropic', 'openai', 'google', 'github', 'qwen'];
+      const VALID_SAAS_PROVIDERS = ['cli-bridge', 'gateway'];
       for (const entry of incomingChain) {
         if (!VALID_SAAS_PROVIDERS.includes(entry.provider)) {
           return c.json(
@@ -177,29 +182,140 @@ export function createInstallationsRouter(db: Database) {
         }
       }
 
-      // Merge API keys with existing
+      // Strip cliModel for gateway entries (not applicable) and gatewayUrl for non-gateway
+      for (const entry of incomingChain) {
+        if (entry.provider === 'gateway') {
+          entry.cliModel = undefined;
+        } else {
+          entry.gatewayUrl = undefined;
+        }
+      }
+
+      // SSRF guard: reject gateway URLs pointing at internal/private network
+      // space BEFORE they are persisted into the installation (global) chain —
+      // the review worker later fetches the stored URL server-side with no user
+      // in the loop. This mirrors the guard in the repo-level PUT /api/settings.
+      // The detailed reason goes to the server log only; the client gets a
+      // generic message (an echoed status/reason is a port-scan oracle).
+      for (const entry of incomingChain) {
+        if (entry.provider === 'gateway' && entry.gatewayUrl) {
+          const urlCheck = await validateOutboundUrl(entry.gatewayUrl);
+          if (!urlCheck.ok) {
+            logger.warn(
+              { installationId, user: user.githubLogin, reason: urlCheck.reason },
+              'Rejected gateway URL at persist time (SSRF guard)',
+            );
+            return c.json({ error: 'VALIDATION_ERROR', message: 'Gateway URL not allowed' }, 400);
+          }
+        }
+      }
+
+      // Validate cliModel for cli-bridge entries
+      for (const entry of incomingChain) {
+        if (entry.provider !== 'cli-bridge') continue;
+
+        if (entry.model === 'opencode') {
+          // cliModel is REQUIRED for opencode
+          if (!entry.cliModel?.trim()) {
+            return c.json(
+              {
+                error: 'VALIDATION_ERROR',
+                message:
+                  "cliModel is required when CLI tool is 'opencode'. Expected format: 'provider/model' (e.g., 'anthropic/claude-sonnet-4-5').",
+              },
+              400,
+            );
+          }
+          // Validate provider/model format
+          if (!/^[^/]+\/.+$/.test(entry.cliModel)) {
+            return c.json(
+              {
+                error: 'VALIDATION_ERROR',
+                message: `Invalid cliModel format: '${entry.cliModel}'. Expected 'provider/model' (e.g., 'anthropic/claude-sonnet-4-5').`,
+              },
+              400,
+            );
+          }
+          // Validate provider prefix is supported
+          const prefix = entry.cliModel.split('/')[0]!;
+          if (!(prefix in OPENCODE_ENV_BY_PREFIX)) {
+            const supported = Object.keys(OPENCODE_ENV_BY_PREFIX).join(', ');
+            return c.json(
+              {
+                error: 'VALIDATION_ERROR',
+                message: `Unsupported OpenCode provider prefix: '${prefix}'. Supported: ${supported}.`,
+              },
+              400,
+            );
+          }
+        } else {
+          // For non-opencode tools (auto, gemini, copilot), strip cliModel
+          entry.cliModel = undefined;
+        }
+      }
+
+      // Merge API keys: build a Map of all known keys by provider,
+      // then resolve each entry from the map. When a new key is provided,
+      // update the map so subsequent entries of the same provider reuse it.
       const existingRow = await getInstallationSettings(db, installationId);
       const existingChain = existingRow
         ? ((existingRow.providerChain ?? []) as DbProviderChainEntry[])
         : [];
 
-      const mergedChain: DbProviderChainEntry[] = incomingChain.map((entry) => {
+      const keysByProvider = new Map<string, string>();
+      for (const e of existingChain) {
+        if (e.encryptedApiKey) {
+          keysByProvider.set(e.provider, e.encryptedApiKey);
+        }
+      }
+
+      // Debug: log what we received and what we have in the map
+      logger.info(
+        {
+          incomingProviders: incomingChain.map((e) => ({
+            provider: e.provider,
+            model: e.model,
+            hasApiKey: !!e.apiKey,
+            apiKeyLength: e.apiKey?.length ?? 0,
+          })),
+          existingProviders: [...keysByProvider.keys()],
+        },
+        'Chain merge debug',
+      );
+
+      const mergedChain: DbProviderChainEntry[] = incomingChain.map((entry, idx) => {
+        const provider = entry.provider as SaaSProvider;
+        // Resolve cliModel: only meaningful for cli-bridge entries
+        const cliModel = provider === 'cli-bridge' ? entry.cliModel : undefined;
+        // Resolve gatewayUrl: only meaningful for gateway entries
+        const gatewayUrl = provider === 'gateway' ? entry.gatewayUrl : undefined;
+
         if (entry.apiKey) {
-          return {
-            provider: entry.provider as SaaSProvider,
+          const encrypted = encrypt(entry.apiKey);
+          keysByProvider.set(provider, encrypted);
+          logger.info({ idx, provider, action: 'NEW_KEY' }, 'Chain entry: new key');
+          const result: DbProviderChainEntry = {
+            provider,
             model: entry.model,
-            encryptedApiKey: encrypt(entry.apiKey),
+            encryptedApiKey: encrypted,
           };
+          if (cliModel) result.cliModel = cliModel;
+          if (gatewayUrl) result.gatewayUrl = gatewayUrl;
+          return result;
         }
-        if (entry.provider === 'github') {
-          return { provider: 'github' as const, model: entry.model, encryptedApiKey: null };
-        }
-        const existing = existingChain.find((e) => e.provider === entry.provider);
-        return {
-          provider: entry.provider as SaaSProvider,
+        const resolved = keysByProvider.get(provider) ?? null;
+        logger.info(
+          { idx, provider, action: resolved ? 'RESOLVED_FROM_MAP' : 'NULL_KEY' },
+          'Chain entry: resolved',
+        );
+        const result: DbProviderChainEntry = {
+          provider,
           model: entry.model,
-          encryptedApiKey: existing?.encryptedApiKey ?? null,
+          encryptedApiKey: resolved,
         };
+        if (cliModel) result.cliModel = cliModel;
+        if (gatewayUrl) result.gatewayUrl = gatewayUrl;
+        return result;
       });
 
       // Build settings JSONB
@@ -237,6 +353,10 @@ export function createInstallationsRouter(db: Database) {
         disabledTools: Array.isArray(body.disabledTools)
           ? (body.disabledTools as string[])
           : currentSettings.disabledTools,
+        enableBlastRadius:
+          typeof body.enableBlastRadius === 'boolean'
+            ? body.enableBlastRadius
+            : currentSettings.enableBlastRadius,
       };
 
       await upsertInstallationSettings(db, installationId, {

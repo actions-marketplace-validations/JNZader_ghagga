@@ -10,9 +10,17 @@
  *  - edge cases like empty results, missing settings, etc.
  */
 
+import { desc, eq, inArray } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { describe, expect, it, vi } from 'vitest';
 import type { Database } from './client.js';
-import { type DbProviderChainEntry, DEFAULT_REPO_SETTINGS, type RepoSettings } from './schema.js';
+import {
+  type DbProviderChainEntry,
+  DEFAULT_REPO_SETTINGS,
+  type RepoSettings,
+  repositories,
+  reviews,
+} from './schema.js';
 
 // ─── Helper: chainable mock db ─────────────────────────────────
 
@@ -47,9 +55,13 @@ function createMockDb(terminalValue: unknown = []): MockDB & { _resolve: (v: unk
 // We import the module under test AFTER defining helpers because the module
 // itself only has side-effect-free function declarations.
 import {
+  buildTsQuery,
+  claimIssueDraftForPosting,
   clearAllMemoryObservations,
   clearEmptyMemorySessions,
   clearMemoryObservationsByProject,
+  countReviewsByInstallationIds,
+  countReviewsByRepoId,
   createMemorySession,
   deactivateInstallation,
   deleteMappingsByInstallationId,
@@ -67,6 +79,7 @@ import {
   getInstallationSettings,
   getInstallationsByAccountLogin,
   getInstallationsByUserId,
+  getIssueDraftById,
   getMemoryObservation,
   getMemoryStats,
   getObservationsBySession,
@@ -75,14 +88,22 @@ import {
   getRepoByGithubId,
   getReposByInstallationId,
   getReviewStats,
+  getReviewsByInstallationIds,
   getReviewsByRepoId,
   getSessionsByProject,
+  listIssueDrafts,
   listMemoryObservations,
+  listObservationsNeedingEmbedding,
+  markIssueDraftPosted,
+  rejectIssueDraft,
+  releaseIssueDraftClaim,
   removeRepoApiKey,
   saveObservation,
   saveRepoApiKey,
   saveReview,
   searchObservations,
+  updateIssueDraftBody,
+  updateObservationEmbedding,
   updateRepoSettings,
   upsertInstallation,
   upsertInstallationSettings,
@@ -303,7 +324,7 @@ describe('upsertInstallationSettings', () => {
     const existing = {
       id: 1,
       installationId: 10,
-      providerChain: [{ provider: 'openai', model: 'gpt-4o', encryptedApiKey: null }],
+      providerChain: [{ provider: 'gateway', model: 'auto', encryptedApiKey: null }],
       aiReviewEnabled: true,
       reviewMode: 'simple',
       settings: DEFAULT_REPO_SETTINGS,
@@ -347,7 +368,7 @@ describe('getInstallationById', () => {
 
 describe('getEffectiveRepoSettings', () => {
   const repoProviderChain: DbProviderChainEntry[] = [
-    { provider: 'openai', model: 'gpt-4o', encryptedApiKey: 'enc1' },
+    { provider: 'gateway', model: 'auto', encryptedApiKey: 'enc1' },
   ];
   const repoSettings: RepoSettings = {
     ...DEFAULT_REPO_SETTINGS,
@@ -399,8 +420,8 @@ describe('getEffectiveRepoSettings', () => {
       installationId: 5,
       providerChain: [
         {
-          provider: 'anthropic' as const,
-          model: 'claude-sonnet-4-20250514',
+          provider: 'gateway' as const,
+          model: 'auto',
           encryptedApiKey: null,
         },
       ],
@@ -482,6 +503,12 @@ describe('upsertRepository', () => {
 
     expect(result).toEqual(existing);
     expect(mockUpdate).toHaveBeenCalled();
+    // Verify installationId is included in the update (Bug fix: reinstall updates the FK)
+    const setArg = mockSet.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(setArg.installationId).toBe(5);
+    expect(setArg.fullName).toBe('new/repo');
+    expect(setArg.isActive).toBe(true);
+    expect(setArg.updatedAt).toBeInstanceOf(Date);
   });
 
   it('should insert new repo with DEFAULT_REPO_SETTINGS', async () => {
@@ -685,6 +712,168 @@ describe('getReviewStats', () => {
 
     const result = await getReviewStats(db, 1);
     expect(result).toEqual(stats);
+  });
+});
+
+describe('countReviewsByRepoId', () => {
+  it('should return the count from the aggregate row', async () => {
+    const mockWhere = vi.fn().mockResolvedValue([{ total: 137 }]);
+    const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
+    const db = { select: mockSelect } as unknown as Database;
+
+    const result = await countReviewsByRepoId(db, 42);
+    expect(result).toBe(137);
+  });
+
+  it('should return 0 when the aggregate row is missing', async () => {
+    const mockWhere = vi.fn().mockResolvedValue([]);
+    const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
+    const db = { select: mockSelect } as unknown as Database;
+
+    const result = await countReviewsByRepoId(db, 42);
+    expect(result).toBe(0);
+  });
+});
+
+describe('getReviewsByInstallationIds', () => {
+  it('should short-circuit to [] for empty installationIds (no query)', async () => {
+    const mockSelect = vi.fn();
+    const db = { select: mockSelect } as unknown as Database;
+
+    const result = await getReviewsByInstallationIds(db, []);
+    expect(result).toEqual([]);
+    expect(mockSelect).not.toHaveBeenCalled();
+  });
+
+  it('should join repositories and apply default limit=50/offset=0', async () => {
+    const rows = [{ id: 1, repositoryId: 42, fullName: 'owner/repo-a' }];
+    const mockOffset = vi.fn().mockResolvedValue(rows);
+    const mockLimit = vi.fn().mockReturnValue({ offset: mockOffset });
+    const mockOrderBy = vi.fn().mockReturnValue({ limit: mockLimit });
+    const mockWhere = vi.fn().mockReturnValue({ orderBy: mockOrderBy });
+    const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
+    const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
+    const db = { select: mockSelect } as unknown as Database;
+
+    const result = await getReviewsByInstallationIds(db, [100, 200]);
+
+    expect(result).toEqual(rows);
+    expect(mockInnerJoin).toHaveBeenCalled();
+    expect(mockLimit).toHaveBeenCalledWith(50);
+    expect(mockOffset).toHaveBeenCalledWith(0);
+  });
+
+  it('should respect custom limit and offset', async () => {
+    const mockOffset = vi.fn().mockResolvedValue([]);
+    const mockLimit = vi.fn().mockReturnValue({ offset: mockOffset });
+    const mockOrderBy = vi.fn().mockReturnValue({ limit: mockLimit });
+    const mockWhere = vi.fn().mockReturnValue({ orderBy: mockOrderBy });
+    const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
+    const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
+    const db = { select: mockSelect } as unknown as Database;
+
+    await getReviewsByInstallationIds(db, [100], { limit: 25, offset: 50 });
+
+    expect(mockLimit).toHaveBeenCalledWith(25);
+    expect(mockOffset).toHaveBeenCalledWith(50);
+  });
+});
+
+describe('countReviewsByInstallationIds', () => {
+  it('should return 0 for empty installationIds (no query)', async () => {
+    const mockSelect = vi.fn();
+    const db = { select: mockSelect } as unknown as Database;
+
+    const result = await countReviewsByInstallationIds(db, []);
+    expect(result).toBe(0);
+    expect(mockSelect).not.toHaveBeenCalled();
+  });
+
+  it('should return the joined aggregate count', async () => {
+    const mockWhere = vi.fn().mockResolvedValue([{ total: 83 }]);
+    const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
+    const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
+    const db = { select: mockSelect } as unknown as Database;
+
+    const result = await countReviewsByInstallationIds(db, [100, 200]);
+    expect(result).toBe(83);
+    expect(mockInnerJoin).toHaveBeenCalled();
+  });
+
+  it('should return 0 when the aggregate row is missing', async () => {
+    const mockWhere = vi.fn().mockResolvedValue([]);
+    const mockInnerJoin = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockFrom = vi.fn().mockReturnValue({ innerJoin: mockInnerJoin });
+    const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
+    const db = { select: mockSelect } as unknown as Database;
+
+    const result = await countReviewsByInstallationIds(db, [100]);
+    expect(result).toBe(0);
+  });
+});
+
+// ─── SECURITY REGRESSION LOCK: cross-tenant isolation via inArray([]) ──
+//
+// getReviewsByInstallationIds / countReviewsByInstallationIds scope the
+// cross-tenant review listing with `inArray(repositories.installationId, ids)`.
+// On drizzle-orm 0.45.x, `inArray(col, [])` renders `WHERE false` (zero rows),
+// so an empty installationIds list (a caller with no installations) leaks NOTHING
+// even if the function-level early-return guards were removed.
+//
+// THE RISK these tests lock: every OTHER test in this file mocks past the real
+// SQL generation, so a future drizzle upgrade that changed empty-array semantics
+// (e.g. dropping the WHERE clause → unconstrained query returning ALL tenants'
+// rows) would silently reintroduce a cross-tenant leak with NO failing test.
+//
+// We assert the ACTUAL generated SQL via drizzle's `.toSQL()` on a REAL query
+// builder (no DB connection — `drizzle({}, { schema })` builds queries lazily and
+// `.toSQL()` renders without executing). This directly locks the drizzle behavior:
+// an upgrade that stops emitting a falsy WHERE for the empty case fails here.
+describe('SECURITY: inArray empty-array renders WHERE false (cross-tenant lock)', () => {
+  // Real drizzle builder, no live connection. toSQL() renders, never executes.
+  const sqlDb = drizzle({} as never, { schema: { reviews, repositories } });
+
+  // Mirrors the WHERE/JOIN shape of getReviewsByInstallationIds.
+  function buildReviewsQuery(installationIds: number[]) {
+    return sqlDb
+      .select({ id: reviews.id, fullName: repositories.fullName })
+      .from(reviews)
+      .innerJoin(repositories, eq(repositories.id, reviews.repositoryId))
+      .where(inArray(repositories.installationId, installationIds))
+      .orderBy(desc(reviews.createdAt))
+      .limit(50)
+      .offset(0);
+  }
+
+  it('empty installationIds → WHERE false (zero rows), NOT an unconstrained query', () => {
+    const { sql, params } = buildReviewsQuery([]).toSQL();
+    const normalized = sql.toLowerCase();
+
+    // LOCKED ASSERTION: the WHERE renders as a literal false condition.
+    expect(normalized).toContain('where false');
+    // It must NOT degrade into an unconstrained `installation_id in (...)` filter
+    // or drop the WHERE entirely (which would return EVERY tenant's reviews).
+    expect(normalized).not.toContain('installation_id" in');
+    expect(normalized).not.toContain('installation_id in');
+    // No installationId is bound when the array is empty (only limit param remains).
+    expect(params).not.toContain(undefined);
+    expect(params).toEqual([50]);
+  });
+
+  it('non-empty installationIds → constrained `installation_id in (...)` with bound params', () => {
+    const { sql, params } = buildReviewsQuery([100, 200]).toSQL();
+    const normalized = sql.toLowerCase();
+
+    // Sanity: the SAME builder DOES emit a real tenant filter for a populated list.
+    expect(normalized).toContain('installation_id" in (');
+    expect(normalized).not.toContain('where false');
+    // The two installationIds are bound as parameters (plus the limit=50).
+    expect(params).toEqual([100, 200, 50]);
   });
 });
 
@@ -907,6 +1096,77 @@ describe('saveObservation', () => {
   });
 });
 
+describe('listObservationsNeedingEmbedding (design D6)', () => {
+  it('maps rows to { id, text } joining title + content', async () => {
+    const rows = [
+      { id: 1, title: 'Rotate secrets', content: 'We rotate credentials regularly.' },
+      { id: 2, title: 'Auth flow', content: 'JWT validation notes.' },
+    ];
+    const db = createMockDb(rows) as unknown as Database;
+
+    const result = await listObservationsNeedingEmbedding(db, {
+      afterId: 0,
+      limit: 100,
+      activeModel: 'text-embedding-3-small',
+      activeDim: 1536,
+      includeMismatched: false,
+    });
+
+    expect(result).toEqual([
+      { id: 1, text: 'Rotate secrets We rotate credentials regularly.' },
+      { id: 2, text: 'Auth flow JWT validation notes.' },
+    ]);
+  });
+
+  it('returns an empty array when no rows need embedding', async () => {
+    const db = createMockDb([]) as unknown as Database;
+
+    const result = await listObservationsNeedingEmbedding(db, {
+      afterId: 0,
+      limit: 100,
+      activeModel: 'text-embedding-3-small',
+      activeDim: 1536,
+      includeMismatched: true,
+    });
+
+    expect(result).toEqual([]);
+  });
+});
+
+describe('updateObservationEmbedding (design D6)', () => {
+  it('resolves without error when the update chain resolves', async () => {
+    const db = createMockDb(undefined) as unknown as Database;
+
+    await expect(
+      updateObservationEmbedding(db, 7, [0.1, 0.2, 0.3], 'text-embedding-3-small', 3),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe('buildTsQuery', () => {
+  it('joins terms with OR (|), matching the SQLite backend', () => {
+    expect(buildTsQuery('auth token rotation')).toBe("'auth' | 'token' | 'rotation'");
+  });
+
+  it('returns empty string for blank input', () => {
+    expect(buildTsQuery('')).toBe('');
+    expect(buildTsQuery('   ')).toBe('');
+  });
+
+  it('escapes single quotes inside lexemes', () => {
+    expect(buildTsQuery("it's")).toBe("'it''s'");
+  });
+
+  it('escapes backslashes so a trailing backslash cannot break the closing quote', () => {
+    expect(buildTsQuery('path\\')).toBe("'path\\\\'");
+    expect(buildTsQuery('a\\b')).toBe("'a\\\\b'");
+  });
+
+  it('collapses repeated whitespace between terms', () => {
+    expect(buildTsQuery('  foo   bar  ')).toBe("'foo' | 'bar'");
+  });
+});
+
 describe('searchObservations', () => {
   it('should return empty array for empty query', async () => {
     const db = {} as unknown as Database;
@@ -955,6 +1215,270 @@ describe('searchObservations', () => {
     await searchObservations(db, 'proj', 'test', { type: 'decision' });
     // Verify it reached the DB (didn't short-circuit)
     expect(mockSelect).toHaveBeenCalled();
+  });
+
+  it('over-fetches candidates up to fetchLimit and returns up to fetchLimit ranked rows', async () => {
+    // Caller post-filters (decay) → asks for more candidates than `limit`.
+    // 5 rows come back; with limit=2, fetchLimit=6, all 5 (< 6) must survive the
+    // db-layer slice so the caller has headroom to drop decayed rows.
+    const rows = [1, 2, 3, 4, 5].map((id) => ({ id, lastAccessedAt: new Date() }));
+    const mockLimit = vi.fn().mockResolvedValue(rows);
+    const mockOrderBy = vi.fn().mockReturnValue({ limit: mockLimit });
+    const mockWhere = vi.fn().mockReturnValue({ orderBy: mockOrderBy });
+    const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+    const mockUpdateWhere = vi.fn().mockResolvedValue(undefined);
+    const mockSet = vi.fn().mockReturnValue({ where: mockUpdateWhere });
+    const mockUpdate = vi.fn().mockReturnValue({ set: mockSet });
+    const mockSelect = vi.fn().mockReturnValue({ from: mockFrom });
+    const db = { select: mockSelect, update: mockUpdate } as unknown as Database;
+
+    const result = await searchObservations(db, 'proj', 'q', { limit: 2, fetchLimit: 6 });
+
+    // Candidate query fetched up to fetchLimit (6), not the smaller `limit` (2).
+    expect(mockLimit).toHaveBeenCalledWith(6);
+    // Non-hybrid path returns all candidates up to fetchLimit (5 < 6) — the
+    // ADAPTER is responsible for the final cap to `limit`.
+    expect(result).toHaveLength(5);
+  });
+});
+
+// ── Phase 4: Postgres Cosine Union ───────────────────────────────
+//
+// Mirrors packages/core/src/memory/sqlite.ts Phase 3 test scenarios (same
+// fake-provider dataset shape) — proves PG applies the same union/dedup/
+// posRank/read-guard pipeline (spec R5.7-R5.11, design D4/D5).
+//
+// searchObservations issues up to 2 sequential `db.select()` calls in the
+// hybrid path: [0] = keyword (tsquery) candidates, [1] = bounded cosine
+// candidates. This mock returns a different resolved row set per call,
+// tracked by call order, and lets tests assert exactly how many `.select()`
+// calls ran (proving the `none`-parity gate never runs the 2nd query).
+describe('searchObservations — cosine union (Phase 4)', () => {
+  function makeUnionDb(selectSequence: unknown[][]): {
+    db: Database;
+    mockSelect: ReturnType<typeof vi.fn>;
+    mockUpdate: ReturnType<typeof vi.fn>;
+    /** One `.limit()` spy per `db.select()` invocation, in call order. */
+    limitSpies: Array<ReturnType<typeof vi.fn>>;
+  } {
+    let selectCallCount = 0;
+    const limitSpies: Array<ReturnType<typeof vi.fn>> = [];
+
+    const mockUpdateWhere = vi.fn().mockResolvedValue(undefined);
+    const mockSet = vi.fn().mockReturnValue({ where: mockUpdateWhere });
+    const mockUpdate = vi.fn().mockReturnValue({ set: mockSet });
+
+    const mockSelect = vi.fn().mockImplementation(() => {
+      const rows = selectSequence[selectCallCount] ?? [];
+      selectCallCount++;
+      const mockLimit = vi.fn().mockResolvedValue(rows);
+      limitSpies.push(mockLimit);
+      const mockOrderBy = vi.fn().mockReturnValue({ limit: mockLimit });
+      const mockWhere = vi.fn().mockReturnValue({ orderBy: mockOrderBy });
+      const mockFrom = vi.fn().mockReturnValue({ where: mockWhere });
+      return { from: mockFrom };
+    });
+
+    const db = { select: mockSelect, update: mockUpdate } as unknown as Database;
+    return { db, mockSelect, mockUpdate, limitSpies };
+  }
+
+  function row(overrides: Partial<Record<string, unknown>> & { id: number }) {
+    return {
+      title: `obs-${overrides.id}`,
+      embedding: null,
+      embeddingModel: null,
+      embeddingDim: null,
+      lastAccessedAt: new Date(),
+      ...overrides,
+    };
+  }
+
+  it('[4.6 acceptance gate] none provider: only 1 select() call runs — identical to keyword-only path', async () => {
+    const keywordRows = [row({ id: 1 }), row({ id: 2 })];
+    const { db, mockSelect } = makeUnionDb([keywordRows]);
+
+    const result = await searchObservations(db, 'proj', 'token');
+
+    // No embedFn -> the cosine query MUST never run (spec R5.11).
+    expect(mockSelect).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(keywordRows);
+  });
+
+  it('[4.7] surfaces a lexically-disjoint semantic match via the cosine union', async () => {
+    // No keyword match at all; the cosine-only candidate must still surface.
+    const cosineRows = [row({ id: 5, embedding: [1, 0, 0], embeddingDim: 3 })];
+    const { db } = makeUnionDb([[], cosineRows]);
+    const embedFn = vi.fn().mockResolvedValue([1, 0, 0]);
+
+    const result = await searchObservations(db, 'proj', 'secret leakage', {
+      embedFn,
+      embeddingDimension: 3,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.id).toBe(5);
+  });
+
+  it('[4.7] dedups a candidate present in both keyword and cosine sets, using its real keyword score', async () => {
+    const keywordRows = [row({ id: 1, embedding: [1, 0, 0], embeddingDim: 3 })];
+    const cosineRows = [
+      row({ id: 1, embedding: [1, 0, 0], embeddingDim: 3 }),
+      row({ id: 2, embedding: [1, 0, 0], embeddingDim: 3 }),
+    ];
+    const { db } = makeUnionDb([keywordRows, cosineRows]);
+    const embedFn = vi.fn().mockResolvedValue([1, 0, 0]); // all docs tie on cosine
+
+    const result = await searchObservations(db, 'proj', 'overlap', {
+      embedFn,
+      embeddingDimension: 3,
+    });
+
+    // Exactly 2 rows — no duplicate for id 1.
+    expect(result).toHaveLength(2);
+    // id 1 (real keyword score 1, n=1) outranks id 2 (vector-only, keyword score 0).
+    expect(result.map((r) => r.id)).toEqual([1, 2]);
+  });
+
+  it('[4.7] excludes mixed-dimension rows from the cosine candidate set without error', async () => {
+    // Stored with 3 dims; active provider reports 4 dims -> dimension guard
+    // must exclude it, never throw, and never surface it (no lexical match).
+    const cosineRows = [row({ id: 9, embedding: [1, 0, 0], embeddingDim: 3 })];
+    const { db } = makeUnionDb([[], cosineRows]);
+    const embedFn = vi.fn().mockResolvedValue([1, 0, 0, 0]);
+
+    const result = await searchObservations(db, 'proj', 'zephyr cascade unrelated', {
+      embedFn,
+      embeddingDimension: 4,
+    });
+
+    expect(result).toHaveLength(0);
+  });
+
+  it('[4.7] returns correctly with a partial-backfill mix of NULL and embedded rows', async () => {
+    // Embedded row: reachable only via cosine (no lexical overlap).
+    const keywordRows = [row({ id: 2, embedding: null, embeddingDim: null })]; // legacy NULL row, matches keyword
+    const cosineRows = [row({ id: 1, embedding: [1, 0, 0], embeddingDim: 3 })]; // vectorized row
+    const { db } = makeUnionDb([keywordRows, cosineRows]);
+    const embedFn = vi.fn().mockResolvedValue([1, 0, 0]);
+
+    const result = await searchObservations(db, 'proj', 'alpha-trigger plainkeyword', {
+      embedFn,
+      embeddingDimension: 3,
+    });
+
+    const ids = result.map((r) => r.id).sort();
+    expect(ids).toEqual([1, 2]);
+  });
+
+  it('[4.7] vector-only candidate is scored with keyword-score 0 (finalScore = 0.7 * cosineSim)', async () => {
+    const cosineRows = [row({ id: 7, embedding: [1, 0, 0], embeddingDim: 3 })];
+    const { db } = makeUnionDb([[], cosineRows]);
+    const embedFn = vi.fn().mockResolvedValue([1, 0, 0]);
+
+    const result = await searchObservations(db, 'proj', 'no lexical overlap', {
+      embedFn,
+      embeddingDimension: 3,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.id).toBe(7);
+  });
+
+  it('[4.7] query-time embed failure falls back to keyword-only ordering without a 2nd select() call, warns once', async () => {
+    const keywordRows = [row({ id: 1 }), row({ id: 2 })];
+    const { db, mockSelect } = makeUnionDb([keywordRows]);
+    const embedFn = vi.fn().mockRejectedValue(new Error('provider down'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const result = await searchObservations(db, 'proj', 'token', {
+      embedFn,
+      embeddingDimension: 3,
+    });
+
+    // Cosine query never runs after the embed failure (graceful degradation).
+    expect(mockSelect).toHaveBeenCalledTimes(1);
+    expect(result).toEqual(keywordRows);
+    // Warns once, symmetric with the SQLite backend's _hybridSearch.
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]?.[0]).toContain('provider down');
+    warnSpy.mockRestore();
+  });
+
+  it('[4.7] respects a custom embeddingCandidateK on the bounded cosine query', async () => {
+    const { db, limitSpies } = makeUnionDb([[], []]);
+    const embedFn = vi.fn().mockResolvedValue([1, 0, 0]);
+
+    const result = await searchObservations(db, 'proj', 'token', {
+      embedFn,
+      embeddingDimension: 3,
+      embeddingCandidateK: 5,
+    });
+
+    expect(result).toEqual([]);
+    // limitSpies[0] = keyword candidate LIMIT, limitSpies[1] = the bounded
+    // cosine candidate LIMIT — must use the caller-supplied K, not the 200 default.
+    expect(limitSpies[1]).toHaveBeenCalledWith(5);
+  });
+
+  it('[4.1] defaults the bounded cosine candidate LIMIT to 200 when embeddingCandidateK is not supplied', async () => {
+    const { db, limitSpies } = makeUnionDb([[], []]);
+    const embedFn = vi.fn().mockResolvedValue([1, 0, 0]);
+
+    await searchObservations(db, 'proj', 'token', { embedFn, embeddingDimension: 3 });
+
+    expect(limitSpies[1]).toHaveBeenCalledWith(200);
+  });
+
+  // ── R3-001: union path must NOT cap before the caller's decay filter ──────
+  // The decay-aware caller (the Postgres adapter) owns the cap-to-`limit` step
+  // AFTER decay filtering. So the union query must return the FULL scored+sorted
+  // pool, never a pre-cap to returnLimit — otherwise a fresh candidate ranked
+  // below the top-returnLimit stale ones is sliced off before decay can rescue
+  // it (mirrors packages/core/src/memory/sqlite.ts: decay-filter full pool first).
+  it('[R3-001] returns the FULL scored pool UNCAPPED on the union path (no pre-cap to returnLimit)', async () => {
+    // 5 keyword candidates, no embeddings → cosine 0 → finalScore = 0.3 *
+    // positional-rank, so the sorted pool equals this input order.
+    const keywordRows = [1, 2, 3, 4, 5].map((id) =>
+      row({ id, embedding: null, embeddingDim: null }),
+    );
+    const { db } = makeUnionDb([keywordRows, []]);
+    const embedFn = vi.fn().mockResolvedValue([1, 0, 0]);
+
+    // limit=2 (no fetchLimit) → returnLimit=2. Old code sliced to 2 here.
+    const result = await searchObservations(db, 'proj', 'token', {
+      embedFn,
+      embeddingDimension: 3,
+      limit: 2,
+    });
+
+    // All 5 candidates come back (uncapped), in finalScore-desc order — proving
+    // the union path defers capping to the decay-aware caller.
+    expect(result.map((r) => r.id)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  // ── R3-002: union path must NOT touch last_accessed_at ────────────────────
+  // Touching here would freshen rows the caller's decay filter later drops
+  // (decay-evasion). The touch is the caller's job, scoped to final survivors.
+  it('[R3-002] does NOT bump last_accessed_at on the union path (caller touches survivors)', async () => {
+    const keywordRows = [row({ id: 1 }), row({ id: 2 })];
+    const { db, mockUpdate } = makeUnionDb([keywordRows, []]);
+    const embedFn = vi.fn().mockResolvedValue([1, 0, 0]);
+
+    await searchObservations(db, 'proj', 'token', { embedFn, embeddingDimension: 3 });
+
+    // No db.update(...) — last_accessed_at is left untouched for the caller.
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('[R3-002] no-provider path STILL bumps last_accessed_at itself (parity preserved)', async () => {
+    const keywordRows = [row({ id: 1 }), row({ id: 2 })];
+    const { db, mockUpdate } = makeUnionDb([keywordRows]);
+
+    // No embedFn → keyword-only path, byte-for-byte unchanged: it touches itself.
+    await searchObservations(db, 'proj', 'token');
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1810,5 +2334,152 @@ describe('clearEmptyMemorySessions', () => {
     await clearEmptyMemorySessions(db, 100);
 
     expect(mockSelect).toHaveBeenCalled();
+  });
+});
+
+// ─── Issue Drafts: approval lifecycle ──────────────────────────
+
+describe('listIssueDrafts', () => {
+  it('returns an empty array WITHOUT querying when repositoryIds is empty', async () => {
+    const mockSelect = vi.fn();
+    const db = { select: mockSelect } as unknown as Database;
+
+    const result = await listIssueDrafts(db, []);
+
+    expect(result).toEqual([]);
+    // SCOPING INVARIANT: a user with no repos must never reach the DB and so can
+    // never see another tenant's drafts.
+    expect(mockSelect).not.toHaveBeenCalled();
+  });
+
+  it('queries and returns rows when repositoryIds is non-empty', async () => {
+    const rows = [
+      { id: 1, repositoryId: 7, status: 'DRAFT' },
+      { id: 2, repositoryId: 7, status: 'POSTED' },
+    ];
+    const db = createMockDb(rows) as unknown as Database;
+
+    const result = await listIssueDrafts(db, [7], { status: 'DRAFT' });
+
+    expect(result).toEqual(rows);
+  });
+});
+
+describe('getIssueDraftById', () => {
+  it('returns the row when found', async () => {
+    const row = { id: 9, repositoryId: 7, status: 'DRAFT', body: 'x' };
+    const db = createMockDb([row]) as unknown as Database;
+
+    const result = await getIssueDraftById(db, 9);
+
+    expect(result).toEqual(row);
+  });
+
+  it('returns undefined when not found', async () => {
+    const db = createMockDb([]) as unknown as Database;
+
+    const result = await getIssueDraftById(db, 999);
+
+    expect(result).toBeUndefined();
+  });
+});
+
+describe('updateIssueDraftBody', () => {
+  it('returns the updated row (DRAFT-only update)', async () => {
+    const updated = { id: 9, repositoryId: 7, status: 'DRAFT', body: 'edited' };
+    const db = createMockDb([updated]) as unknown as Database;
+
+    const result = await updateIssueDraftBody(db, 9, 'edited');
+
+    expect(result).toEqual(updated);
+  });
+
+  it('returns undefined when the row is not in DRAFT (no row matched the predicate)', async () => {
+    const db = createMockDb([]) as unknown as Database;
+
+    const result = await updateIssueDraftBody(db, 9, 'edited');
+
+    expect(result).toBeUndefined();
+  });
+});
+
+describe('claimIssueDraftForPosting', () => {
+  it('claims a DRAFT (CAS DRAFT→APPROVED) and returns the row', async () => {
+    const claimed = { id: 9, repositoryId: 7, status: 'APPROVED', body: 'analysis' };
+    const db = createMockDb([claimed]) as unknown as Database;
+
+    const result = await claimIssueDraftForPosting(db, 9);
+
+    expect(result).toEqual(claimed);
+  });
+
+  it('returns undefined when the draft is not DRAFT (lost the posting claim)', async () => {
+    // Of N concurrent approvers only ONE matches the DRAFT row; the losers match
+    // ZERO rows here and get undefined → the route returns 409 BEFORE postComment.
+    const db = createMockDb([]) as unknown as Database;
+
+    const result = await claimIssueDraftForPosting(db, 9);
+
+    expect(result).toBeUndefined();
+  });
+});
+
+describe('releaseIssueDraftClaim', () => {
+  it('reverts an APPROVED claim back to DRAFT (post failed → retryable)', async () => {
+    const reverted = { id: 9, repositoryId: 7, status: 'DRAFT' };
+    const db = createMockDb([reverted]) as unknown as Database;
+
+    const result = await releaseIssueDraftClaim(db, 9);
+
+    expect(result).toEqual(reverted);
+  });
+
+  it('returns undefined when the row was not APPROVED (nothing to release)', async () => {
+    const db = createMockDb([]) as unknown as Database;
+
+    const result = await releaseIssueDraftClaim(db, 9);
+
+    expect(result).toBeUndefined();
+  });
+});
+
+describe('markIssueDraftPosted', () => {
+  it('transitions an APPROVED claim to POSTED and records the comment id', async () => {
+    const posted = { id: 9, repositoryId: 7, status: 'POSTED', postedCommentId: 555 };
+    const db = createMockDb([posted]) as unknown as Database;
+
+    const result = await markIssueDraftPosted(db, 9, 555);
+
+    expect(result).toEqual(posted);
+  });
+
+  it('returns undefined on a non-APPROVED row (exactly-once guard — no double post)', async () => {
+    // Only the approver that WON the claim (status APPROVED) matches; a row that
+    // is no longer APPROVED matches ZERO rows. Caller treats undefined as
+    // "already decided, do not pretend we re-posted".
+    const db = createMockDb([]) as unknown as Database;
+
+    const result = await markIssueDraftPosted(db, 9, 555);
+
+    expect(result).toBeUndefined();
+  });
+});
+
+describe('rejectIssueDraft', () => {
+  it('transitions a DRAFT to REJECTED', async () => {
+    const rejected = { id: 9, repositoryId: 7, status: 'REJECTED' };
+    const db = createMockDb([rejected]) as unknown as Database;
+
+    const result = await rejectIssueDraft(db, 9);
+
+    expect(result).toEqual(rejected);
+  });
+
+  it('returns undefined on a non-DRAFT row', async () => {
+    const db = createMockDb([]) as unknown as Database;
+
+    const result = await rejectIssueDraft(db, 9);
+
+    expect(result).toBeUndefined();
   });
 });

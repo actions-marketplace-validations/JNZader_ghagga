@@ -5,8 +5,18 @@
  * functions with correct arguments and map results properly.
  */
 
+import type { EmbeddingProvider } from 'ghagga-core';
+import { computeStrength, DEFAULT_DECAY_CONFIG } from 'ghagga-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PostgresMemoryStorage } from './postgres.js';
+
+function makeFakeProvider(dimension = 3): EmbeddingProvider {
+  return {
+    dimension,
+    embed: vi.fn().mockResolvedValue(new Array(dimension).fill(0.1)),
+    embedBatch: vi.fn().mockResolvedValue([]),
+  };
+}
 
 // ─── Mock ghagga-db ─────────────────────────────────────────────
 
@@ -20,9 +30,13 @@ const mockClearAllMemoryObservations = vi.hoisted(() => vi.fn());
 const mockGetMemoryObservation = vi.hoisted(() => vi.fn());
 const mockListMemoryObservations = vi.hoisted(() => vi.fn());
 const mockGetMemoryStats = vi.hoisted(() => vi.fn());
+const mockBumpObservationsLastAccessed = vi.hoisted(() => vi.fn());
+const mockListObservationsNeedingEmbedding = vi.hoisted(() => vi.fn());
+const mockUpdateObservationEmbedding = vi.hoisted(() => vi.fn());
 
 vi.mock('ghagga-db', () => ({
   searchObservations: mockSearchObservations,
+  bumpObservationsLastAccessed: mockBumpObservationsLastAccessed,
   saveObservation: mockSaveObservation,
   createMemorySession: mockCreateMemorySession,
   endMemorySession: mockEndMemorySession,
@@ -32,6 +46,8 @@ vi.mock('ghagga-db', () => ({
   getMemoryObservation: mockGetMemoryObservation,
   listMemoryObservations: mockListMemoryObservations,
   getMemoryStats: mockGetMemoryStats,
+  listObservationsNeedingEmbedding: mockListObservationsNeedingEmbedding,
+  updateObservationEmbedding: mockUpdateObservationEmbedding,
 }));
 
 // ─── Core method tests ──────────────────────────────────────────
@@ -48,6 +64,7 @@ describe('PostgresMemoryStorage — core methods', () => {
 
   describe('searchObservations', () => {
     it('calls ghagga-db.searchObservations and maps rows to MemoryObservationRow', async () => {
+      const fresh = new Date(); // just-accessed → full strength → always returned
       mockSearchObservations.mockResolvedValueOnce([
         {
           id: 1,
@@ -55,6 +72,7 @@ describe('PostgresMemoryStorage — core methods', () => {
           title: 'Title A',
           content: 'Content A',
           filePaths: ['src/a.ts'],
+          lastAccessedAt: fresh,
           extra: 'ignored',
         },
         {
@@ -63,18 +81,19 @@ describe('PostgresMemoryStorage — core methods', () => {
           title: 'Title B',
           content: 'Content B',
           filePaths: null,
+          lastAccessedAt: fresh,
           extra: 'ignored',
         },
       ]);
 
       const result = await storage.searchObservations('owner/repo', 'search query');
 
-      expect(mockSearchObservations).toHaveBeenCalledWith(
-        fakeDb,
-        'owner/repo',
-        'search query',
-        undefined,
-      );
+      // Adapter over-fetches (fetchLimit = limit*3, default limit 10 → 30) so
+      // decay filtering never under-delivers; embedFn is undefined (no provider).
+      expect(mockSearchObservations).toHaveBeenCalledWith(fakeDb, 'owner/repo', 'search query', {
+        fetchLimit: 30,
+        embedFn: undefined,
+      });
       expect(result).toEqual([
         {
           id: 1,
@@ -83,6 +102,7 @@ describe('PostgresMemoryStorage — core methods', () => {
           content: 'Content A',
           filePaths: ['src/a.ts'],
           severity: null,
+          strength: 1,
         },
         {
           id: 2,
@@ -91,11 +111,12 @@ describe('PostgresMemoryStorage — core methods', () => {
           content: 'Content B',
           filePaths: null,
           severity: null,
+          strength: 1,
         },
       ]);
     });
 
-    it('passes options (limit, type) to ghagga-db', async () => {
+    it('passes options (limit, type) plus over-fetch (fetchLimit = limit*3) to ghagga-db', async () => {
       mockSearchObservations.mockResolvedValueOnce([]);
 
       await storage.searchObservations('owner/repo', 'query', { limit: 5, type: 'pattern' });
@@ -103,16 +124,302 @@ describe('PostgresMemoryStorage — core methods', () => {
       expect(mockSearchObservations).toHaveBeenCalledWith(fakeDb, 'owner/repo', 'query', {
         limit: 5,
         type: 'pattern',
+        fetchLimit: 15,
+        embedFn: undefined,
       });
     });
 
     it('handles null filePaths by mapping to null', async () => {
       mockSearchObservations.mockResolvedValueOnce([
-        { id: 3, type: 'preference', title: 'T', content: 'C', filePaths: null },
+        {
+          id: 3,
+          type: 'preference',
+          title: 'T',
+          content: 'C',
+          filePaths: null,
+          lastAccessedAt: new Date(),
+        },
       ]);
 
       const result = await storage.searchObservations('proj', 'q');
       expect(result[0]?.filePaths).toBeNull();
+    });
+
+    // ── Decay parity with SQLite backend (sqlite.ts:304-323) ───────
+
+    it('attaches strength to returned rows (fresh observation → full strength)', async () => {
+      mockSearchObservations.mockResolvedValueOnce([
+        {
+          id: 4,
+          type: 'pattern',
+          title: 'T',
+          content: 'C',
+          filePaths: null,
+          lastAccessedAt: new Date(),
+        },
+      ]);
+
+      const result = await storage.searchObservations('proj', 'q');
+      expect(result).toHaveLength(1);
+      expect(result[0]?.strength).toBe(1);
+    });
+
+    it('excludes observations older than clearanceDays (strength below minStrength)', async () => {
+      // DEFAULT_DECAY_CONFIG.clearanceDays = 90 → 200 days old is well-cleared.
+      const stale = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000);
+      mockSearchObservations.mockResolvedValueOnce([
+        {
+          id: 5,
+          type: 'pattern',
+          title: 'old',
+          content: 'C',
+          filePaths: null,
+          lastAccessedAt: stale,
+        },
+      ]);
+
+      const result = await storage.searchObservations('proj', 'q');
+      expect(result).toHaveLength(0);
+    });
+
+    it('drives the REAL class path: returned strengths follow the decay curve AND stale rows are excluded', async () => {
+      // Exercise PostgresMemoryStorage.searchObservations end-to-end (NOT the bare
+      // computeStrength function) so the test would FAIL if postgres.ts passed the
+      // wrong field/clock into computeStrength. DEFAULT_DECAY_CONFIG: dormancy=7,
+      // clearance=90, decay window = 83 days.
+      const day = 24 * 60 * 60 * 1000;
+      const now = Date.now();
+      const ages = [
+        { id: 1, ageDays: 0 }, // active → strength 1
+        { id: 2, ageDays: 7 }, // dormancy boundary → strength 1
+        { id: 3, ageDays: 48.5 }, // mid-decay → 0 < s < 1
+        { id: 4, ageDays: 200 }, // well past clearance → below minStrength, EXCLUDED
+      ];
+      mockSearchObservations.mockResolvedValueOnce(
+        ages.map(({ id, ageDays }) => ({
+          id,
+          type: 'pattern',
+          title: `obs-${id}`,
+          content: 'C',
+          filePaths: null,
+          lastAccessedAt: new Date(now - ageDays * day),
+        })),
+      );
+
+      const result = await storage.searchObservations('proj', 'q');
+
+      // Stale row (id 4) dropped by the real class-path strength filter.
+      expect(result.map((r) => r.id)).toEqual([1, 2, 3]);
+      // Each returned row's strength matches the shared decay curve at its age,
+      // proving the class threaded (lastAccessedAt, now, decayConfig) correctly.
+      for (const { id, ageDays } of ages.filter((a) => a.id !== 4)) {
+        const expected = computeStrength(
+          new Date(now - ageDays * day),
+          new Date(now),
+          DEFAULT_DECAY_CONFIG,
+        );
+        const got = result.find((r) => r.id === id)?.strength;
+        expect(got).toBeCloseTo(expected, 6);
+      }
+      // Mid-decay row sits strictly between cleared and fresh.
+      const mid = result.find((r) => r.id === 3)?.strength ?? -1;
+      expect(mid).toBeGreaterThan(0);
+      expect(mid).toBeLessThan(1);
+    });
+
+    it('FF-1: over-fetching absorbs decay drops — returns up to `limit` live rows, never more', async () => {
+      // Caller asks for limit 2. The db (driven by fetchLimit=6) returns 5
+      // candidates where the top 2 are decayed-out; the adapter must still
+      // deliver 2 LIVE rows (not fewer) and never MORE than the requested limit.
+      const fresh = new Date();
+      const stale = new Date(Date.now() - 200 * 24 * 60 * 60 * 1000); // cleared
+      mockSearchObservations.mockResolvedValueOnce([
+        {
+          id: 1,
+          type: 'pattern',
+          title: 'decayed-top',
+          content: 'C',
+          filePaths: null,
+          lastAccessedAt: stale,
+        },
+        {
+          id: 2,
+          type: 'pattern',
+          title: 'decayed-2',
+          content: 'C',
+          filePaths: null,
+          lastAccessedAt: stale,
+        },
+        {
+          id: 3,
+          type: 'pattern',
+          title: 'live-1',
+          content: 'C',
+          filePaths: null,
+          lastAccessedAt: fresh,
+        },
+        {
+          id: 4,
+          type: 'pattern',
+          title: 'live-2',
+          content: 'C',
+          filePaths: null,
+          lastAccessedAt: fresh,
+        },
+        {
+          id: 5,
+          type: 'pattern',
+          title: 'live-3',
+          content: 'C',
+          filePaths: null,
+          lastAccessedAt: fresh,
+        },
+      ]);
+
+      const result = await storage.searchObservations('proj', 'q', { limit: 2 });
+
+      // Over-fetch requested: limit*3 = 6.
+      expect(mockSearchObservations).toHaveBeenCalledWith(fakeDb, 'proj', 'q', {
+        limit: 2,
+        fetchLimit: 6,
+        embedFn: undefined,
+      });
+      // Exactly `limit` live rows — not 1 (under-delivery), not 3 (over-delivery).
+      expect(result).toHaveLength(2);
+      expect(result.map((r) => r.id)).toEqual([3, 4]);
+    });
+
+    // ── R3-001 / R3-002 integration (addresses R3-003) ────────────────────
+    // Exercises the REAL ghagga-db.searchObservations union pipeline flowing
+    // into the adapter's decay filter — NOT a mock of searchObservations —
+    // which is the only way to catch the pre-cap (R3-001) and decay-evasion
+    // touch (R3-002) that lived in queries.ts. Mirrors the SQLite oracle
+    // (packages/core/src/memory/sqlite.ts `_hybridSearch`).
+    it('R3-001/R3-002: real union pool → adapter decay delivers fresh rows below the old pre-cap AND touches only survivors', async () => {
+      const { searchObservations: realSearchObservations } =
+        await vi.importActual<typeof import('ghagga-db')>('ghagga-db');
+      // Delegate to the REAL union query implementation for this test only.
+      mockSearchObservations.mockImplementation(realSearchObservations as never);
+
+      const day = 24 * 60 * 60 * 1000;
+      const stale = new Date(Date.now() - 200 * day); // well past clearance → decayed out
+      const fresh = new Date();
+
+      // Keyword candidates in ts_rank DESC order. No embeddings → cosine 0 →
+      // finalScore = 0.3 * positional-rank, so the sorted pool == this order.
+      // The 6 STALE rows fill the top-6 slots — exactly the OLD pre-cap for
+      // limit=2 (returnLimit = fetchLimit = limit*3 = 6). The 2 FRESH rows rank
+      // BELOW it. Old queries.ts sliced to returnLimit BEFORE decay, so the
+      // adapter saw only decayed rows and under-delivered 0. Fixed queries.ts
+      // returns the full uncapped pool, so decay filtering reaches the fresh rows.
+      const mkRow = (id: number, lastAccessedAt: Date) => ({
+        id,
+        type: 'note',
+        title: `t${id}`,
+        content: `c${id}`,
+        filePaths: [],
+        severity: null,
+        embedding: null,
+        embeddingModel: null,
+        embeddingDim: null,
+        lastAccessedAt,
+      });
+      const keywordRows = [
+        mkRow(1, stale),
+        mkRow(2, stale),
+        mkRow(3, stale),
+        mkRow(4, stale),
+        mkRow(5, stale),
+        mkRow(6, stale),
+        mkRow(7, fresh),
+        mkRow(8, fresh),
+      ];
+
+      // Fake db: select #1 = keyword candidates, select #2 = (empty) cosine set.
+      let selectCall = 0;
+      const selectSequence: unknown[][] = [keywordRows, []];
+      const mkSelect = vi.fn().mockImplementation(() => {
+        const rows = selectSequence[selectCall] ?? [];
+        selectCall++;
+        const limit = vi.fn().mockResolvedValue(rows);
+        const orderBy = vi.fn().mockReturnValue({ limit });
+        const where = vi.fn().mockReturnValue({ orderBy });
+        const from = vi.fn().mockReturnValue({ where });
+        return { from };
+      });
+      const unionDb = { select: mkSelect } as never;
+
+      const provider = makeFakeProvider(3);
+      const providerStorage = new PostgresMemoryStorage(unionDb, installationId, provider);
+
+      const result = await providerStorage.searchObservations('proj', 'q', { limit: 2 });
+
+      // R3-001: the 2 fresh rows ranked below the old pre-cap are still delivered.
+      expect(result.map((r) => r.id)).toEqual([7, 8]);
+
+      // R3-002: last_accessed_at bumped for EXACTLY the returned survivors —
+      // never a row the decay filter dropped (no decay-evasion).
+      expect(mockBumpObservationsLastAccessed).toHaveBeenCalledTimes(1);
+      const touchedIds = mockBumpObservationsLastAccessed.mock.calls[0]?.[1] as number[];
+      expect(touchedIds).toEqual([7, 8]);
+      for (const staleId of [1, 2, 3, 4, 5, 6]) {
+        expect(touchedIds).not.toContain(staleId);
+      }
+    });
+
+    // ── Task 4.1/4.5: embedding-union wiring passed through to ghagga-db ──
+
+    it('[4.1] passes embeddingDimension/embeddingModel/embeddingCandidateK to ghagga-db when a provider is active', async () => {
+      const provider = makeFakeProvider(3);
+      const providerStorage = new PostgresMemoryStorage(
+        fakeDb,
+        installationId,
+        provider,
+        DEFAULT_DECAY_CONFIG,
+        'test-model',
+        50,
+      );
+      mockSearchObservations.mockResolvedValueOnce([]);
+
+      await providerStorage.searchObservations('owner/repo', 'query', { limit: 5 });
+
+      expect(mockSearchObservations).toHaveBeenCalledWith(fakeDb, 'owner/repo', 'query', {
+        limit: 5,
+        fetchLimit: 15,
+        embedFn: expect.any(Function),
+        embeddingDimension: 3,
+        embeddingModel: 'test-model',
+        embeddingCandidateK: 50,
+      });
+    });
+
+    it('[4.1] defaults embeddingCandidateK to 200 and omits embeddingModel when not configured', async () => {
+      const provider = makeFakeProvider(3);
+      const providerStorage = new PostgresMemoryStorage(fakeDb, installationId, provider);
+      mockSearchObservations.mockResolvedValueOnce([]);
+
+      await providerStorage.searchObservations('owner/repo', 'query');
+
+      expect(mockSearchObservations).toHaveBeenCalledWith(fakeDb, 'owner/repo', 'query', {
+        fetchLimit: 30,
+        embedFn: expect.any(Function),
+        embeddingDimension: 3,
+        embeddingModel: undefined,
+        embeddingCandidateK: 200,
+      });
+    });
+
+    it('[R5.11 none-parity] omits embedding-union options entirely when no provider is active', async () => {
+      mockSearchObservations.mockResolvedValueOnce([]);
+
+      await storage.searchObservations('owner/repo', 'query');
+
+      // Exact call shape unchanged from the pre-union contract — no
+      // embeddingDimension/embeddingModel/embeddingCandidateK keys at all.
+      expect(mockSearchObservations).toHaveBeenCalledWith(fakeDb, 'owner/repo', 'query', {
+        fetchLimit: 30,
+        embedFn: undefined,
+      });
     });
   });
 
@@ -139,7 +446,17 @@ describe('PostgresMemoryStorage — core methods', () => {
 
       const result = await storage.saveObservation(input);
 
-      expect(mockSaveObservation).toHaveBeenCalledWith(fakeDb, input);
+      // The storage layer always forwards a computed `embedding` (+ its
+      // provider metadata), all null when no embedding provider is
+      // configured, as in this test. Assert the real contract —
+      // `{ ...input, embedding: null, embeddingModel: null, embeddingDim: null }`
+      // — not the bare input.
+      expect(mockSaveObservation).toHaveBeenCalledWith(fakeDb, {
+        ...input,
+        embedding: null,
+        embeddingModel: null,
+        embeddingDim: null,
+      });
       expect(result).toEqual({
         id: 10,
         type: 'pattern',
@@ -167,6 +484,85 @@ describe('PostgresMemoryStorage — core methods', () => {
       });
 
       expect(result.filePaths).toBeNull();
+    });
+
+    // ── Task 4.5: persist embedding_model/embedding_dim alongside the vector ──
+
+    it('[4.5] persists embedding + embeddingModel + embeddingDim when a provider is active', async () => {
+      const provider = makeFakeProvider(3);
+      const providerStorage = new PostgresMemoryStorage(
+        fakeDb,
+        installationId,
+        provider,
+        DEFAULT_DECAY_CONFIG,
+        'test-model',
+      );
+      mockSaveObservation.mockResolvedValueOnce({
+        id: 20,
+        type: 'pattern',
+        title: 'T',
+        content: 'C',
+        filePaths: null,
+      });
+
+      await providerStorage.saveObservation({
+        project: 'proj',
+        type: 'pattern',
+        title: 'T',
+        content: 'C',
+      });
+
+      expect(provider.embed).toHaveBeenCalledWith('T C');
+      expect(mockSaveObservation).toHaveBeenCalledWith(fakeDb, {
+        project: 'proj',
+        type: 'pattern',
+        title: 'T',
+        content: 'C',
+        embedding: [0.1, 0.1, 0.1],
+        embeddingModel: 'test-model',
+        embeddingDim: 3,
+      });
+    });
+
+    it('[4.5] embed failure: persists NULL embedding/model/dim, warns, does not throw', async () => {
+      const provider = makeFakeProvider(3);
+      (provider.embed as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('network down'));
+      const providerStorage = new PostgresMemoryStorage(
+        fakeDb,
+        installationId,
+        provider,
+        DEFAULT_DECAY_CONFIG,
+        'test-model',
+      );
+      mockSaveObservation.mockResolvedValueOnce({
+        id: 21,
+        type: 'pattern',
+        title: 'T',
+        content: 'C',
+        filePaths: null,
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      const result = await providerStorage.saveObservation({
+        project: 'proj',
+        type: 'pattern',
+        title: 'T',
+        content: 'C',
+      });
+
+      expect(mockSaveObservation).toHaveBeenCalledWith(fakeDb, {
+        project: 'proj',
+        type: 'pattern',
+        title: 'T',
+        content: 'C',
+        embedding: null,
+        embeddingModel: null,
+        embeddingDim: null,
+      });
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('network down'));
+      expect(result.id).toBe(21);
+
+      warnSpy.mockRestore();
     });
   });
 
@@ -197,6 +593,52 @@ describe('PostgresMemoryStorage — core methods', () => {
   describe('close', () => {
     it('is a no-op that resolves without error', async () => {
       await expect(storage.close()).resolves.toBeUndefined();
+    });
+  });
+
+  // ── Backfill (design D6, task 6.4) ──────────────────────────────
+
+  describe('listObservationsNeedingEmbedding', () => {
+    it('delegates to ghagga-db.listObservationsNeedingEmbedding with the same options', async () => {
+      const rows = [
+        { id: 1, text: 'title one content one' },
+        { id: 2, text: 'title two content two' },
+      ];
+      mockListObservationsNeedingEmbedding.mockResolvedValueOnce(rows);
+
+      const options = {
+        afterId: 0,
+        limit: 100,
+        activeModel: 'text-embedding-3-small',
+        activeDim: 1536,
+        includeMismatched: false,
+      };
+      const result = await storage.listObservationsNeedingEmbedding(options);
+
+      expect(mockListObservationsNeedingEmbedding).toHaveBeenCalledWith(fakeDb, options);
+      expect(result).toEqual(rows);
+    });
+  });
+
+  describe('updateObservationEmbedding', () => {
+    it('delegates to ghagga-db.updateObservationEmbedding with id/embedding/model/dim', async () => {
+      mockUpdateObservationEmbedding.mockResolvedValueOnce(undefined);
+
+      await storage.updateObservationEmbedding(7, [0.1, 0.2, 0.3], 'text-embedding-3-small', 3);
+
+      expect(mockUpdateObservationEmbedding).toHaveBeenCalledWith(
+        fakeDb,
+        7,
+        [0.1, 0.2, 0.3],
+        'text-embedding-3-small',
+        3,
+      );
+    });
+  });
+
+  describe('flush', () => {
+    it('is not implemented on PostgresMemoryStorage (writes commit per-statement)', () => {
+      expect((storage as unknown as { flush?: () => void }).flush).toBeUndefined();
     });
   });
 });

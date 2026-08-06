@@ -1,13 +1,33 @@
 // ─── Enums / Unions ─────────────────────────────────────────────
 
-export type ReviewStatus = 'PASSED' | 'FAILED' | 'NEEDS_HUMAN_REVIEW' | 'SKIPPED';
+// CONVENTION: All status/enum/discriminated-union types shared between
+// ghagga-core (runtime) and the @ghagga/types API surface MUST be canonical
+// in ghagga-core and re-exported from here. This prevents drift like the
+// ReviewStatus PARTIAL issue (resolved in PR #186).
+//
+// Single source of truth: ReviewStatus and ReviewMode are defined in
+// `ghagga-core` (the review engine runtime). We re-export them here so the
+// dashboard / server / shared wire contract cannot drift from the runtime
+// enums. Adding a new status/mode to core is automatically reflected in
+// @ghagga/types — no manual sync needed. (ReviewMode previously drifted:
+// core persisted 'diagnostic' reviews while this union lacked it.)
+import type { ReviewFinding, ReviewMode, ReviewStatus } from 'ghagga-core';
 
-export type ReviewMode = 'simple' | 'workflow' | 'consensus';
+export type { ReviewFinding, ReviewMode, ReviewStatus };
 
-export type LLMProvider = 'anthropic' | 'openai' | 'google' | 'github' | 'ollama' | 'qwen';
+/**
+ * Supported LLM provider modes.
+ * - gateway: delegates to mcp-llm-bridge (recommended for server/action)
+ * - cli-bridge: calls local CLIs directly (Claude, OpenCode, Gemini, Copilot) — CLI only
+ * - ollama: calls local Ollama instance directly (no subprocess, OpenAI-compatible)
+ *
+ * Migration: 'anthropic', 'openai', 'google', etc. → set provider: 'gateway' and
+ * configure credentials in mcp-llm-bridge vault.
+ */
+export type LLMProvider = 'gateway' | 'cli-bridge' | 'ollama';
 
-/** Providers available in the SaaS dashboard (excludes Ollama) */
-export type SaaSProvider = 'anthropic' | 'openai' | 'google' | 'github' | 'qwen';
+/** Providers available in the SaaS dashboard */
+export type SaaSProvider = 'gateway' | 'cli-bridge' | 'ollama';
 
 // ─── User ───────────────────────────────────────────────────────
 
@@ -21,6 +41,12 @@ export interface User {
 
 export interface Review {
   id: number;
+  /**
+   * Repository full name ("owner/name"). Populated SERVER-SIDE on every
+   * review listing: the per-repo path composes it from the repo row the
+   * route already validated, and the cross-installation path carries it
+   * via the repositories join. Clients must NOT need fallbacks for this.
+   */
   repo: string;
   prNumber: number;
   status: ReviewStatus;
@@ -28,16 +54,30 @@ export interface Review {
   summary: string;
   findings: Finding[];
   createdAt: string;
+  /**
+   * First-class coverage signal, orthogonal to `status`: `true` = every
+   * pipeline step ran, `false` = at least one step degraded — tracked
+   * failures AND warn-only degradations alike (the latter stay internal:
+   * the wire exposes only this boolean, never their step names, and they
+   * don't downgrade the status). Optional because rows persisted before
+   * the field existed (and SKIPPED reviews, where the pipeline never ran)
+   * carry no value — the server omits the key entirely for those rows.
+   */
+  coverageComplete?: boolean;
 }
 
-export interface Finding {
-  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
-  category: string;
-  file: string;
-  line: number;
-  message: string;
-  suggestion?: string;
-}
+/**
+ * The wire-exposed finding shape: a DELIBERATE projection of core's
+ * {@link ReviewFinding}. The `/api/reviews` HTTP endpoint OMITS the AI-internal
+ * detail fields — raw LLM reasoning (`filterReason`) and the internal repo
+ * paths inside `exploitabilityDetail` / `usageDetail` (`importSites`,
+ * `reachableFrom`, `filesScanned`, …). Only labels and signals reach API
+ * consumers (`exploitability`, `usageLabel`, `aiFiltered`, `aiPriority`), the
+ * same way `coverageComplete` exposes a boolean without the degraded step
+ * names. The projection is enforced server-side in `toReviewDto`; the local
+ * CLI/ACP outputs still carry the full `ReviewFinding` (the user owns that data).
+ */
+export type Finding = Omit<ReviewFinding, 'filterReason' | 'exploitabilityDetail' | 'usageDetail'>;
 
 export interface ReviewsResponse {
   reviews: Review[];
@@ -83,6 +123,10 @@ export interface ProviderChainView {
   model: string;
   hasApiKey: boolean;
   maskedApiKey?: string;
+  /** OpenCode model in `provider/model` format. Only present for cli-bridge entries. */
+  cliModel?: string;
+  /** Gateway base URL. Only present for gateway entries. */
+  gatewayUrl?: string;
 }
 
 /** Chain entry for updates (sent to PUT /api/settings) */
@@ -90,6 +134,10 @@ export interface ProviderChainUpdate {
   provider: SaaSProvider;
   model: string;
   apiKey?: string; // only sent when new/changed
+  /** OpenCode model in `provider/model` format. Only meaningful when provider === 'cli-bridge'. */
+  cliModel?: string;
+  /** Gateway base URL. Only meaningful when provider === 'gateway'. */
+  gatewayUrl?: string;
 }
 
 /** Provider validation response from POST /api/providers/validate */
@@ -119,6 +167,7 @@ export interface InstallationSettings {
   enableTrivy: boolean;
   enableCpd: boolean;
   enableMemory: boolean;
+  enableBlastRadius?: boolean;
   customRules: string;
   ignorePatterns: string[];
   enabledTools?: string[];
@@ -147,6 +196,7 @@ export interface RepositorySettings {
   enableTrivy: boolean;
   enableCpd: boolean;
   enableMemory: boolean;
+  enableBlastRadius?: boolean;
   customRules: string;
   ignorePatterns: string[];
   enabledTools: string[];
@@ -183,34 +233,18 @@ export interface Observation {
   updatedAt: string;
 }
 
-// ─── Runner ─────────────────────────────────────────────────────
+// ─── Workflow Installation ────────────────────────────────────────
 
-/** Response from GET /api/runner/status */
-export interface RunnerStatus {
-  exists: boolean;
-  repoFullName?: string;
-  isPrivate?: boolean;
-  warning?: string;
+/** Response from GET /api/runner/install-workflow/status/:owner/:repo */
+export interface WorkflowStatus {
+  installed: boolean;
+  workflowInstalledAt: string | null;
+  workflowSha: string | null;
 }
 
-/** Response from POST /api/runner/create */
-export interface RunnerCreateResult {
+/** Response from POST /api/runner/install-workflow/:owner/:repo */
+export interface WorkflowInstallResult {
+  installed: boolean;
+  sha: string;
   created: boolean;
-  repoFullName: string;
-  secretConfigured: boolean;
-  isPrivate: boolean;
-  warning?: string;
-}
-
-/** Response from POST /api/runner/configure-secret */
-export interface RunnerConfigureResult {
-  configured: boolean;
-}
-
-/** Error response from runner endpoints */
-export interface RunnerError {
-  error: string;
-  message?: string;
-  repoFullName?: string;
-  retryAfter?: number;
 }

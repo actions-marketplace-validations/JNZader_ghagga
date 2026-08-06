@@ -2,26 +2,30 @@ import { type FormEvent, useEffect, useState } from 'react';
 import { Card, CardHeader } from '@/components/Card';
 import { ProviderChainEditor } from '@/components/settings/ProviderChainEditor';
 import type { ProviderEntryState } from '@/components/settings/ProviderEntry';
+import { KNOWN_MODELS } from '@/components/settings/provider-fields/shared';
 import { ToolGrid } from '@/components/settings/ToolGrid';
 import {
-  ApiError,
-  useConfigureRunnerSecret,
-  useCreateRunner,
   useInstallationSettings,
   useInstallations,
-  useRunnerStatus,
   useUpdateInstallationSettings,
 } from '@/lib/api';
-import { useAuth } from '@/lib/auth';
 import type {
   ProviderChainUpdate,
   ProviderChainView,
   RegisteredTool,
   ReviewMode,
+  SaaSProvider,
 } from '@/lib/types';
 
 export function GlobalSettings() {
-  const { data: installations, isLoading: instLoading } = useInstallations();
+  const {
+    data: installations,
+    isLoading: instLoading,
+    isError: instError,
+    error: instErrorObj,
+    refetch: refetchInstallations,
+    isFetching: instFetching,
+  } = useInstallations();
 
   // Auto-select first installation, or let user pick
   const [selectedInstallation, setSelectedInstallation] = useState<number>(0);
@@ -32,40 +36,20 @@ export function GlobalSettings() {
     }
   }, [installations, selectedInstallation]);
 
+  // Only the empty-installations case (zero GitHub App installations for
+  // this user) — NOT a load error, which is handled separately below.
+  const hasNoInstallations = !instLoading && !instError && (installations?.length ?? 0) === 0;
+
   const { data: settings, isLoading: settingsLoading } =
     useInstallationSettings(selectedInstallation);
   const updateSettings = useUpdateInstallationSettings();
-
-  // ── Runner ─────────────────────────────────────────────
-  const { user, reAuthenticate } = useAuth();
-  const runnerStatus = useRunnerStatus(user?.githubLogin);
-  const createRunner = useCreateRunner();
-  const configureSecret = useConfigureRunnerSecret();
-  const [needsReauth, setNeedsReauth] = useState(false);
-
-  useEffect(() => {
-    if (createRunner.isError) {
-      const err = createRunner.error;
-      if (err instanceof ApiError && err.status === 403) {
-        try {
-          const body = JSON.parse(err.message);
-          if (body.error === 'insufficient_scope') {
-            setNeedsReauth(true);
-            return;
-          }
-        } catch {
-          /* not JSON */
-        }
-      }
-      setNeedsReauth(false);
-    }
-  }, [createRunner.isError, createRunner.error]);
 
   // ── Form state ──────────────────────────────────────────────
   const [enableSemgrep, setEnableSemgrep] = useState(true);
   const [enableTrivy, setEnableTrivy] = useState(true);
   const [enableCpd, setEnableCpd] = useState(false);
   const [enableMemory, setEnableMemory] = useState(true);
+  const [enableBlastRadius, setEnableBlastRadius] = useState(false);
   const [aiReviewEnabled, setAiReviewEnabled] = useState(true);
   const [providerChain, setProviderChain] = useState<ProviderEntryState[]>([]);
   const [reviewMode, setReviewMode] = useState<ReviewMode>('simple');
@@ -82,6 +66,7 @@ export function GlobalSettings() {
       setEnableTrivy(settings.enableTrivy);
       setEnableCpd(settings.enableCpd);
       setEnableMemory(settings.enableMemory);
+      setEnableBlastRadius(settings.enableBlastRadius ?? false);
       setAiReviewEnabled(settings.aiReviewEnabled);
       setReviewMode(settings.reviewMode as ReviewMode);
       setCustomRules(settings.customRules);
@@ -90,15 +75,23 @@ export function GlobalSettings() {
       setRegisteredTools(settings.registeredTools ?? []);
 
       setProviderChain(
-        settings.providerChain.map((entry: ProviderChainView) => ({
+        settings.providerChain.map((entry: ProviderChainView, index: number) => ({
+          id: `${entry.provider}-${index}`,
           provider: entry.provider,
           model: entry.model,
           apiKey: '',
-          // Include the saved model so the <select> can display it
-          availableModels: entry.model ? [entry.model] : [],
+          // Use full known model list so the dropdown is immediately usable
+          availableModels:
+            KNOWN_MODELS[entry.provider as SaaSProvider] ?? (entry.model ? [entry.model] : []),
           hasExistingKey: entry.hasApiKey,
           maskedApiKey: entry.maskedApiKey,
-          validated: entry.hasApiKey || entry.provider === 'github',
+          validated:
+            entry.hasApiKey ||
+            entry.provider === 'cli-bridge' ||
+            entry.provider === 'ollama' ||
+            entry.provider === 'gateway',
+          cliModel: entry.cliModel,
+          gatewayUrl: entry.gatewayUrl,
         })),
       );
     }
@@ -113,6 +106,8 @@ export function GlobalSettings() {
       provider: entry.provider,
       model: entry.model,
       ...(entry.apiKey.trim() ? { apiKey: entry.apiKey.trim() } : {}),
+      ...(entry.provider === 'cli-bridge' && entry.cliModel ? { cliModel: entry.cliModel } : {}),
+      ...(entry.provider === 'gateway' && entry.gatewayUrl ? { gatewayUrl: entry.gatewayUrl } : {}),
     }));
 
     await updateSettings.mutateAsync({
@@ -124,6 +119,7 @@ export function GlobalSettings() {
       enableTrivy,
       enableCpd,
       enableMemory,
+      enableBlastRadius,
       customRules,
       ignorePatterns: ignorePatterns
         .split('\n')
@@ -137,7 +133,6 @@ export function GlobalSettings() {
   };
 
   const selectedInst = installations?.find((i) => i.id === selectedInstallation);
-  const isLoading = instLoading || settingsLoading;
 
   return (
     <div>
@@ -163,11 +158,69 @@ export function GlobalSettings() {
         )}
       </div>
 
-      {!selectedInstallation || instLoading ? (
+      {instLoading ? (
+        /* ── Loading: fetching the caller's GitHub App installations ── */
         <div className="flex items-center justify-center py-20">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
         </div>
-      ) : isLoading ? (
+      ) : instError ? (
+        /* ── Error: useInstallations failed (PRODOPS-006) — surface it
+           instead of leaving selectedInstallation stuck at 0 forever. ── */
+        <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-red-500/30 bg-red-500/10 py-16 text-center">
+          <div className="text-4xl" aria-hidden="true">
+            ⚠️
+          </div>
+          <div>
+            <h2 className="mb-1 text-lg font-semibold text-text-primary">
+              Failed to load installations
+            </h2>
+            <p className="max-w-md text-sm text-text-secondary">
+              {instErrorObj instanceof Error && instErrorObj.message
+                ? instErrorObj.message
+                : 'Something went wrong while checking your GitHub App installations.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => refetchInstallations()}
+            disabled={instFetching}
+            className="btn-primary"
+          >
+            {instFetching ? 'Retrying...' : 'Retry'}
+          </button>
+        </div>
+      ) : hasNoInstallations ? (
+        /* ── Empty: zero installations for this account (PRODOPS-006) ── */
+        <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
+          <div className="text-5xl" aria-hidden="true">
+            🔌
+          </div>
+          <div>
+            <h2 className="mb-2 text-xl font-semibold text-text-primary">
+              No GitHub App Installations Found
+            </h2>
+            <p className="max-w-md text-text-secondary">
+              GHAGGA needs the GitHub App installed on your account or organization before global
+              defaults can be configured.
+            </p>
+          </div>
+          <a
+            href="https://github.com/apps/ghagga-review/installations/new"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-primary"
+          >
+            Install GitHub App
+          </a>
+        </div>
+      ) : !selectedInstallation ? (
+        // Installations loaded but the auto-select effect hasn't committed
+        // the derived selectedInstallation state yet — a brief, expected
+        // transition, not the persistent hang PRODOPS-006 described.
+        <div className="flex items-center justify-center py-20">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
+        </div>
+      ) : settingsLoading ? (
         <div className="flex items-center justify-center py-20">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
         </div>
@@ -182,126 +235,19 @@ export function GlobalSettings() {
             </p>
           </div>
 
-          {/* ── Runner ────────────────────────────────────── */}
+          {/* ── Workflow Installation ────────────────────────── */}
           <Card>
             <CardHeader
-              title="Static Analysis Runner"
-              description="GitHub Actions runner for Semgrep, Trivy, and PMD/CPD"
+              title="Inline Workflow Installation"
+              description="GHAGGA injects a GitHub Actions workflow directly into each repository for static analysis"
             />
-
-            {/* State: checking */}
-            {runnerStatus.isLoading && (
-              <div className="flex items-center gap-3">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
-                <span className="text-sm text-text-secondary">Checking runner status...</span>
-              </div>
-            )}
-
-            {/* State: ready */}
-            {runnerStatus.data?.exists && !createRunner.isPending && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <svg className="h-5 w-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                  <span className="text-sm text-text-primary">Runner enabled</span>
-                  <a
-                    href={`https://github.com/${runnerStatus.data.repoFullName}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm text-primary-400 hover:underline"
-                  >
-                    {runnerStatus.data.repoFullName}
-                  </a>
-                </div>
-
-                {runnerStatus.data.isPrivate && (
-                  <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3">
-                    <p className="text-sm text-yellow-300">{runnerStatus.data.warning}</p>
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => configureSecret.mutate()}
-                  disabled={configureSecret.isPending}
-                  className="btn-secondary text-sm"
-                >
-                  {configureSecret.isPending ? 'Configuring...' : 'Reconfigure Secret'}
-                </button>
-              </div>
-            )}
-
-            {/* State: not_configured */}
-            {!runnerStatus.isLoading &&
-              !runnerStatus.data?.exists &&
-              !createRunner.isPending &&
-              !needsReauth && (
-                <div className="space-y-3">
-                  <p className="text-sm text-text-secondary">
-                    GHAGGA uses a GitHub Actions runner in your account for static analysis
-                    (Semgrep, Trivy, PMD/CPD). This creates a public repository named
-                    <code className="mx-1 rounded bg-surface-bg px-1 text-xs">ghagga-runner</code>
-                    in your GitHub account.
-                  </p>
-                  <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3">
-                    <p className="text-xs text-yellow-300">
-                      This requires the <code>public_repo</code> OAuth scope, which grants write
-                      access to your public repositories. The token is only used server-side to
-                      create the runner repo and configure its secrets.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => createRunner.mutate()}
-                    className="btn-primary"
-                  >
-                    Enable Runner
-                  </button>
-                </div>
-              )}
-
-            {/* State: creating */}
-            {createRunner.isPending && (
-              <div className="flex items-center gap-3">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
-                <span className="text-sm text-text-secondary">Creating runner repository...</span>
-              </div>
-            )}
-
-            {/* State: needs_reauth */}
-            {needsReauth && (
-              <div className="space-y-3">
-                <div className="rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3">
-                  <p className="text-sm text-yellow-300">
-                    Your session needs to be refreshed to enable the runner. The
-                    <code className="mx-1">public_repo</code> scope is required to create the runner
-                    repository.
-                  </p>
-                </div>
-                <button type="button" onClick={() => reAuthenticate()} className="btn-primary">
-                  Re-authenticate
-                </button>
-              </div>
-            )}
-
-            {/* State: error (non-scope errors) */}
-            {createRunner.isError && !needsReauth && (
-              <div className="space-y-3">
-                <div className="rounded-md border border-red-500/30 bg-red-500/10 p-3">
-                  <p className="text-sm text-red-300">
-                    Failed to create runner repository. Please try again.
-                  </p>
-                </div>
-                <button type="button" onClick={() => createRunner.mutate()} className="btn-primary">
-                  Retry
-                </button>
-              </div>
-            )}
+            <div className="rounded-md border border-primary-600/30 bg-primary-600/10 p-3">
+              <p className="text-sm text-primary-300">
+                Workflows are automatically injected when repositories are added to the GitHub App
+                installation. To manually install or check status for a specific repository, go to{' '}
+                <strong>Repository Settings</strong> and select the repository.
+              </p>
+            </div>
           </Card>
 
           {/* ── Static Analysis ──────────────────────────────── */}
@@ -358,6 +304,44 @@ export function GlobalSettings() {
             </div>
           </Card>
 
+          {/* ── Blast Radius ─────────────────────────────────── */}
+          <Card>
+            <div className="flex items-center justify-between">
+              <CardHeader
+                title="Blast Radius"
+                description="Analyze dependency graph to focus reviews on impacted files"
+              />
+              <label className="flex cursor-pointer items-center gap-3">
+                <span className="text-sm text-text-secondary">
+                  {enableBlastRadius ? 'Enabled' : 'Disabled'}
+                </span>
+                <div className="relative">
+                  <input
+                    type="checkbox"
+                    checked={enableBlastRadius}
+                    onChange={(e) => setEnableBlastRadius(e.target.checked)}
+                    className="peer sr-only"
+                  />
+                  <div className="h-6 w-11 rounded-full bg-surface-border peer-checked:bg-primary-600 transition-colors" />
+                  <div className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5" />
+                </div>
+              </label>
+            </div>
+            {enableBlastRadius && (
+              <div className="mt-2 space-y-1 text-xs text-text-secondary">
+                <p>
+                  When enabled, GHAGGA analyzes which files are <em>actually impacted</em> by the
+                  changed code (via import/call graph) and limits the review to those files only —
+                  reducing tokens by up to 6×.
+                </p>
+                <p className="text-yellow-400/80">
+                  ⚡ The dependency graph is built automatically on the first review after enabling.
+                  The <strong>second review onwards</strong> will use blast-radius filtering.
+                </p>
+              </div>
+            )}
+          </Card>
+
           {/* ── AI Review ────────────────────────────────────── */}
           <Card>
             <div className="flex items-center justify-between">
@@ -385,19 +369,22 @@ export function GlobalSettings() {
             {aiReviewEnabled && (
               <div className="mt-4 space-y-4">
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-text-primary">
+                  {/* Section caption, not a form label: ProviderChainEditor is a
+                      composite widget, there is no single control to label. */}
+                  <div className="mb-2 block text-sm font-medium text-text-primary">
                     Provider Chain
                     <span className="ml-2 font-normal text-text-secondary">
                       (ordered by priority — primary first, fallbacks below)
                     </span>
-                  </label>
+                  </div>
                   <ProviderChainEditor chain={providerChain} onChange={setProviderChain} />
                 </div>
 
                 <div>
-                  <label className="mb-2 block text-sm font-medium text-text-primary">
+                  {/* Group caption: each radio below carries its own <label>. */}
+                  <div className="mb-2 block text-sm font-medium text-text-primary">
                     Review Mode
-                  </label>
+                  </div>
                   <div className="flex gap-4">
                     {(['simple', 'workflow', 'consensus'] as const).map((mode) => (
                       <label key={mode} className="flex cursor-pointer items-center gap-2">

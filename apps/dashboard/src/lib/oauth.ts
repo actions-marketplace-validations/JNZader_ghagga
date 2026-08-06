@@ -12,15 +12,15 @@
  * but the Dashboard no longer uses them directly.
  */
 
-/** GHAGGA OAuth App Client ID (public, overridable via env) */
-export const GITHUB_CLIENT_ID = import.meta.env.VITE_GITHUB_CLIENT_ID ?? 'Ov23liyYpSgDqOLUFa5k';
+/** GHAGGA GitHub App Client ID (public, overridable via env) */
+export const GITHUB_CLIENT_ID = import.meta.env.VITE_GITHUB_CLIENT_ID ?? '';
 
 /** Server base URL — used for OAuth and API endpoints */
 export const API_URL =
   import.meta.env.VITE_API_URL ||
   (window.location.hostname === 'localhost'
     ? 'http://localhost:3000'
-    : 'https://ghagga.onrender.com');
+    : 'https://api.javierzader.com');
 
 // ─── Types ──────────────────────────────────────────────────────
 

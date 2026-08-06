@@ -24,7 +24,9 @@ const navItems: NavItem[] = [
         viewBox="0 0 24 24"
         stroke="currentColor"
         strokeWidth={1.5}
+        aria-hidden="true"
       >
+        <title>Dashboard icon</title>
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -43,11 +45,34 @@ const navItems: NavItem[] = [
         viewBox="0 0 24 24"
         stroke="currentColor"
         strokeWidth={1.5}
+        aria-hidden="true"
       >
+        <title>Reviews icon</title>
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
           d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z"
+        />
+      </svg>
+    ),
+  },
+  {
+    to: '/issue-triage',
+    label: 'Issue Triage',
+    icon: (
+      <svg
+        className="h-5 w-5"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        aria-hidden="true"
+      >
+        <title>Issue Triage icon</title>
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
         />
       </svg>
     ),
@@ -62,7 +87,9 @@ const navItems: NavItem[] = [
         viewBox="0 0 24 24"
         stroke="currentColor"
         strokeWidth={1.5}
+        aria-hidden="true"
       >
+        <title>Settings icon</title>
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -86,7 +113,9 @@ const navItems: NavItem[] = [
         viewBox="0 0 24 24"
         stroke="currentColor"
         strokeWidth={1.5}
+        aria-hidden="true"
       >
+        <title>Memory icon</title>
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -105,7 +134,9 @@ const navItems: NavItem[] = [
         viewBox="0 0 24 24"
         stroke="currentColor"
         strokeWidth={1.5}
+        aria-hidden="true"
       >
+        <title>Global Settings icon</title>
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -164,7 +195,7 @@ export function Layout({ children }: LayoutProps) {
           {/* External links */}
           <div className="mt-4 border-t border-surface-border pt-4 space-y-1">
             <a
-              href="/ghagga/"
+              href="/"
               className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
             >
               <svg
@@ -173,7 +204,9 @@ export function Layout({ children }: LayoutProps) {
                 viewBox="0 0 24 24"
                 stroke="currentColor"
                 strokeWidth={1.5}
+                aria-hidden="true"
               >
+                <title>Home icon</title>
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -183,7 +216,7 @@ export function Layout({ children }: LayoutProps) {
               Home
             </a>
             <a
-              href="/ghagga/docs/"
+              href="/docs/"
               className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-text-secondary hover:bg-surface-hover hover:text-text-primary transition-colors"
             >
               <svg
@@ -192,7 +225,9 @@ export function Layout({ children }: LayoutProps) {
                 viewBox="0 0 24 24"
                 stroke="currentColor"
                 strokeWidth={1.5}
+                aria-hidden="true"
               >
+                <title>Documentation icon</title>
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
@@ -213,6 +248,7 @@ export function Layout({ children }: LayoutProps) {
                 <p className="truncate text-sm font-medium text-text-primary">{user.githubLogin}</p>
               </div>
               <button
+                type="button"
                 onClick={handleLogout}
                 className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-secondary"
                 title="Logout"
@@ -223,7 +259,9 @@ export function Layout({ children }: LayoutProps) {
                   viewBox="0 0 24 24"
                   stroke="currentColor"
                   strokeWidth={1.5}
+                  aria-hidden="true"
                 >
+                  <title>Logout icon</title>
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"

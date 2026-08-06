@@ -3,22 +3,26 @@ name: Publish to npm
 on:
   release:
     types: [published]
+  # Manual re-run (e.g. to publish a newly-added package that a prior release
+  # missed). Every publish step is idempotent — already-published versions skip.
+  workflow_dispatch:
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
 
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2 # v4.0.0
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
 
-      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
           registry-url: 'https://registry.npmjs.org'
 
@@ -28,25 +32,52 @@ jobs:
 
       - run: pnpm turbo test
 
-      # Publish in dependency order: db → core → cli
-      # pnpm publish resolves workspace:^ → ^2.0.0 automatically
+      # Publish in dependency order: db → core → forge → cli → triage-engine.
+      # pnpm publish resolves workspace:^ → ^2.0.0 automatically.
+      # Each step is IDEMPOTENT — if the exact name@version is already on npm it
+      # is skipped, so a re-run (workflow_dispatch) that adds a missed package
+      # never fails on the already-published ones.
       - name: Publish ghagga-db
-        run: pnpm publish --access public --no-git-checks --provenance
+        run: |
+          PKG=$(node -p "require('./package.json').name"); VER=$(node -p "require('./package.json').version")
+          if npm view "$PKG@$VER" version >/dev/null 2>&1; then echo "$PKG@$VER already published — skipping"; else pnpm publish --access public --no-git-checks --provenance; fi
         working-directory: packages/db
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
 
       - name: Publish ghagga-core
-        run: pnpm publish --access public --no-git-checks --provenance
+        run: |
+          PKG=$(node -p "require('./package.json').name"); VER=$(node -p "require('./package.json').version")
+          if npm view "$PKG@$VER" version >/dev/null 2>&1; then echo "$PKG@$VER already published — skipping"; else pnpm publish --access public --no-git-checks --provenance; fi
         working-directory: packages/core
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
 
+      - name: Publish ghagga-forge
+        run: |
+          PKG=$(node -p "require('./package.json').name"); VER=$(node -p "require('./package.json').version")
+          if npm view "$PKG@$VER" version >/dev/null 2>&1; then echo "$PKG@$VER already published — skipping"; else pnpm publish --access public --no-git-checks --provenance; fi
+        working-directory: packages/forge
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
+
       - name: Publish ghagga (CLI)
-        run: pnpm publish --access public --no-git-checks --provenance
+        run: |
+          PKG=$(node -p "require('./package.json').name"); VER=$(node -p "require('./package.json').version")
+          if npm view "$PKG@$VER" version >/dev/null 2>&1; then echo "$PKG@$VER already published — skipping"; else pnpm publish --access public --no-git-checks --provenance; fi
         working-directory: apps/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: true
+
+      - name: Publish ghagga-triage-engine
+        run: |
+          PKG=$(node -p "require('./package.json').name"); VER=$(node -p "require('./package.json').version")
+          if npm view "$PKG@$VER" version >/dev/null 2>&1; then echo "$PKG@$VER already published — skipping"; else pnpm publish --access public --no-git-checks --provenance; fi
+        working-directory: packages/triage-engine
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: true

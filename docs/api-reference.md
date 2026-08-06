@@ -1,12 +1,12 @@
 # API Reference
 
-The GHAGGA server exposes a REST API for the dashboard, a webhook endpoint for GitHub, and OAuth proxy routes for the Device Flow login.
+The GHAGGA server exposes a REST API for the dashboard, a webhook endpoint for GitHub, and authentication routes for dashboard OAuth Web Flow plus CLI-compatible Device Flow.
 
 **Base URL**: `https://your-server.example.com` (default port `3000` in development)
 
 ## Authentication
 
-All `/api/*` endpoints (except `/api/inngest`) require a GitHub access token:
+All `/api/*` endpoints require a GitHub access token:
 
 ```
 Authorization: Bearer <github_token>
@@ -14,7 +14,7 @@ Authorization: Bearer <github_token>
 
 The server calls `GET https://api.github.com/user` to verify the token and resolve the user's identity. It then looks up which GHAGGA installations the user belongs to — only data from those installations is accessible.
 
-**Unauthenticated endpoints**: `/health`, `/webhook`, `/auth/*`, `/api/inngest`.
+**Unauthenticated endpoints**: `/health`, `/webhook`, `/auth/*`.
 
 ## Response Format
 
@@ -95,7 +95,7 @@ Receives GitHub webhook events. No bearer auth — validated via HMAC-SHA256 sig
 
 | Event | Actions | Behavior |
 |-------|---------|----------|
-| `pull_request` | `opened`, `synchronize`, `reopened` | Dispatches an AI review via Inngest |
+| `pull_request` | `opened`, `synchronize`, `reopened` | Enqueues an AI review job via BullMQ |
 | `installation` | `created` | Tracks the installation and its repositories |
 | `installation` | `deleted` | Deactivates the installation |
 | `installation_repositories` | `added`, `removed` | Updates tracked repositories |
@@ -121,68 +121,90 @@ Other events return `200` with a `message` field.
 POST /runner/callback
 ```
 
-Receives static analysis results from a delegated GitHub Actions runner. No bearer auth — validated via HMAC-SHA256 signature.
+Receives static analysis results from the inline GitHub Actions workflow injected at `.github/workflows/ghagga.yml`. No bearer auth — validated via HMAC-SHA256 signature with TTL enforcement.
 
 **Required Headers**:
 
 | Header | Description |
 |--------|-------------|
-| `X-Runner-Signature` | HMAC-SHA256 signature of the raw body using the per-dispatch callback secret |
+| `X-Ghagga-Signature` | `sha256=<hex>` — HMAC of the raw body using the per-dispatch derived secret |
 | `Content-Type` | `application/json` |
 
-**Body**:
+**Body** (`StaticAnalysisCallbackPayload`):
 
 ```json
 {
-  "callbackId": "uuid-of-the-dispatch",
-  "findings": [
-    {
-      "source": "semgrep",
-      "severity": "high",
-      "file": "src/index.ts",
-      "line": 42,
-      "message": "Possible SQL injection"
-    }
-  ],
-  "toolVersions": {
-    "semgrep": "1.56.0",
-    "trivy": "0.69.3",
-    "cpd": "7.9.0"
-  },
-  "durationMs": 17900
+  "callbackId": "550e8400-e29b-41d4-a716-446655440000.m1abc",
+  "repoFullName": "owner/repo",
+  "prNumber": 42,
+  "headSha": "abc123…",
+  "staticAnalysis": {
+    "semgrep": { "status": "success", "findings": [], "executionTimeMs": 5421 },
+    "trivy":   { "status": "success", "findings": [], "executionTimeMs": 8190 },
+    "cpd":     { "status": "skipped", "findings": [], "executionTimeMs": 0 }
+  }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `callbackId` | `string` | UUID matching the dispatch (links callback to waiting Inngest step) |
-| `findings` | `array` | Static analysis findings with source, severity, file, line, message |
-| `toolVersions` | `object` | Versions of tools that ran |
-| `durationMs` | `number` | Total analysis duration in milliseconds |
+| `callbackId` | `string` | `{uuid}.{timestamp_base36}` — used for HMAC re-derivation and TTL enforcement |
+| `repoFullName` | `string` | Target repository (`owner/repo`) |
+| `prNumber` | `number` | Pull request number |
+| `headSha` | `string` | Head commit SHA the workflow analyzed |
+| `staticAnalysis` | `object` | Per-tool result map (`StaticAnalysisResult`) |
 
 **Response** `200` (success):
 
 ```json
-{ "message": "Findings received" }
+{ "ok": true }
 ```
 
-**Response** `401` (invalid signature):
+**Response** `400` (invalid JSON or missing required fields):
+
+```json
+{ "error": "Missing required fields" }
+```
+
+**Response** `401` (missing or invalid signature, or TTL expired):
 
 ```json
 { "error": "Invalid signature" }
 ```
 
-**Response** `404` (unknown callback ID — expired or already delivered):
+---
 
-```json
-{ "error": "Unknown callback" }
+## OAuth Web Flow (Dashboard)
+
+These endpoints power the dashboard login flow. They require `STATE_SECRET`, and `/auth/callback` also requires `GITHUB_CLIENT_SECRET` on the server.
+
+### Start Login
+
 ```
+GET /auth/login
+```
+
+Redirects the browser to GitHub's OAuth authorize URL with an HMAC-signed `state` parameter.
+
+**Response**: `302` redirect to `https://github.com/login/oauth/authorize?...`
+
+### OAuth Callback
+
+```
+GET /auth/callback
+```
+
+Validates the signed `state`, exchanges the authorization `code` for a GitHub access token, and redirects back to the dashboard hash route.
+
+**Success response**: `302` redirect to `https://ghagga.javierzader.com/app/#/auth/callback?token=...`
+
+**Failure response**: `302` redirect to `https://ghagga.javierzader.com/app/#/auth/callback?error=...`
 
 ---
 
-## OAuth Proxy (Device Flow)
+## OAuth Proxy (Device Flow, CLI compatibility)
 
-These endpoints proxy GitHub's OAuth Device Flow for the static SPA dashboard (which cannot call `github.com` directly due to CORS). **No authentication required** — these are used before the user has a token.
+These endpoints proxy GitHub's OAuth Device Flow. They remain available for CLI compatibility and non-browser clients. **No authentication required**.
 
 ### Request Device Code
 
@@ -385,7 +407,7 @@ Returns the settings for a specific repository, including its resolved global se
     "reviewMode": "simple",
     "providerChain": [
       {
-        "provider": "anthropic",
+        "provider": "gateway",
         "model": "claude-sonnet-4-20250514",
         "hasApiKey": true,
         "maskedApiKey": "sk-...xYzW"
@@ -403,8 +425,8 @@ Returns the settings for a specific repository, including its resolved global se
     "globalSettings": {
       "providerChain": [
         {
-          "provider": "github",
-          "model": "gpt-4o-mini",
+          "provider": "cli-bridge",
+          "model": "auto",
           "hasApiKey": false
         }
       ],
@@ -425,7 +447,7 @@ Returns the settings for a specific repository, including its resolved global se
 
 > **Note**: API keys are never returned in plain text. The `maskedApiKey` field shows the first 3 and last 4 characters (e.g., `sk-...xYzW`). The `hasApiKey` boolean indicates whether a key is stored.
 
-> **Deprecated**: `enableSemgrep`, `enableTrivy`, and `enableCpd` are deprecated since v2.5.0. Use `enabledTools`/`disabledTools` instead to control individual tools from the 15-tool plugin registry. The legacy boolean fields still work but will be removed in a future version.
+> **Deprecated**: `enableSemgrep`, `enableTrivy`, and `enableCpd` are deprecated since v2.5.0. Use `enabledTools`/`disabledTools` instead to control individual tools from the 16-tool plugin registry. The legacy boolean fields still work but will be removed in a future version.
 
 ### Update Repository Settings
 
@@ -444,8 +466,8 @@ Updates configuration for a repository. Supports partial updates — only includ
   "aiReviewEnabled": true,
   "reviewMode": "workflow",
   "providerChain": [
-    { "provider": "anthropic", "model": "claude-sonnet-4-20250514", "apiKey": "sk-ant-..." },
-    { "provider": "github", "model": "gpt-4o-mini" }
+    { "provider": "gateway", "model": "claude-sonnet-4-20250514", "apiKey": "sk-gateway-..." },
+    { "provider": "cli-bridge", "model": "auto" }
   ],
   "enableSemgrep": true,
   "enableTrivy": true,
@@ -480,18 +502,18 @@ Updates configuration for a repository. Supports partial updates — only includ
 **Provider Chain Entries**:
 
 ```json
-{ "provider": "anthropic", "model": "claude-sonnet-4-20250514", "apiKey": "sk-ant-..." }
+{ "provider": "gateway", "model": "claude-sonnet-4-20250514", "apiKey": "sk-gateway-..." }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `provider` | `string` | Yes | One of: `github`, `anthropic`, `openai`, `google`, `qwen` |
-| `model` | `string` | Yes | Model identifier (e.g., `gpt-4o-mini`, `claude-sonnet-4-20250514`) |
-| `apiKey` | `string` | No | API key (omit to keep existing key; `github` provider never needs one) |
+| `provider` | `string` | Yes | One of: `gateway`, `cli-bridge`, `ollama` |
+| `model` | `string` | Yes | Model identifier (e.g., `auto`, `claude-sonnet-4-20250514`). Use `auto` to let the provider select the best available model |
+| `apiKey` | `string` | No | API key (omit to keep existing key; `cli-bridge` and `ollama` do not require one) |
 
-> **API Key Behavior**: When you send a `providerChain` entry without an `apiKey`, the server preserves the previously stored encrypted key for that provider. Send a new `apiKey` to rotate it. The `github` provider uses the user's session token and never requires an API key.
+> **API Key Behavior**: When you send a `providerChain` entry without an `apiKey`, the server preserves the previously stored encrypted key for that provider. Send a new `apiKey` to rotate it. The `cli-bridge` and `ollama` providers do not require an API key.
 
-> **Valid Providers**: `github`, `anthropic`, `openai`, `google`, `qwen`. The `ollama` provider is **not** available in the SaaS dashboard — use the CLI or GitHub Action instead.
+> **Valid Providers**: `gateway`, `cli-bridge`, `ollama`. Pre-v2 legacy provider values are automatically remapped to `gateway` for backward compatibility. The `ollama` provider is stored as a valid setting but is **not** accepted by `POST /api/providers/validate` — see that endpoint for runtime restrictions.
 
 **Response** `200`:
 
@@ -522,8 +544,8 @@ Returns the global (installation-level) settings that apply as defaults to all r
     "accountLogin": "my-org",
     "providerChain": [
       {
-        "provider": "github",
-        "model": "gpt-4o-mini",
+        "provider": "cli-bridge",
+        "model": "auto",
         "hasApiKey": false
       }
     ],
@@ -556,7 +578,7 @@ Updates the global settings for an installation. These settings apply to all rep
 {
   "installationId": 123,
   "providerChain": [
-    { "provider": "github", "model": "gpt-4o-mini" }
+    { "provider": "cli-bridge", "model": "auto" }
   ],
   "aiReviewEnabled": true,
   "reviewMode": "simple",
@@ -578,47 +600,6 @@ Updates the global settings for an installation. These settings apply to all rep
 
 ```json
 { "data": { "message": "Installation settings updated" } }
-```
-
-### Validate Provider API Key
-
-```
-POST /api/providers/validate
-```
-
-Tests whether a provider API key is valid. Returns the list of available models if the key works.
-
-**Body**:
-
-```json
-{
-  "provider": "anthropic",
-  "apiKey": "sk-ant-api03-..."
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `provider` | `string` | Yes | One of: `github`, `anthropic`, `openai`, `google`, `qwen` |
-| `apiKey` | `string` | Conditional | Required for all providers except `github` (which uses the session token) |
-
-**Response** `200` (valid key):
-
-```json
-{
-  "valid": true,
-  "models": ["claude-sonnet-4-20250514", "claude-haiku-4-20250414"]
-}
-```
-
-**Response** `200` (invalid key):
-
-```json
-{
-  "valid": false,
-  "models": [],
-  "error": "Validation request failed"
-}
 ```
 
 ### List Memory Sessions
@@ -783,13 +764,67 @@ Deletes all sessions that have zero observations.
 
 ---
 
-## Inngest Endpoint
+## Provider Validation
+
+### Validate Provider API Key
 
 ```
-GET|POST|PUT /api/inngest
+POST /api/providers/validate
 ```
 
-Internal endpoint used by the [Inngest](https://www.inngest.com/) platform for durable function execution. Mounted **before** the auth middleware — Inngest uses its own request signing. Not intended for direct client access.
+Validates a SaaS dashboard provider configuration. Returns the list of available models when the configuration is reachable.
+
+The dashboard only supports two runtime targets:
+
+- `gateway` — a self-hosted LLM gateway. Validation pings `${gatewayUrl}/health`.
+- `cli-bridge` — local CLI tools (Claude Code, OpenCode, etc.) running on the user's machine. Validation enumerates available CLIs; no API key is required.
+
+The `ollama` provider is intentionally rejected by this endpoint — it is only available via the CLI and Action runtimes, not the SaaS dashboard.
+
+**Body**:
+
+```json
+{
+  "provider": "gateway",
+  "gatewayUrl": "https://gateway.example.com"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `provider` | `string` | Yes | One of: `gateway`, `cli-bridge` |
+| `gatewayUrl` | `string` | Conditional | Required for `gateway` to perform a `/health` probe. If omitted, the response is `valid: true` with `models: ["auto"]` so the dashboard can defer the URL prompt. |
+| `apiKey` | `string` | No | Accepted in the body for forward compatibility but ignored by both runtime targets (gateway uses the URL, cli-bridge uses local CLIs). |
+
+**Response** `200` (valid configuration):
+
+```json
+{
+  "valid": true,
+  "models": ["auto"]
+}
+```
+
+**Response** `200` (invalid configuration):
+
+```json
+{
+  "valid": false,
+  "models": [],
+  "error": "Gateway health check failed (HTTP 503)"
+}
+```
+
+**Response** `400` (validation error):
+
+```json
+{
+  "error": "VALIDATION_ERROR",
+  "message": "Unknown provider: invalid"
+}
+```
+
+Returned when `provider` is missing, equals `ollama`, or is not one of `gateway` / `cli-bridge`.
 
 ---
 
@@ -800,8 +835,10 @@ Internal endpoint used by the [Inngest](https://www.inngest.com/) platform for d
 | `GET` | `/health` | No | Health check |
 | `POST` | `/webhook` | HMAC | GitHub webhook receiver |
 | `POST` | `/runner/callback` | HMAC | Runner static analysis results |
-| `POST` | `/auth/device/code` | No | OAuth Device Flow — request codes |
-| `POST` | `/auth/device/token` | No | OAuth Device Flow — poll for token |
+| `GET` | `/auth/login` | No | Dashboard OAuth Web Flow -- redirect to GitHub |
+| `GET` | `/auth/callback` | No | Dashboard OAuth Web Flow -- exchange code and redirect back |
+| `POST` | `/auth/device/code` | No | OAuth Device Flow -- request codes |
+| `POST` | `/auth/device/token` | No | OAuth Device Flow -- poll for token |
 | `GET` | `/api/repositories` | Bearer | List user's repositories |
 | `GET` | `/api/installations` | Bearer | List user's installations |
 | `GET` | `/api/reviews` | Bearer | List reviews (paginated) |
@@ -818,4 +855,3 @@ Internal endpoint used by the [Inngest](https://www.inngest.com/) platform for d
 | `DELETE` | `/api/memory/observations` | Bearer | Purge all observations for the installation |
 | `DELETE` | `/api/memory/sessions/:id` | Bearer | Delete a single session |
 | `DELETE` | `/api/memory/sessions/empty` | Bearer | Clean up empty sessions |
-| `*` | `/api/inngest` | Inngest | Inngest durable functions (internal) |

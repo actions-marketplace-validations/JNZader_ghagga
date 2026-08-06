@@ -61,12 +61,17 @@ graph TB
       AutoDetect["Auto-detect<br/>(matched by diff files)<br/>Ruff, Bandit, golangci-lint,<br/>Biome, PMD, Psalm,<br/>clippy, Hadolint"]
     end
     subgraph Mem["Memory Search"]
-      FTS["tsvector<br/>full-text search"]
+      BuildQ["buildSearchQuery()<br/>extract terms from file paths"]
+      FTS["Full-text search<br/>max 3 observations"]
+      Format["formatMemoryContext()<br/>inject as markdown"]
+      BuildQ --> FTS --> Format
     end
   end
   Static --> Combined["Combined context for agents"]
   Mem --> Combined
 ```
+
+**Memory search details**: `buildSearchQuery()` extracts meaningful terms from file paths in the diff, stripping noise directories (`src/`, `lib/`, `dist/`, `test/`) and extensions, capping at 10 terms. Full-text search retrieves up to 3 past observations. `formatMemoryContext()` formats them as markdown injected into the LLM prompt under `## Past Review Memory`.
 
 ### Step 5.5: AI Enhance (Optional)
 
@@ -85,7 +90,7 @@ The combined context (diff + static findings + memory) is sent to the selected r
 
 - **Simple**: 1 LLM call — fast and cheap
 - **Workflow**: 5 specialist agents in parallel + 1 synthesis — thorough
-- **Consensus**: 3 stanced reviews + weighted vote — high confidence
+- **Consensus**: 3 stanced reviews (same model) + algorithmic weighted vote — high confidence
 
 See [Review Modes](review-modes.md) for details.
 
@@ -95,11 +100,20 @@ Static analysis findings are merged into the agent's response. Deduplication ens
 
 ### Step 8: Memory Persistence
 
-Observations are extracted from the review and stored to the memory database — PostgreSQL in Server mode, SQLite in CLI and Action modes (fire-and-forget). This step never blocks the response — if it fails, the review is still returned successfully.
+Observations are extracted from the review and stored to the memory database -- PostgreSQL in Server mode, SQLite in CLI and Action modes (fire-and-forget). This step never blocks the response -- if it fails, the review is still returned successfully.
+
+**Persist pipeline**:
+1. **Significance filter**: Only **critical**, **high**, and **medium** severity findings are saved
+2. **`stripPrivateData()`**: 13 regex patterns redact secrets (API keys, tokens, passwords, PEM keys, JWTs) before storage
+3. **Create session**: Scoped to the repository and PR number
+4. **Save observations**: Content deduplication via SHA-256 hash (`type:title:content`) with a 15-minute dedup window
+5. **Save PR summary**: Topic-key upsert -- re-reviews of the same PR update the existing summary instead of duplicating
+
+See [Memory System](memory-system.md) for full details on backends, search, deduplication, and privacy stripping.
 
 ## Trigger Modes
 
-> **Static analysis in SaaS mode**: When a runner repo exists, static analysis runs on the delegated runner. Without a runner, the review proceeds with AI only. See [Runner Architecture](runner-architecture.md).
+> **Static analysis in SaaS mode**: The server injects `.github/workflows/ghagga.yml` into each target repo and dispatches it via `workflow_dispatch`. If injection is blocked (branch protection, missing permissions), the review proceeds with AI only. See [Architecture — Inline Static-Analysis Workflow](architecture.md#inline-static-analysis-workflow).
 
 Reviews can be triggered in two ways in SaaS mode:
 
@@ -112,16 +126,16 @@ The on-demand trigger uses the same pipeline and settings as automatic reviews. 
 
 **Who can trigger?** Anyone with a contribution relationship to the repository: owners, members, collaborators, contributors, and first-time contributors. Users with no association (`NONE`) or placeholder accounts (`MANNEQUIN`) are rejected.
 
-## SaaS Mode (Inngest)
+## Self-Hosted Mode (BullMQ)
 
-In server mode, the pipeline runs inside an Inngest durable function with step-based checkpointing. Each review generates a **correlation ID** (`reviewId`) that is propagated through all steps and included in the PR comment for end-to-end tracing.
+In server mode, the pipeline runs via a **BullMQ job queue** backed by Redis. When a webhook receives a PR event, it enqueues a job in the `review` queue. A separate worker process picks up the job and executes the review pipeline. Each review generates a **correlation ID** (`reviewId`) that is propagated through all steps and included in the PR comment for end-to-end tracing.
 
 ```typescript
-// Each step is checkpointed — retries resume from the last successful step
+// Webhook handler enqueues the job; worker executes the steps
 // All steps carry the reviewId for correlation
 Step 1: Fetch PR diff from GitHub API
-Step 2: Discover runner repo ({owner}/ghagga-runner)
-Step 3: Dispatch to runner + wait for callback (or skip if no runner)
+Step 2: Inject .github/workflows/ghagga.yml into the target repo (idempotent)
+Step 3: Dispatch the inline workflow + wait for HMAC callback (or skip if injection is blocked)
 Step 4: Memory Search (Layer 1)
 Step 5: AI Review (Layer 2)
 Step 6: Save Memory (Layer 3)
@@ -130,7 +144,7 @@ Step 7: Post PR Comment + React to trigger
 
 All GitHub API calls use **HTTP timeouts** (`AbortSignal.timeout()`) to prevent resource exhaustion: 10s for standard API calls, 15s for diff fetching, 5s for keepalive pings.
 
-If an LLM call fails and retries, static analysis doesn't re-run. If memory search fails, the pipeline continues without it.
+BullMQ provides automatic retries with configurable backoff. If an LLM call fails, the job can be retried without re-running static analysis. If memory search fails, the pipeline continues without it.
 
 ## Graceful Degradation
 
@@ -139,5 +153,5 @@ If an LLM call fails and retries, static analysis doesn't re-run. If memory sear
 | Static analysis tools | Not installed | Skipped individually, review continues with available tools |
 | Memory (PostgreSQL or SQLite) | No database connection | Skipped, no memory context |
 | LLM Provider | API error | Fallback chain attempts next provider |
-| Runner repo | Not configured | LLM-only review (no static analysis) |
-| Inngest | Not configured | Sync execution (no checkpointing) |
+| Inline workflow injection | Blocked (branch protection, missing perms) | LLM-only review (no static analysis) |
+| Redis/BullMQ | Not connected | Sync execution (no queue-based processing) |

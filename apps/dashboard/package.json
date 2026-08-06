@@ -1,6 +1,6 @@
 {
   "name": "@ghagga/dashboard",
-  "version": "2.5.0",
+  "version": "3.0.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,30 +14,30 @@
   },
   "dependencies": {
     "@ghagga/types": "workspace:*",
-    "@tanstack/react-query": "^5.90.0",
-    "@tanstack/react-virtual": "^3.13.21",
+    "@tanstack/react-query": "^5.101.2",
+    "@tanstack/react-virtual": "^3.14.6",
     "clsx": "^2.1.1",
-    "focus-trap-react": "^12.0.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "react-router-dom": "^7.13.0",
-    "recharts": "^3.8.0",
-    "tailwind-merge": "^3.5.0"
+    "focus-trap-react": "^12.0.3",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.1",
+    "recharts": "^3.9.2",
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
-    "@types/react": "^19.0.0",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^5.1.4",
-    "autoprefixer": "^10.4.0",
-    "jsdom": "^28.1.0",
-    "postcss": "^8.5.8",
-    "tailwindcss": "^3.4.0",
-    "typescript": "^5.9.0",
-    "vite": "^7.3.1",
-    "vitest": "^4.0.0",
+    "@vitejs/plugin-react": "^6.0.3",
+    "jsdom": "^29.1.1",
+    "postcss": "^8.5.19",
+    "tailwindcss": "^4.3.2",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.4",
+    "vitest": "^4.1.10",
     "vitest-axe": "^0.1.0"
   }
 }

@@ -34,7 +34,7 @@ The CLI is best for:
 | **GitHub Models** (`gpt-4o-mini`) | **Free** — default provider, no API key needed |
 | **Ollama** | **Free** — runs locally, 100% offline, no API key |
 | **Other LLM providers** (Anthropic, OpenAI, Google, Qwen) | BYOK — you pay those providers directly at their standard rates |
-| **Static analysis** (up to 15 tools) | Free — runs locally if installed |
+| **Static analysis** (up to 16 tools) | Free — runs locally if installed |
 
 > 💡 **TL;DR**: 100% free with `ghagga login` (GitHub Models) or `--provider ollama` (local). No credit card, no signup beyond GitHub.
 
@@ -131,7 +131,7 @@ flowchart LR
 
 1. The CLI runs `git diff` (staged changes first, then falls back to uncommitted changes; `--staged` forces `git diff --cached` only)
 2. The diff is parsed and the tech stack is auto-detected from file extensions
-3. If static analysis tools are installed locally, they run first (zero LLM tokens) — up to 15 tools via the plugin registry
+3. If static analysis tools are installed locally, they run first (zero LLM tokens) — up to 16 tools via the plugin registry
 4. Relevant observations are retrieved from the local memory database via FTS5 full-text search
 5. The diff + static findings + memory context are sent to the configured LLM provider (default: GitHub Models `gpt-4o-mini`)
 6. The LLM returns a structured review with findings, severity, and suggestions
@@ -282,6 +282,141 @@ Options:
 
 The health command inherits `--output json` from global options for CI integration. See [Health Check](health.md) for full details.
 
+### `ghagga index [path]`
+
+Build the dependency graph consumed by blast-radius and review (`.ghagga/graph.json`).
+
+By default this uses a **SCIP-backed backend** for compiler-grade cross-file resolution, covering 8 languages across per-language maturity tiers:
+
+| Maturity | Languages | Indexer(s) | Notes |
+|----------|-----------|------------|-------|
+| `stable` | Go, TypeScript/JavaScript, Rust | `scip-go`, `scip-typescript`, `rust-analyzer` | Captured fixtures, validated in CI |
+| `stable`\* | Python | `scip-python` | Entry shipped; fixture capture is deferred — scip-python 0.6.6 emits 0 documents in some environments |
+| `heavy` | Java, Kotlin | `scip-java` (shared indexer) | Needs a Maven or Gradle build in the target repo; Kotlin support is Gradle-only |
+| `experimental` | C# | `scip-dotnet` | Immature upstream indexer (0.2.x) |
+| `experimental` | PHP | `scip-php` | Solo-maintained upstream indexer |
+
+\* Registered and dispatched like any other stable entry — only the fixture capture for the test suite is deferred, not the runtime support.
+
+`ghagga index` auto-detects which languages are present in the target repo via marker files (`go.mod`, `package.json`/`tsconfig.json`, `pyproject.toml`/`requirements.txt`/`setup.py`, `Cargo.toml`, `pom.xml`/`build.gradle`/`build.gradle.kts`, `*.csproj`/`*.sln`, `composer.json`), checks each detected language's toolchain, runs every available indexer to an isolated `.scip` output, and merges the results into ONE graph. A missing indexer/toolchain for a detected language **warns and skips that language** rather than aborting the whole run.
+
+#### Nested marker detection
+
+Marker files are detected at **any depth** below repo root, not just repo root itself — a monorepo with `apps/backend/go.mod` and `services/worker/go.mod` (and no root-level `go.mod`) gets BOTH indexed, as does a repo mixing a root-level `package.json` with a nested `pyproject.toml`. This matters because most indexers (Go, Rust, Java, C#, PHP) cannot self-discover nested modules from an ancestor working directory — `ghagga index` runs each of them once **per marker directory found**, then merges all runs into one repo-relative graph.
+
+- **Depth bound**: the walk descends up to **4 levels** below repo root by default (covers `apps/*/`, `services/*/`, and one level of `packages/x/y`-style nesting). A marker nested deeper than that is silently not detected — this is a known limitation. Override with `--marker-depth <n>` (must be a positive integer); it's also configurable at the API level via `detectMarkerDirectories(repoPath, { maxDepth })`.
+- **Excluded directories**: the walk always skips `node_modules`, `vendor`, `.git`, `__pycache__`, `target`, `build`, `dist`, `.next`, `.turbo`, `.worktrees`, `.ghagga`, and `.tools` — this is what keeps a `.tools/codeql/` with 100k+ files, or a `.worktrees/` full of parallel git checkouts, from blowing up the walk.
+- **Output isolation**: two marker directories of the SAME indexer (e.g. Python markers in both `apps/ml-service` and `services/ai-assistant`) never clobber each other's `.scip` output — each nested run gets a directory-disambiguated output path, and the merge step disambiguates identically-named documents (e.g. two `main.py`) by their source subdirectory before building the graph.
+- **Run-count cap**: per-marker-directory indexer runs are capped at **25** by default, but this cap applies ONLY to **nested** marker directories — root-level markers (e.g. a root `pom.xml` or `*.csproj`) are NEVER dropped and always run, no matter how many nested markers are found. Nested runs are sorted `stable` → `heavy` → `experimental` maturity, then depth ascending, BEFORE capping — so cheap, reliable indexers never get crowded out by expensive/immature ones, and a pathological monorepo degrades predictably rather than hanging. Beyond the cap, a warning names exactly which nested marker directories were skipped.
+- **scip-typescript is the one exception**: unlike every other indexer, `scip-typescript --infer-tsconfig` already recursively discovers and indexes every nested TS/JS package when run once from repo root (verified empirically — it resolves cross-package project-reference imports correctly and emits clean repo-relative paths, even with no tsconfig.json at repo root at all). So TypeScript/JavaScript always runs exactly ONCE, at repo root, regardless of how many nested `package.json`/`tsconfig.json` marker directories were found — running it again per nested directory would double-index for no benefit.
+- **Per-directory graceful degradation**: a runtime failure of an indexer in ONE marker directory warns and skips only that directory — it does not abort indexing of the other marker directory (same language) or any other language.
+
+```bash
+# Install one or more indexer toolchains (one-time, only for the languages you use)
+go install github.com/scip-code/scip-go/cmd/scip-go@latest
+npm install -g @sourcegraph/scip-typescript
+npm install -g @sourcegraph/scip-python
+rustup component add rust-analyzer
+
+# Index the current repository (multi-language: indexes every detected+available language)
+ghagga index
+
+# Index a specific directory
+ghagga index ./services/api
+
+# Write the graph to a custom location
+ghagga index --out .ghagga/graph.json
+
+# Widen the nested-marker-detection depth bound (default: 4)
+ghagga index --marker-depth 6
+```
+
+When run, `ghagga index`:
+
+1. Walks the repo (depth-bounded, exclusion-aware — see [Nested marker detection](#nested-marker-detection)) to find every `{indexer, marker directory}` pair, not just markers at repo root.
+2. For each unique indexer found, checks once whether its binary (and any required toolchain, e.g. `gradle`/`mvn` for Java) is on `PATH` — a missing toolchain skips ALL of that indexer's marker directories with a single warning.
+3. Runs every available indexer once per marker directory, to a directory-disambiguated isolated `.scip` output (scip-typescript is the exception — always once, at repo root), parses and merges all runs — path-prefixing each document by its source marker directory — and maps the result to the same `.ghagga/graph.json` v1 schema consumed by `blast-radius` and `review` — including cross-file (and cross-language) edges the regex extractor can't resolve (e.g. Go's full-module-path imports, or a Java file referencing a Kotlin symbol).
+4. If a detected language's toolchain is missing, or an indexer crashes at runtime in ONE marker directory, that directory is skipped with a warning (and, for missing toolchains, the install hint) — the run continues with whatever marker directories succeeded, including other directories of the SAME language.
+5. If NO marker directory could be indexed via SCIP, exits with a non-zero code and per-directory failure reasons, **without touching any existing `.ghagga/graph.json`** — unless `--fallback-regex` is passed (see below).
+
+Options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `[path]` | `.` | Path to the repository to index |
+| `--out <path>` | `.ghagga/graph.json` | Output path for the graph, relative to the target repo |
+| `--fallback-regex` | off | When no detected language could be SCIP-indexed, use the regex-based indexer instead of failing. Note: the regex path only resolves relative imports and cannot follow module-path imports (Go, Java, etc.) |
+| `--marker-depth <n>` | `4` | Maximum depth (repo root = 0) to walk when detecting nested language markers. Must be a positive integer — `0`/negative/non-numeric values are rejected with an error |
+
+### Per-language install hints
+
+| Language(s) | Indexer | Install |
+|-------------|---------|---------|
+| Go | `scip-go` | `go install github.com/scip-code/scip-go/cmd/scip-go@latest` |
+| TypeScript/JavaScript | `scip-typescript` | `npm install -g @sourcegraph/scip-typescript` |
+| Python | `scip-python` | `npm install -g @sourcegraph/scip-python` |
+| Rust | `rust-analyzer` | `rustup component add rust-analyzer` |
+| Java, Kotlin | `scip-java` | `curl -fLo coursier https://git.io/coursier-cli && chmod +x coursier && ./coursier bootstrap --standalone -o scip-java org.scip-code:scip-java:latest.stable --main org.scip_code.scip_java.ScipJava` (requires a JDK 17+ host JVM and a Gradle or Maven build in the target repo — Kotlin support is Gradle-only) |
+| C# | `scip-dotnet` | `dotnet tool install --global scip-dotnet` (requires .NET 8.0+ SDK; experimental indexer) |
+| PHP | `scip-php` | `composer require --dev davidrjenni/scip-php && composer dump-autoload` (requires a `composer.json` with autoload psr-4/classmap entries covering the sources to index; experimental, solo-maintained indexer) |
+
+The resulting `.ghagga/graph.json` is the same file format read by `blast-radius` and `review` — no other command needs to change to benefit from a SCIP-produced graph.
+
+`ghagga index` also writes a sibling `.ghagga/metadata.json` (the indexed commit SHA, timestamp, per-node languages, and schema version) right after `graph.json`. `ghagga review` reads both: blast-radius filtering **auto-enables** whenever `.ghagga/graph.json` exists under the reviewed path — no flag needed — and uses `metadata.json` to warn (never block) when the graph looks stale or only partially covers the languages in your diff:
+
+- **Stale graph**: current git HEAD differs from the commit `ghagga index` last ran against, or the graph is more than 7 days old → re-run `ghagga index` warning.
+- **Missing metadata**: a `graph.json` produced by an older `ghagga index` (or copied in some other way) has no `metadata.json` next to it — blast-radius still runs, but staleness can't be verified, so the CLI warns instead of silently trusting it.
+- **Partial language coverage**: a changed file's language has zero nodes in the graph (e.g. a language `ghagga index` couldn't index, or one that only lives in a subpackage) — that file's dependent count will show as 0, not "confirmed no dependents", and the CLI warns accordingly.
+
+Use `--no-blast-radius` on `ghagga review` to disable this filtering for a single run regardless of whether a graph is present, or set `"enableBlastRadius": false` in `.ghagga.json` to disable it project-wide (`true` forces it on even without a graph — the pipeline then reports "no graph available" and falls back to the full diff).
+
+### Symbol Impact (symbol-precise import context)
+
+When blast-radius is enabled AND the graph carries per-import symbol names, the review prompt gets an additional additive `## Symbol Impact` section: for every dependent file `A` of a changed file `B`, it reports which symbols `A` actually references from `B` and which of those symbols the diff changed — e.g. `A uses {X, Y} from B; changed: X`. This is purely advisory context appended to the prompt; it **never** removes a file from the diff, blast radius, or review set — `imports: string[]` and the blast-radius/exploitability traversal are completely unaffected by it.
+
+The underlying `importSymbols` graph field is populated with different fidelity depending on how the graph was built:
+
+| Source | Coverage |
+|--------|----------|
+| Regex builder — TypeScript/JavaScript | Dense — real named import symbols (`import { X, Y } from './b'`) |
+| Regex builder — Java | Dense — imported class name (last segment) |
+| Regex builder — Python | Populated for `from x import y, z`; empty for bare `import x` (module-only imports carry no named symbol) |
+| Regex builder — Rust | Populated for `use crate::mod::Item;` and grouped `use x::{A, B}`; empty for wildcard `use x::*;` and `mod` declarations |
+| Regex builder — Go | Alias-only — usually empty unless the import uses an explicit alias |
+| SCIP builder (`ghagga index`) | Populated wherever the indexer resolves a reference occurrence to an in-repo symbol definition, for every SCIP-supported language (including Kotlin/C#/PHP, which the regex builder can't index at all) |
+
+When an edge has no symbol data (e.g. a Go import without an alias, or a namespace/side-effect import), the block degrades to a file-level line (`A depends on B`) instead of guessing — it never claims a dependent is unaffected when it lacks the information to know that. If the graph has NO `importSymbols` data anywhere, the block is omitted entirely (no behavior change from a pre-symbol-context graph).
+
+Symbol-precise blast-radius *exclusion* (actually removing a dependent from the reviewed file set, not just annotating it) is a separate, **opt-in, CLI-only** feature — see the next section.
+
+### Symbol-precise blast-radius exclusion (opt-in narrowing)
+
+Set `"enableSymbolExclusion": true` in `.ghagga.json` (default: off) to let `ghagga review` **remove** a direct dependent `A` of a changed file `B` from the reviewed file set when `A` provably does not use any symbol that changed in `B`. Unlike Symbol Impact (advisory-only, above), this actually shrinks what gets reviewed — treat it as high-stakes and opt in deliberately.
+
+Three fail-closed preconditions gate every exclusion; any single one failing means **zero** narrowing for that edge (never a partial or "probably fine" exclusion):
+
+1. **A fresh, exact-commit-matched graph.** `ghagga index` must have run at the SAME commit `ghagga review` is diffing against (`metadata.lastIndexedCommit === currentHead`) and not be stale-by-age. Symbol-line attribution is line-number based — a graph indexed even one commit off can silently map a changed line to the wrong symbol. This is a stricter check than the existing warn-only staleness check used for file-level blast radius (which tolerates commit drift because a shifted line still lands in the right *file*).
+2. **Fully-attributed changes only.** Any changed file with even one line that can't be mapped to a known symbol (a module-level statement, a deletion, a rename, or a file with no captured symbol ranges) forces every dependent of that file to stay included — the diff isn't clean enough to reason about symbol-by-symbol.
+3. **A per-language whitelist on the CHANGED file's language** (never the dependent's language) — the gate defaults to `false` and only returns `true` for the enumerated cells below. An unrecognized/unmapped language, or a language absent from this table, always resolves to "keep included":
+
+   | Graph built via | Changed file's language | Exclusion eligible? |
+   |---|---|---|
+   | `ghagga index` (SCIP) | TypeScript, JavaScript, Rust, Java | Yes |
+   | `ghagga index` (SCIP) | Go, Python, Kotlin, C#, PHP | No — partial/unverified SCIP fidelity |
+   | `ghagga index --fallback-regex` | TypeScript, JavaScript, Java | Yes |
+   | `ghagga index --fallback-regex` | Python, Rust | Yes, but only for edges where the dependent's `importSymbols` entry for that file is populated |
+   | `ghagga index --fallback-regex` | Go | No — alias-only data is misleading for exclusion |
+
+Even when all three preconditions pass, exclusion only ever prunes **direct (depth-1)** dependents — a dependent reached only transitively (through another file) always stays included, by design (the safety margin is deliberately generous rather than maximizing how much gets pruned). A file that appears directly in the diff is never excluded, regardless of any of the above.
+
+`ghagga review`'s `## Blast Radius` output reports how many dependents were narrowed (`narrowed: N`) when this ran. Requires `ghagga index` to have been re-run at the current commit — a graph built by an older `ghagga index` without the `builtVia` marker never narrows (treated the same as a missing precondition).
+
+### Barrel re-export edges (TypeScript/JavaScript regex builder)
+
+The regex builder now treats `export ... from` lines as import-producing, so a barrel file (`index.ts`) re-exporting a symbol from another module produces a graph edge to that module — closing a false negative where a consumer importing a symbol *through* a barrel was silently excluded from blast-radius when the true source file changed. All three re-export forms are handled: named (`export { X } from './b'`), wildcard (`export * from './b'`), and type-only (`export type { X } from './b'`). Re-exported names are recorded separately from a file's locally-defined `exports` (additive `reExportedSymbols`/`reExportsAll` graph fields) so existing consumers of `node.exports` are unaffected.
+
+Transitive re-export resolution (a barrel re-exporting from another barrel) and Python/Rust barrel-style re-exports are **not** covered by this fix — deferred. The SCIP builder (`ghagga index`) was verified empirically to already be immune to this class of false negative: it resolves a re-exported reference through the barrel to the symbol's true defining file directly, independent of the regex-extractor fix above.
+
 ---
 
 ## Review Command Options
@@ -290,7 +425,7 @@ The health command inherits `--output json` from global options for CI integrati
 |--------|-------|---------|-------------|
 | `[path]` | — | `.` | Optional path to repository or subdirectory |
 | `--mode <mode>` | `-m` | `simple` | Review mode: `simple`, `workflow`, `consensus` |
-| `--provider <provider>` | `-p` | `github` | LLM provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen` |
+| `--provider <provider>` | `-p` | `github` | LLM provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen`, `groq`, `cerebras`, `deepseek`, `openrouter` |
 | `--model <model>` | — | Auto | Model identifier (auto-selects best model per provider) |
 | `--api-key <key>` | — | — | LLM provider API key (or use env vars) |
 | `--output <format>` | `-o` | `markdown` | Output format: `markdown`, `json`, `sarif` |
@@ -299,11 +434,12 @@ The health command inherits `--output json` from global options for CI integrati
 | `--issue <target>` | — | — | Create (`new`) or update (`<number>`) a GitHub issue with review results |
 | `--enable-tool <name>` | — | — | Force-enable a specific tool (can be repeated) |
 | `--disable-tool <name>` | — | — | Force-disable a specific tool (can be repeated) |
-| `--list-tools` | — | — | Show all 15 available tools with status, tier, and languages |
+| `--list-tools` | — | — | Show all 16 available tools with status, tier, and languages |
 | `--no-semgrep` | — | — | **Deprecated** — use `--disable-tool semgrep` |
 | `--no-trivy` | — | — | **Deprecated** — use `--disable-tool trivy` |
 | `--no-cpd` | — | — | **Deprecated** — use `--disable-tool cpd` |
 | `--no-memory` | — | — | Disable review memory (skip search and persist steps) |
+| `--no-blast-radius` | — | auto | Disable blast-radius filtering. Auto-enabled when `.ghagga/graph.json` exists (see `ghagga index`); pass this flag to force it off for one run |
 | `--memory-backend <type>` | — | `sqlite` | Memory backend: `sqlite` or `engram` |
 | `--config <path>` | `-c` | `.ghagga.json` | Path to config file (must be a file path, not inline JSON) |
 | `--staged` | — | — | Review only staged files (uses `git diff --cached`; designed for pre-commit hook) |
@@ -459,12 +595,12 @@ ghagga review --provider ollama --model codellama:13b
 
 ## Static Analysis
 
-The CLI supports up to **15 static analysis tools** organized in two tiers — zero tokens consumed for known issues. See [Static Analysis](static-analysis.md) for the full tool table.
+The CLI supports up to **16 static analysis tools** organized in two tiers — zero tokens consumed for known issues. See [Static Analysis](static-analysis.md) for the full tool table.
 
 ### Tool Tiers
 
 - **always-on** (7 tools) — Run on every review: Semgrep, Trivy, CPD, Gitleaks, ShellCheck, markdownlint, Lizard
-- **auto-detect** (8 tools) — Activate when matching files are in the diff: Ruff, Bandit, golangci-lint, Biome, PMD, Psalm, clippy, Hadolint
+- **auto-detect** (9 tools) — Activate when matching files are in the diff: Ruff, Bandit, golangci-lint, Biome, PMD, Psalm, clippy, Hadolint, zizmor
 
 Tools are **optional**. If a tool isn't installed, it's silently skipped. The review continues with whatever tools are available.
 
@@ -731,6 +867,6 @@ pip install semgrep
 - **[GitHub Action Guide](github-action.md)** — Automated PR reviews in CI
 - **[Configuration](configuration.md)** — Environment variables and config file options
 - **[Review Modes](review-modes.md)** — Learn about Simple, Workflow, and Consensus modes
-- **[Static Analysis](static-analysis.md)** — 15 tools, tier system, per-tool control
+- **[Static Analysis](static-analysis.md)** — 16 tools, tier system, per-tool control
 - **[SaaS Guide](saas-getting-started.md)** — Zero-config GitHub App with Dashboard
 - **[Self-Hosted Guide](self-hosted.md)** — Full deployment with memory and dashboard

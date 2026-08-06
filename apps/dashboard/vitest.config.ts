@@ -1,6 +1,6 @@
 import path from 'node:path';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig({
   plugins: [react()],
@@ -14,6 +14,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     testTimeout: 15000,
+    // vitest v4's default exclude no longer covers dist/, so stale compiled
+    // dist/**/*.test.js get collected and can fail locally. Exclude it explicitly.
+    exclude: [...configDefaults.exclude, '**/dist/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary', 'json-summary'],
@@ -25,6 +28,17 @@ export default defineConfig({
         'src/test/**',
         'src/main.tsx',
       ],
+      // Gradual coverage gate (PRODOPS-009). Deliberately conservative floors so
+      // this doesn't retroactively block on pre-existing debt — the point is to
+      // catch *regressions*, not to force an immediate rewrite. Dashboard starts
+      // lower than the backend packages (UI/component coverage is typically
+      // thinner); ratchet up over time, never lower without a note here.
+      thresholds: {
+        statements: 35,
+        branches: 30,
+        functions: 35,
+        lines: 35,
+      },
     },
   },
 });

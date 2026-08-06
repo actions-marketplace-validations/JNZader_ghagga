@@ -1,6 +1,16 @@
 import { createHmac } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getPRCommitMessages, getPRFileList, verifyWebhookSignature } from './client.js';
+import { logger } from '../lib/logger.js';
+import {
+  fetchGraphFromBranch,
+  fetchGraphMetadata,
+  findExistingComment,
+  getIssue,
+  getPRCommitMessages,
+  getPRFileList,
+  listIssueComments,
+  verifyWebhookSignature,
+} from './client.js';
 
 /**
  * Helper: compute a valid sha256 HMAC signature in GitHub's format.
@@ -285,6 +295,507 @@ describe('getPRCommitMessages — pagination', () => {
 
     await expect(getPRCommitMessages('owner', 'repo', 1, 'token')).rejects.toThrow(
       'GitHub API error fetching commits: 500 Internal Server Error',
+    );
+  });
+});
+
+// ─── fetchGraphFromBranch ───────────────────────────────────────
+
+describe('fetchGraphFromBranch', () => {
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const VALID_GRAPH = {
+    version: 1,
+    rootDir: '.',
+    nodes: {
+      'src/index.ts': {
+        hash: 'abc123',
+        language: 'typescript',
+        imports: [],
+        exports: ['main'],
+        calls: [],
+        isTest: false,
+      },
+    },
+  };
+
+  it('returns graph on 200 with valid JSON', async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(VALID_GRAPH),
+      }),
+    );
+
+    const result = await fetchGraphFromBranch('owner', 'repo', 'token');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result).not.toBeNull();
+    expect(result?.version).toBe(1);
+  });
+
+  it('returns null on 404', async () => {
+    mockFetch.mockImplementation(() => Promise.resolve({ ok: false, status: 404 }));
+
+    const result = await fetchGraphFromBranch('owner', 'repo', 'token');
+    expect(result).toBeNull();
+  });
+
+  it('returns null on timeout/network error', async () => {
+    mockFetch.mockImplementation(() => Promise.reject(new Error('network timeout')));
+
+    const result = await fetchGraphFromBranch('owner', 'repo', 'token');
+    expect(result).toBeNull();
+  });
+
+  it('returns null on invalid JSON', async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ invalid: true }),
+      }),
+    );
+
+    const result = await fetchGraphFromBranch('owner', 'repo', 'token');
+    expect(result).toBeNull();
+  });
+});
+
+// ─── fetchGraphMetadata ─────────────────────────────────────────
+
+describe('fetchGraphMetadata', () => {
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const VALID_METADATA = {
+    lastIndexedCommit: 'abc123def456',
+    lastIndexedAt: new Date().toISOString(),
+    schemaVersion: 1,
+    fileCount: 1,
+    languages: ['typescript'],
+    indexDurationMs: 500,
+  };
+
+  it('returns metadata on 200 with valid JSON', async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(VALID_METADATA),
+      }),
+    );
+
+    const result = await fetchGraphMetadata('owner', 'repo', 'token');
+    expect(result).not.toBeNull();
+    expect(result?.lastIndexedCommit).toBe('abc123def456');
+  });
+
+  it('returns null on 404', async () => {
+    mockFetch.mockImplementation(() => Promise.resolve({ ok: false, status: 404 }));
+
+    const result = await fetchGraphMetadata('owner', 'repo', 'token');
+    expect(result).toBeNull();
+  });
+});
+
+// ─── findExistingComment — pagination (backlog #6) ──────────────
+
+const MARKER = '<!-- ghagga-review -->';
+
+/**
+ * Create N fake issue-comment objects. `markerAt` (optional) is an index that
+ * carries the ghagga-review MARKER; all others are unrelated bodies.
+ */
+function makeFakeComments(
+  count: number,
+  startId = 0,
+  markerAt?: number,
+): Array<{ id: number; body: string }> {
+  return Array.from({ length: count }, (_, i) => ({
+    id: startId + i,
+    body: i === markerAt ? `summary ${startId + i}\n${MARKER}` : `noise ${startId + i}`,
+  }));
+}
+
+describe('findExistingComment — pagination', () => {
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('single page (< 100 comments) — exactly one list call, no extra fetch', async () => {
+    const page1 = makeFakeComments(30, 0, 5); // marker on this single page
+    mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(page1) });
+
+    const result = await findExistingComment('owner', 'repo', 1, 'token');
+
+    expect(result).toEqual({ latestId: 5, staleIds: [] });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toContain('page=1');
+  });
+
+  it('multi-page — full page 1 (no marker), stale marker on page 2 IS found', async () => {
+    const page1 = makeFakeComments(100, 0); // 100 items, NO marker → must fetch page 2
+    const page2 = makeFakeComments(20, 100, 7); // marker at index 7 → id 107
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(page1) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(page2) });
+
+    const result = await findExistingComment('owner', 'repo', 1, 'token');
+
+    // The (only) marker found on page 2 is the latest; no stale duplicates.
+    expect(result).toEqual({ latestId: 107, staleIds: [] });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[0][0]).toContain('page=1');
+    expect(mockFetch.mock.calls[1][0]).toContain('page=2');
+  });
+
+  it('multi-page — markers on BOTH pages → newest kept, older flagged stale', async () => {
+    const page1 = makeFakeComments(100, 0, 3); // stale marker id 3
+    const page2 = makeFakeComments(20, 100, 9); // latest marker id 109
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(page1) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(page2) });
+
+    const result = await findExistingComment('owner', 'repo', 1, 'token');
+
+    expect(result).toEqual({ latestId: 109, staleIds: [3] });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('safety bound — stops at MAX_PAGES (50) and warns instead of looping forever', async () => {
+    // Every page is full (100 items) → would loop forever without the bound.
+    for (let page = 0; page < 50; page++) {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(makeFakeComments(100, page * 100)),
+      });
+    }
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await findExistingComment('owner', 'repo', 1, 'token');
+
+    expect(result).toBeNull(); // no marker anywhere in the scanned range
+    expect(mockFetch).toHaveBeenCalledTimes(50);
+    expect(mockFetch.mock.calls[49][0]).toContain('page=50');
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('MAX_PAGES (50)'));
+  });
+
+  it('time budget — truncates paging once the wall-clock budget is exhausted, warns, returns what was found', async () => {
+    // Page 1 is full (no marker) → loop wants to fetch page 2. We advance the
+    // mocked clock past the 90s budget so the page-2 guard trips: the loop must
+    // STOP (not blow the 5-min worker lock) and proceed with page-1 results.
+    const page1 = makeFakeComments(100, 0, 4); // marker at id 4 on the first page
+    mockFetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(page1) });
+    // Any later page (should never be fetched once truncated).
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(makeFakeComments(100, 100)),
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Clock: deadline is captured as `Date.now() + 90_000` BEFORE the loop.
+    // 1st call (deadline capture) = 0; page-1 guard is skipped (page === 1);
+    // 2nd call (page-2 guard) = past the deadline → truncate.
+    const nowSpy = vi.spyOn(Date, 'now');
+    nowSpy.mockReturnValueOnce(0); // deadline = 90_000
+    nowSpy.mockReturnValue(90_001); // every subsequent Date.now() is past it
+
+    const result = await findExistingComment('owner', 'repo', 1, 'token');
+
+    // Only page 1 was fetched; the budget guard stopped before page 2.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toContain('page=1');
+    // We still return what we found on page 1.
+    expect(result).toEqual({ latestId: 4, staleIds: [] });
+    // Non-silent truncation, distinct from the MAX_PAGES warn.
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('pagination budget'));
+
+    nowSpy.mockRestore();
+  });
+});
+
+describe('listIssueComments — newest-first fetch', () => {
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  /** Build a mock fetch Response with a `Link` header and a JSON comment array. */
+  function res(comments: Array<{ author: string; body: string }>, link?: string) {
+    return {
+      ok: true,
+      headers: { get: (h: string) => (h.toLowerCase() === 'link' ? (link ?? null) : null) },
+      json: () =>
+        Promise.resolve(comments.map((c) => ({ user: { login: c.author }, body: c.body }))),
+    };
+  }
+
+  it('returns 0 fetches and empty array for maxCount <= 0', async () => {
+    const result = await listIssueComments('owner', 'repo', 1, 'token', 0);
+    expect(result).toEqual([]);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it('single page (no Link): keeps the most-recent maxCount', async () => {
+    // 5 comments oldest→newest; ask for 3 → keep c2,c3,c4 (the newest).
+    const comments = Array.from({ length: 5 }, (_, i) => ({ author: `u${i}`, body: `c${i}` }));
+    mockFetch.mockResolvedValueOnce(res(comments));
+
+    const result = await listIssueComments('owner', 'repo', 1, 'token', 3);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result.map((c) => c.body)).toEqual(['c2', 'c3', 'c4']);
+  });
+
+  it('always requests per_page=100 (max) regardless of maxCount', async () => {
+    mockFetch.mockResolvedValueOnce(res([{ author: 'a', body: 'x' }]));
+    await listIssueComments('owner', 'repo', 1, 'token', 20);
+    expect(mockFetch.mock.calls[0][0]).toContain('per_page=100');
+  });
+
+  it('many pages, full last page: jumps straight to the LAST page — 2 fetches', async () => {
+    // Page 1 (oldest) advertises rel="last" page=9. The fix must NOT page 1..9;
+    // it reads page 1 (for the Link header) then jumps to page 9. The last page
+    // is FULL (≥ maxCount), so no previous page is needed.
+    const oldest = Array.from({ length: 100 }, (_, i) => ({ author: `o${i}`, body: `old${i}` }));
+    const newestPage = Array.from({ length: 100 }, (_, i) => ({
+      author: `n${i}`,
+      body: `new${i}`,
+    }));
+    const link =
+      '<https://api.github.com/repositories/1/issues/1/comments?per_page=100&page=9>; rel="last"';
+    mockFetch
+      .mockResolvedValueOnce(res(oldest, link)) // page 1
+      .mockResolvedValueOnce(res(newestPage)); // page 9
+
+    const result = await listIssueComments('owner', 'repo', 1, 'token', 5);
+
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[0][0]).toContain('page=1');
+    expect(mockFetch.mock.calls[1][0]).toContain('page=9');
+    // Returns the trailing 5 of the NEWEST page, not the tail of the oldest.
+    expect(result.map((c) => c.body)).toEqual(['new95', 'new96', 'new97', 'new98', 'new99']);
+  });
+
+  it('21 comments, maxCount=20: completes the window from the previous page (regression)', async () => {
+    // The regression: per_page used to == maxCount (20), so page 1 = 1..20 and
+    // the last page (page 2) = comment 21 only → returned 1 comment. With the
+    // fix, per_page=100 → page 1 advertises rel="last" page=2 (the 21st comment),
+    // the partial last page underfills, so page 1 is prepended → newest 20.
+    const page1 = Array.from({ length: 100 }, (_, i) => ({ author: `u${i}`, body: `c${i}` }));
+    const page2 = [{ author: 'u100', body: 'c100' }]; // single newest comment
+    const link =
+      '<https://api.github.com/repositories/1/issues/1/comments?per_page=100&page=2>; rel="last"';
+    // Two distinct pages, but emulate a 101-comment issue (window math is the
+    // same as the 21/20 case: last page underfills maxCount).
+    mockFetch
+      .mockResolvedValueOnce(res(page1, link)) // page 1 (probe)
+      .mockResolvedValueOnce(res(page2)); // page 2 (last, partial)
+
+    const result = await listIssueComments('owner', 'repo', 1, 'token', 20);
+
+    // page 1 already in hand (prevPage === 1) → only 2 fetches, NOT 3.
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    // Newest 20: c81..c99 (tail of page 1) + c100 (page 2).
+    const expected = [...Array.from({ length: 19 }, (_, i) => `c${81 + i}`), 'c100'];
+    expect(result.map((c) => c.body)).toEqual(expected);
+    expect(result).toHaveLength(20);
+  });
+
+  it('partial last page, intermediate previous page: 3 fetches complete the window', async () => {
+    // 105 comments, per_page=100 → page 1 = c0..c99, page 2 (last) = c100..c104
+    // (only 5). maxCount=20 underfills from the last page, and the previous page
+    // is an INTERMEDIATE page (page 1 here, but exercise the > 1 path with page 3).
+    // Model a 3-page issue: page 3 (last) = 5 comments, prev = page 2 (full 100).
+    const page2 = Array.from({ length: 100 }, (_, i) => ({ author: `m${i}`, body: `mid${i}` }));
+    const page3 = Array.from({ length: 5 }, (_, i) => ({ author: `n${i}`, body: `new${i}` }));
+    const link =
+      '<https://api.github.com/repositories/1/issues/1/comments?per_page=100&page=3>; rel="last"';
+    mockFetch
+      .mockResolvedValueOnce(res([], link)) // page 1 (probe; content irrelevant here)
+      .mockResolvedValueOnce(res(page3)) // page 3 (last, partial — 5)
+      .mockResolvedValueOnce(res(page2)); // page 2 (previous, intermediate → re-fetched)
+
+    const result = await listIssueComments('owner', 'repo', 1, 'token', 20);
+
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    expect(mockFetch.mock.calls[1][0]).toContain('page=3');
+    expect(mockFetch.mock.calls[2][0]).toContain('page=2');
+    // Newest 20 = trailing 15 of page 2 (mid85..mid99) + 5 of page 3 (new0..new4).
+    const expected = [
+      ...Array.from({ length: 15 }, (_, i) => `mid${85 + i}`),
+      ...Array.from({ length: 5 }, (_, i) => `new${i}`),
+    ];
+    expect(result.map((c) => c.body)).toEqual(expected);
+  });
+
+  it('missing Link header (single page) → trailing maxCount of page 1', async () => {
+    const comments = Array.from({ length: 8 }, (_, i) => ({ author: `u${i}`, body: `c${i}` }));
+    mockFetch.mockResolvedValueOnce(res(comments)); // no link arg → header null
+
+    const result = await listIssueComments('owner', 'repo', 1, 'token', 3);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result.map((c) => c.body)).toEqual(['c5', 'c6', 'c7']);
+  });
+
+  it('malformed Link header → warns and falls back to page 1 tail (NOT oldest)', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => logger);
+    const comments = Array.from({ length: 6 }, (_, i) => ({ author: `u${i}`, body: `c${i}` }));
+    // Link present but no rel="last" page number → malformed.
+    const badLink = '<https://api.github.com/...>; rel="next", <garbage>; rel="prev"';
+    mockFetch.mockResolvedValueOnce(res(comments, badLink));
+
+    const result = await listIssueComments('owner', 'repo', 1, 'token', 3);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    // Falls back to the NEWEST 3 of page 1, never the oldest.
+    expect(result.map((c) => c.body)).toEqual(['c3', 'c4', 'c5']);
+    warnSpy.mockRestore();
+  });
+
+  it('exactly maxCount on a single page → returns all, in order', async () => {
+    const comments = Array.from({ length: 4 }, (_, i) => ({ author: `u${i}`, body: `c${i}` }));
+    mockFetch.mockResolvedValueOnce(res(comments));
+
+    const result = await listIssueComments('owner', 'repo', 1, 'token', 4);
+
+    expect(result.map((c) => c.body)).toEqual(['c0', 'c1', 'c2', 'c3']);
+  });
+
+  it('total < maxCount (single page) → returns all available', async () => {
+    const comments = [
+      { author: 'a', body: 'c0' },
+      { author: 'b', body: 'c1' },
+    ];
+    mockFetch.mockResolvedValueOnce(res(comments));
+
+    const result = await listIssueComments('owner', 'repo', 1, 'token', 20);
+
+    expect(result.map((c) => c.body)).toEqual(['c0', 'c1']);
+  });
+
+  it('zero comments (empty single page) → empty array', async () => {
+    mockFetch.mockResolvedValueOnce(res([]));
+
+    const result = await listIssueComments('owner', 'repo', 1, 'token', 20);
+
+    expect(result).toEqual([]);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rel="last" pointing at page 1 → treats page 1 as the whole set (1 fetch)', async () => {
+    const comments = Array.from({ length: 5 }, (_, i) => ({ author: `u${i}`, body: `c${i}` }));
+    const link =
+      '<https://api.github.com/repositories/1/issues/1/comments?per_page=100&page=1>; rel="last"';
+    mockFetch.mockResolvedValueOnce(res(comments, link));
+
+    const result = await listIssueComments('owner', 'repo', 1, 'token', 3);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result.map((c) => c.body)).toEqual(['c2', 'c3', 'c4']);
+  });
+
+  it('THROWS on a failed page (caller distinguishes fetch-fail from no-comments)', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      statusText: 'Forbidden',
+      headers: { get: () => null },
+    });
+    await expect(listIssueComments('owner', 'repo', 1, 'token', 5)).rejects.toThrow(
+      'GitHub API error listing issue comments: 403 Forbidden',
+    );
+  });
+});
+
+describe('getIssue', () => {
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    mockFetch.mockReset();
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const res = (body: unknown) => ({ ok: true, json: () => Promise.resolve(body) });
+
+  it('returns title/body/labels, normalizing object AND string label shapes', async () => {
+    mockFetch.mockResolvedValueOnce(
+      res({ title: 'Crash on start', body: 'stack trace', labels: [{ name: 'bug' }, 'p1'] }),
+    );
+
+    const result = await getIssue('owner', 'repo', 7, 'token');
+
+    expect(result).toEqual({ title: 'Crash on start', body: 'stack trace', labels: ['bug', 'p1'] });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toContain('/issues/7');
+  });
+
+  it('coerces a null body to an empty string and tolerates missing labels', async () => {
+    mockFetch.mockResolvedValueOnce(res({ title: 'No body', body: null }));
+
+    const result = await getIssue('owner', 'repo', 8, 'token');
+
+    expect(result).toEqual({ title: 'No body', body: '', labels: [] });
+  });
+
+  it('drops empty/blank label names', async () => {
+    mockFetch.mockResolvedValueOnce(
+      res({ title: 't', body: 'b', labels: [{ name: '' }, { name: 'kept' }] }),
+    );
+
+    const result = await getIssue('owner', 'repo', 9, 'token');
+
+    expect(result.labels).toEqual(['kept']);
+  });
+
+  it('throws a GitHubApiError-shaped error on a non-2xx response', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 404, statusText: 'Not Found' });
+
+    await expect(getIssue('owner', 'repo', 10, 'token')).rejects.toThrow(
+      'GitHub API error fetching issue: 404 Not Found',
     );
   });
 });

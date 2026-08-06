@@ -20,12 +20,12 @@ Add AI-powered code reviews to any repository in under 5 minutes. GHAGGA runs di
 |-----------|------|
 | **GHAGGA** | Free and open source (MIT license) |
 | **GitHub Actions minutes** | **Free unlimited** for public repos. Private repos: 2,000 free minutes/month (then [paid by GitHub](https://docs.github.com/en/billing/managing-billing-for-github-actions/about-billing-for-github-actions)) |
-| **GitHub Models** (`gpt-4o-mini`) | **Free** — default provider, no API key needed |
+| **GitHub Models** (`gpt-4o-mini`) | Uses the workflow's GitHub token by default — no separate API key needed |
 | **Other LLM providers** (Anthropic, OpenAI, Google, Qwen) | BYOK — you pay those providers directly at their standard rates |
 | **Ollama** | Free — runs on a self-hosted runner with Ollama installed |
-| **Static analysis** (up to 15 tools) | Free — runs on the GitHub Actions runner |
+| **Static analysis** (up to 16 tools) | Free — runs on the GitHub Actions runner |
 
-> 💡 **TL;DR**: 100% free for public repos with the default GitHub Models provider. No credit card, no API key, no signup.
+> 💡 **TL;DR**: Public repos can use the default GitHub Models provider with the workflow token you already have. No separate provider key is required.
 
 ---
 
@@ -123,7 +123,7 @@ sequenceDiagram
 ```
 
 1. A **pull request event** triggers the GitHub Actions workflow
-2. The Action **checks out the code** and runs **static analysis** (up to 15 tools — always-on + auto-detected) directly on the runner
+2. The Action **checks out the code** and runs **static analysis** (up to 16 tools — always-on + auto-detected) directly on the runner
 3. The PR **diff is fetched** via the GitHub API
 4. The diff + static findings are sent to the configured **LLM provider** (default: GitHub Models `gpt-4o-mini`)
 5. The LLM returns a structured review, which is **posted as a PR comment**
@@ -138,10 +138,10 @@ All configuration is done via Action inputs in the workflow YAML. The Action doe
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `provider` | No | `github` | LLM provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen` |
+| `provider` | No | `github` | LLM provider: `github`, `anthropic`, `openai`, `google`, `ollama`, `qwen`, `groq`, `cerebras`, `deepseek`, `openrouter` |
 | `model` | No | Auto | Model identifier (auto-selects best model per provider, e.g. `gpt-4o-mini` for GitHub) |
-| `mode` | No | `simple` | Review mode: `simple` (1 LLM call), `workflow` (5 specialists), `consensus` (multi-model voting) |
-| `api-key` | No | — | LLM provider API key. **Not required** for `github` provider (uses `GITHUB_TOKEN` automatically) |
+| `mode` | No | `simple` | Review mode: `simple` (1 LLM call), `workflow` (5 specialists), `consensus` (3 perspectives + algorithmic vote) |
+| `api-key` | No | — | LLM provider API key. **Not required** for `github` provider unless you want to override the token used for GitHub Models |
 | `github-token` | No | `${{ github.token }}` | GitHub token for fetching PR diffs and posting comments. Automatic. |
 | `enabled-tools` | No | — | Comma-separated list of tools to force-enable (e.g., `ruff,bandit`). Properly forwarded through webhooks in SaaS mode. |
 | `disabled-tools` | No | — | Comma-separated list of tools to force-disable (e.g., `markdownlint`). Properly forwarded through webhooks in SaaS mode. |
@@ -225,10 +225,18 @@ Uses the `apps/action/Dockerfile` which includes all static analysis tools pre-i
 
 ### GitHub Models (default — free)
 
-No API key needed. Uses `GITHUB_TOKEN` automatically:
+No separate provider key needed. Uses `github-token` or `GITHUB_TOKEN` automatically:
 
 ```yaml
 - uses: JNZader/ghagga-action@v1
+```
+
+You can also pass your own GitHub token explicitly:
+
+```yaml
+- uses: JNZader/ghagga-action@v1
+  with:
+    github-token: ${{ secrets.MY_GITHUB_TOKEN }}
 ```
 
 ### OpenAI
@@ -289,10 +297,10 @@ jobs:
 
 ## Static Analysis Tools
 
-GHAGGA runs up to **15 static analysis tools** before the LLM review. Zero LLM tokens consumed for known issues — the AI focuses on logic, architecture, and things static analysis can't detect. See [Static Analysis](static-analysis.md) for the full tool table.
+GHAGGA runs up to **16 static analysis tools** before the LLM review. Zero LLM tokens consumed for known issues — the AI focuses on logic, architecture, and things static analysis can't detect. See [Static Analysis](static-analysis.md) for the full tool table.
 
 - **7 always-on tools** run on every review: Semgrep, Trivy, CPD, Gitleaks, ShellCheck, markdownlint, Lizard
-- **8 auto-detect tools** activate when matching files are in the diff: Ruff, Bandit, golangci-lint, Biome, PMD, Psalm, clippy, Hadolint
+- **9 auto-detect tools** activate when matching files are in the diff: Ruff, Bandit, golangci-lint, Biome, PMD, Psalm, clippy, Hadolint, zizmor
 
 Control tools with the `enabled-tools` and `disabled-tools` inputs:
 
@@ -451,6 +459,6 @@ Also ensure the workflow file is committed to the branch that the PR targets (us
 - **[CLI Guide](cli.md)** — Review local changes from your terminal
 - **[Configuration](configuration.md)** — Environment variables and config file options
 - **[Review Modes](review-modes.md)** — Learn about Simple, Workflow, and Consensus modes
-- **[Static Analysis](static-analysis.md)** — 15 tools, tier system, per-tool control
+- **[Static Analysis](static-analysis.md)** — 16 tools, tier system, per-tool control
 - **[Self-Hosted Guide](self-hosted.md)** — Full deployment with memory and dashboard
 - **[SaaS Guide](saas-getting-started.md)** — Zero-config GitHub App with Dashboard

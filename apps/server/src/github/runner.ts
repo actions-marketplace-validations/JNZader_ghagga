@@ -1,79 +1,31 @@
 /**
- * GitHub Actions runner integration.
+ * Inline GitHub Actions workflow integration.
  *
- * Manages dispatching static analysis workflows to per-user
- * `ghagga-runner` repos and verifying callback signatures.
+ * Injects the inline static-analysis workflow into the target repository
+ * (`.github/workflows/ghagga.yml`, built from `templates/ghagga-inline.yml`),
+ * dispatches it via `workflow_dispatch`, and verifies the HMAC-signed
+ * callbacks it produces.
  *
- * Architecture: Each user who enables Actions-based static analysis
- * creates a `ghagga-runner` repo in their org/account. This module
- * discovers it, sets the callback secret, and dispatches the
- * `ghagga-analysis.yml` workflow via `workflow_dispatch`.
+ * Architecture: every dispatch derives its callback secret deterministically
+ * via `HMAC-SHA256(STATE_SECRET, callbackId)` (see `deriveCallbackSecret`).
+ * No per-dispatch state is held in memory, so callbacks survive server
+ * restarts, container redeploys, and horizontal scaling.
  */
 
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import { createRequire } from 'node:module';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { githubCircuitBreaker } from '../lib/circuit-breaker.js';
 import { logger as rootLogger } from '../lib/logger.js';
 
-// libsodium-wrappers ESM build is broken in 0.7.16 (missing libsodium.mjs).
-// Use createRequire to load the CJS version which works correctly.
-const require = createRequire(import.meta.url);
-const sodium = require('libsodium-wrappers') as typeof import('libsodium-wrappers');
-
 const logger = rootLogger.child({ module: 'runner' });
-
-// ─── Runner Creation Types ──────────────────────────────────────
-
-export type RunnerErrorCode =
-  | 'insufficient_scope'
-  | 'already_exists'
-  | 'template_unavailable'
-  | 'rate_limited'
-  | 'org_permission_denied'
-  | 'creation_timeout'
-  | 'secret_failed'
-  | 'github_error';
-
-export class RunnerCreationError extends Error {
-  constructor(
-    public code: RunnerErrorCode,
-    message: string,
-    public retryAfter?: number,
-    public repoFullName?: string,
-  ) {
-    super(message);
-    this.name = 'RunnerCreationError';
-  }
-}
-
-/** Result from the createRunnerRepo() function */
-export interface RunnerCreationResult {
-  created: boolean;
-  repoFullName: string;
-  isPrivate: boolean;
-  secretConfigured: boolean;
-}
-
-/** Options for createRunnerRepo() */
-export interface CreateRunnerRepoOptions {
-  ownerLogin: string;
-  token: string;
-  /** Callback secret value to set on the new repo */
-  callbackSecretValue: string;
-}
-
-/** Template repository constants */
-export const TEMPLATE_OWNER = 'JNZader';
-export const TEMPLATE_REPO = 'ghagga-runner-template';
 
 // ─── Types ──────────────────────────────────────────────────────
 
 export interface WorkflowDispatchInputs {
   callbackId: string;
-  repoFullName: string;
   prNumber: string;
   headSha: string;
-  baseBranch: string;
   callbackUrl: string;
   callbackSecret: string;
   enableSemgrep: string;
@@ -83,25 +35,31 @@ export interface WorkflowDispatchInputs {
   disabledTools: string;
 }
 
+// ─── Workflow Injection Types ────────────────────────────────────
+
+export interface WorkflowInjectionResult {
+  sha: string;
+  /** true = file was newly created, false = file was updated or unchanged */
+  created: boolean;
+}
+
 export interface DispatchParams {
-  ownerLogin: string;
+  /** Target repo in "owner/repo" format — the PR's own repo, where the inline workflow runs */
   repoFullName: string;
   prNumber: number;
   headSha: string;
+  /** Branch name used as the workflow_dispatch ref */
   baseBranch: string;
   callbackUrl: string;
+  callbackSecret: string;
+  callbackId: string;
   enableSemgrep: boolean;
   enableTrivy: boolean;
   enableCpd: boolean;
   enabledTools?: string[];
   disabledTools?: string[];
+  enableBlastRadius?: boolean;
   token: string;
-}
-
-export interface DiscoveredRunner {
-  repoId: number;
-  fullName: string;
-  isPrivate: boolean;
 }
 
 // ─── Stateless Callback Secret Derivation ───────────────────────
@@ -120,8 +78,24 @@ export function getCallbackTtlMs(): number {
 }
 
 /**
- * Derive a callback secret deterministically using HMAC-SHA256.
- * Returns a 64-char hex string (32 bytes).
+ * Domain-separation label for the runner-callback signing key (SEC-006).
+ *
+ * The runner-callback key and the OAuth-state key are BOTH derived from
+ * STATE_SECRET but under distinct domain labels, so a signature minted for one
+ * context can never be presented as a valid signature for the other. Callback
+ * secrets derive from THIS key (not STATE_SECRET directly); OAuth state derives
+ * from its own domain label in routes/oauth.ts.
+ */
+const CALLBACK_DOMAIN = 'ghagga.runner.callback.v1';
+
+/** Derive the domain-separated runner-callback signing key from STATE_SECRET. */
+function callbackKey(stateSecret: string): string {
+  return createHmac('sha256', stateSecret).update(CALLBACK_DOMAIN).digest('hex');
+}
+
+/**
+ * Derive a callback secret deterministically using HMAC-SHA256 over a
+ * domain-separated key (SEC-006). Returns a 64-char hex string (32 bytes).
  *
  * @throws {Error} if STATE_SECRET is not configured
  */
@@ -130,7 +104,7 @@ export function deriveCallbackSecret(callbackId: string): string {
   if (!STATE_SECRET) {
     throw new Error('STATE_SECRET is not configured');
   }
-  return createHmac('sha256', STATE_SECRET).update(callbackId).digest('hex');
+  return createHmac('sha256', callbackKey(STATE_SECRET)).update(callbackId).digest('hex');
 }
 
 /**
@@ -204,61 +178,47 @@ export function verifyCallbackSignature(
   }
 }
 
-// ─── Runner Discovery ───────────────────────────────────────────
+// ─── Workflow Injection ─────────────────────────────────────────
 
 /**
- * Discover if the user/org has a `ghagga-runner` repository.
- * Returns repo info if found, null otherwise.
+ * Inject (or update) `ghagga.yml` into `.github/workflows/` of the target repo.
+ *
+ * Steps:
+ * 1. Read the inline workflow template from disk (templates/ghagga-inline.yml)
+ * 2. GET `/repos/{owner}/{repo}/contents/.github/workflows/ghagga.yml` to check
+ *    if the file already exists and retrieve its current SHA
+ * 3. If the file exists and its content is already up-to-date (same base64 body),
+ *    return immediately — skip the PUT
+ * 4. Otherwise PUT the file (with SHA if updating, without SHA if creating)
+ * 5. Return `{ sha, created }` where `created` is true on a new file
+ *
+ * Throws on permission errors (403/422 from branch protection) — callers should
+ * handle gracefully and skip static analysis if injection fails.
  */
-export async function discoverRunnerRepo(
-  ownerLogin: string,
+export async function injectWorkflow(
+  owner: string,
+  repo: string,
   token: string,
-): Promise<DiscoveredRunner | null> {
-  const url = `https://api.github.com/repos/${ownerLogin}/ghagga-runner`;
+  currentSha?: string | null,
+): Promise<WorkflowInjectionResult> {
+  // Step 1: Read template from disk.
+  // Resolved relative to this compiled file (dist/github/runner.js → ../../../../templates/).
+  // This works in both local dev (tsx runs from src/) and Docker (compiled dist/).
+  const templatePath = fileURLToPath(
+    new URL('../../../../templates/ghagga-inline.yml', import.meta.url),
+  );
+  const templateContent = readFileSync(templatePath, 'utf8');
+  const contentBase64 = Buffer.from(templateContent, 'utf8').toString('base64');
 
-  return githubCircuitBreaker.execute(async () => {
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github.v3+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-      signal: AbortSignal.timeout(10_000),
-    });
+  const apiPath = `.github/workflows/ghagga.yml`;
+  const contentsUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${apiPath}`;
 
-    if (response.status === 404) {
-      return null;
-    }
+  // Step 2: Check if file exists and get its SHA
+  let existingSha: string | undefined;
+  let existingContentBase64: string | undefined;
 
-    if (!response.ok) {
-      logger.error(
-        { status: response.status, statusText: response.statusText, owner: ownerLogin },
-        'GitHub API error discovering runner repo',
-      );
-      throw new Error('Failed to communicate with GitHub API');
-    }
-
-    const data = (await response.json()) as { id: number; full_name: string; private: boolean };
-    return { repoId: data.id, fullName: data.full_name, isPrivate: data.private };
-  });
-}
-
-// ─── Set Runner Secret ──────────────────────────────────────────
-
-/**
- * Set (or update) a GitHub Actions secret on the runner repo.
- * Uses libsodium sealed box encryption as required by the GitHub API.
- */
-export async function setRunnerSecret(
-  repoFullName: string,
-  secretName: string,
-  secretValue: string,
-  token: string,
-): Promise<void> {
-  // Step 1: Get the repo's public key for secret encryption
-  const keyUrl = `https://api.github.com/repos/${repoFullName}/actions/secrets/public-key`;
-  const keyResponse = await githubCircuitBreaker.execute(() =>
-    fetch(keyUrl, {
+  const getResponse = await githubCircuitBreaker.execute(() =>
+    fetch(contentsUrl, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/vnd.github.v3+json',
@@ -268,30 +228,42 @@ export async function setRunnerSecret(
     }),
   );
 
-  if (!keyResponse.ok) {
+  if (getResponse.ok) {
+    const data = (await getResponse.json()) as { sha: string; content: string };
+    existingSha = data.sha;
+    // GitHub returns content with newlines inserted every 60 chars — strip them for comparison
+    existingContentBase64 = data.content.replace(/\n/g, '');
+  } else if (getResponse.status !== 404) {
+    const body = await getResponse.text();
     logger.error(
-      { status: keyResponse.status, statusText: keyResponse.statusText, repo: repoFullName },
-      'GitHub API error fetching public key',
+      { status: getResponse.status, owner, repo, body },
+      'GitHub API error checking workflow file',
     );
-    throw new Error('Failed to communicate with GitHub API');
+    throw new Error(`Failed to check workflow file: ${getResponse.status}`);
   }
 
-  const { key: publicKeyB64, key_id: keyId } = (await keyResponse.json()) as {
-    key: string;
-    key_id: string;
+  // Step 3: Skip if content already matches
+  if (existingSha && existingContentBase64 === contentBase64) {
+    logger.info({ owner, repo, sha: existingSha }, 'Workflow file already up-to-date — skipping');
+    return { sha: existingSha, created: false };
+  }
+
+  // Use SHA from currentSha param as fallback if GET didn't find it
+  const putSha = existingSha ?? currentSha ?? undefined;
+
+  // Step 4: PUT (create or update)
+  const putBody: Record<string, unknown> = {
+    message: putSha
+      ? 'chore: update GHAGGA inline static analysis workflow'
+      : 'chore: add GHAGGA inline static analysis workflow',
+    content: contentBase64,
   };
+  if (putSha) {
+    putBody.sha = putSha;
+  }
 
-  // Step 2: Encrypt the secret value with libsodium sealed box
-  await sodium.ready;
-  const publicKey = sodium.from_base64(publicKeyB64, sodium.base64_variants.ORIGINAL);
-  const secretBytes = sodium.from_string(secretValue);
-  const encrypted = sodium.crypto_box_seal(secretBytes, publicKey);
-  const encryptedB64 = sodium.to_base64(encrypted, sodium.base64_variants.ORIGINAL);
-
-  // Step 3: Set the encrypted secret via the GitHub API
-  const secretUrl = `https://api.github.com/repos/${repoFullName}/actions/secrets/${secretName}`;
-  const response = await githubCircuitBreaker.execute(() =>
-    fetch(secretUrl, {
+  const putResponse = await githubCircuitBreaker.execute(() =>
+    fetch(contentsUrl, {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -299,43 +271,61 @@ export async function setRunnerSecret(
         'Content-Type': 'application/json',
         'X-GitHub-Api-Version': '2022-11-28',
       },
-      body: JSON.stringify({
-        encrypted_value: encryptedB64,
-        key_id: keyId,
-      }),
-      signal: AbortSignal.timeout(10_000),
+      body: JSON.stringify(putBody),
+      signal: AbortSignal.timeout(15_000),
     }),
   );
 
-  if (!response.ok) {
-    logger.error(
-      { status: response.status, statusText: response.statusText, repo: repoFullName, secretName },
-      'GitHub API error setting secret',
-    );
-    throw new Error('Failed to communicate with GitHub API');
+  if (!putResponse.ok) {
+    const status = putResponse.status;
+    const body = await putResponse.text();
+
+    if (status === 403 || status === 422) {
+      logger.warn(
+        { status, owner, repo, body },
+        'Workflow injection blocked by branch protection or permissions',
+      );
+      throw new Error(`branch_protection: cannot write workflow file to ${owner}/${repo}`);
+    }
+
+    logger.error({ status, owner, repo, body }, 'GitHub API error injecting workflow file');
+    throw new Error(`Failed to inject workflow file: ${status}`);
   }
+
+  const putData = (await putResponse.json()) as { content: { sha: string } };
+  const newSha = putData.content.sha;
+
+  logger.info(
+    { owner, repo, sha: newSha, created: !putSha },
+    `Workflow file ${putSha ? 'updated' : 'created'}`,
+  );
+
+  return { sha: newSha, created: !putSha };
 }
 
 // ─── Dispatch Workflow ──────────────────────────────────────────
 
 /**
- * Dispatch the `ghagga-analysis.yml` workflow on the user's runner repo.
+ * Dispatch the `ghagga.yml` workflow directly on the target repo (the PR's repo).
  *
- * Generates a unique callbackId with embedded timestamp, derives a
- * per-dispatch secret via HMAC-SHA256 (stateless), sets it as a GitHub
- * Actions secret on the runner repo, and dispatches the workflow with
- * all required inputs.
+ * `callbackUrl` and `callbackSecret` are passed as workflow inputs, so no
+ * GitHub Actions repository secrets need to be set per dispatch.
+ *
+ * The caller is responsible for generating `callbackId` and `callbackSecret`
+ * (via `randomUUID()` plus a base-36 timestamp and `deriveCallbackSecret()`)
+ * before calling this function.
  *
  * Returns the callbackId for correlation with the callback.
  */
 export async function dispatchWorkflow(params: DispatchParams): Promise<string> {
   const {
-    ownerLogin,
     repoFullName,
     prNumber,
     headSha,
     baseBranch,
     callbackUrl,
+    callbackSecret,
+    callbackId,
     enableSemgrep,
     enableTrivy,
     enableCpd,
@@ -344,21 +334,10 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
     token,
   } = params;
 
-  const callbackId = `${randomUUID()}.${Date.now().toString(36)}`;
-  const callbackSecret = deriveCallbackSecret(callbackId);
-
-  // Set secrets on the runner repo before dispatching
-  const runnerRepo = `${ownerLogin}/ghagga-runner`;
-  await setRunnerSecret(runnerRepo, 'GHAGGA_TOKEN', token, token);
-  await setRunnerSecret(runnerRepo, 'GHAGGA_CALLBACK_SECRET', callbackSecret, token);
-
-  // Dispatch the workflow — send the raw secret so it can compute HMAC over the actual payload
   const inputs: WorkflowDispatchInputs = {
     callbackId,
-    repoFullName,
     prNumber: String(prNumber),
     headSha,
-    baseBranch,
     callbackUrl,
     callbackSecret,
     enableSemgrep: String(enableSemgrep),
@@ -368,7 +347,8 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
     disabledTools: JSON.stringify(disabledTools ?? []),
   };
 
-  const dispatchUrl = `https://api.github.com/repos/${runnerRepo}/actions/workflows/ghagga-analysis.yml/dispatches`;
+  // Dispatch to the PR's own repo, using baseBranch as the ref
+  const dispatchUrl = `https://api.github.com/repos/${repoFullName}/actions/workflows/ghagga.yml/dispatches`;
 
   const response = await githubCircuitBreaker.execute(() =>
     fetch(dispatchUrl, {
@@ -380,7 +360,7 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
         'X-GitHub-Api-Version': '2022-11-28',
       },
       body: JSON.stringify({
-        ref: 'main',
+        ref: baseBranch,
         inputs,
       }),
       signal: AbortSignal.timeout(15_000),
@@ -390,177 +370,13 @@ export async function dispatchWorkflow(params: DispatchParams): Promise<string> 
   if (!response.ok) {
     const body = await response.text();
     logger.error(
-      { status: response.status, statusText: response.statusText, body, repo: runnerRepo },
+      { status: response.status, statusText: response.statusText, body, repo: repoFullName },
       'GitHub API error dispatching workflow',
     );
     throw new Error('Failed to communicate with GitHub API');
   }
 
-  logger.info({ callbackId, runnerRepo, repoFullName, prNumber }, 'Dispatched runner workflow');
+  logger.info({ callbackId, repoFullName, prNumber }, 'Dispatched inline workflow');
 
   return callbackId;
-}
-
-// ─── Runner Creation ────────────────────────────────────────────
-
-const creationLogger = rootLogger.child({ module: 'runner-creation' });
-
-const POLL_INTERVAL_MS = 2000;
-const MAX_POLL_ATTEMPTS = 15; // 30 seconds total
-
-/**
- * Create a ghagga-runner repo from the template and configure its secret.
- *
- * Steps:
- * 1. Check if repo already exists via discoverRunnerRepo()
- * 2. Call GitHub Template API to generate {owner}/ghagga-runner
- * 3. Poll until repo is accessible (max 15 attempts, 2s interval)
- * 4. Set GHAGGA_CALLBACK_SECRET via setRunnerSecret()
- *
- * @throws {RunnerCreationError} with specific error codes
- */
-export async function createRunnerRepo(
-  options: CreateRunnerRepoOptions,
-): Promise<RunnerCreationResult> {
-  const { ownerLogin, token, callbackSecretValue } = options;
-  const repoFullName = `${ownerLogin}/ghagga-runner`;
-
-  // Step 1: Check if repo already exists
-  const existing = await discoverRunnerRepo(ownerLogin, token);
-  if (existing) {
-    throw new RunnerCreationError(
-      'already_exists',
-      'Runner repo already exists',
-      undefined,
-      repoFullName,
-    );
-  }
-
-  // Step 2: Create from template
-  const generateUrl = `https://api.github.com/repos/${TEMPLATE_OWNER}/${TEMPLATE_REPO}/generate`;
-  const generateResponse = await githubCircuitBreaker.execute(() =>
-    fetch(generateUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github.v3+json',
-        'Content-Type': 'application/json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
-      body: JSON.stringify({
-        owner: ownerLogin,
-        name: 'ghagga-runner',
-        description: 'GHAGGA static analysis runner — auto-created by the GHAGGA Dashboard',
-        include_all_branches: false,
-        private: false,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    }),
-  );
-
-  // Handle error responses
-  if (!generateResponse.ok) {
-    const status = generateResponse.status;
-
-    if (status === 422) {
-      // Name conflict — repo was created between our check and the generate call
-      throw new RunnerCreationError(
-        'already_exists',
-        'Runner repo already exists',
-        undefined,
-        repoFullName,
-      );
-    }
-
-    if (status === 403) {
-      // Distinguish rate limiting from insufficient scope
-      const remaining = generateResponse.headers.get('X-RateLimit-Remaining');
-      if (remaining === '0') {
-        const resetHeader = generateResponse.headers.get('X-RateLimit-Reset');
-        const retryAfter = resetHeader
-          ? Math.max(0, parseInt(resetHeader, 10) - Math.floor(Date.now() / 1000))
-          : 60;
-        throw new RunnerCreationError('rate_limited', 'GitHub API rate limit exceeded', retryAfter);
-      }
-
-      // Check if this is an org permission issue
-      const body = await generateResponse.text();
-      if (body.includes('organization') || body.includes('permission')) {
-        throw new RunnerCreationError(
-          'org_permission_denied',
-          `You don't have permission to create repositories in ${ownerLogin}`,
-        );
-      }
-
-      throw new RunnerCreationError(
-        'insufficient_scope',
-        "Your token doesn't have permission to create repositories. Please re-authenticate.",
-      );
-    }
-
-    if (status === 404) {
-      throw new RunnerCreationError(
-        'template_unavailable',
-        'The runner template is temporarily unavailable. Please try again later or contact support.',
-      );
-    }
-
-    const body = await generateResponse.text();
-    creationLogger.error(
-      { status, body, repo: repoFullName },
-      'GitHub API error creating runner repo',
-    );
-    throw new RunnerCreationError('github_error', 'Failed to communicate with GitHub API');
-  }
-
-  const createData = (await generateResponse.json()) as {
-    full_name: string;
-    private: boolean;
-  };
-
-  // Step 3: Poll until repo is accessible
-  let repoReady = false;
-  for (let i = 0; i < MAX_POLL_ATTEMPTS; i++) {
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-
-    try {
-      const discovered = await discoverRunnerRepo(ownerLogin, token);
-      if (discovered) {
-        repoReady = true;
-        break;
-      }
-    } catch {
-      // Ignore errors during polling — repo may not be ready yet
-    }
-  }
-
-  if (!repoReady) {
-    throw new RunnerCreationError(
-      'creation_timeout',
-      'Repository was created but is not accessible yet. Please try again in a few moments.',
-      undefined,
-      repoFullName,
-    );
-  }
-
-  // Step 4: Set GHAGGA_CALLBACK_SECRET
-  let secretConfigured = true;
-  try {
-    await setRunnerSecret(repoFullName, 'GHAGGA_CALLBACK_SECRET', callbackSecretValue, token);
-  } catch (err) {
-    creationLogger.error({ err, repoFullName }, 'Failed to set runner secret after repo creation');
-    secretConfigured = false;
-  }
-
-  creationLogger.info(
-    { repoFullName, secretConfigured, isPrivate: createData.private },
-    'Runner repo created',
-  );
-
-  return {
-    created: true,
-    repoFullName: createData.full_name,
-    isPrivate: createData.private,
-    secretConfigured,
-  };
 }

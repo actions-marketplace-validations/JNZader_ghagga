@@ -1,6 +1,6 @@
 {
   "name": "ghagga-core",
-  "version": "2.5.0",
+  "version": "3.3.0",
   "private": false,
   "type": "module",
   "description": "Core review engine for GHAGGA — AI-powered multi-agent code reviewer",
@@ -40,9 +40,9 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-assets.mjs",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.scripts.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
@@ -51,20 +51,22 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.0",
-    "@ai-sdk/google": "^2.0.0",
-    "@ai-sdk/openai": "^2.0.0",
-    "ai": "^5.0.0",
-    "minimatch": "^10.2.0",
+    "@ai-sdk/openai": "^4.0.8",
+    "@ai-sdk/openai-compatible": "^3.0.5",
+    "@bufbuild/protobuf": "^2.10.1",
+    "@cursorless/tree-sitter-wasms": "^0.9.0",
+    "@scip-code/scip": "^0.9.0",
+    "ai": "^7.0.22",
     "fts5-sql-bundle": "^1.0.2",
-    "zod": "^4.3.0"
+    "minimatch": "^10.2.5",
+    "web-tree-sitter": "^0.26.11",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@stryker-mutator/core": "^9.6.0",
-    "@stryker-mutator/vitest-runner": "^9.6.0",
-    "@types/node": "^25.3.5",
-
-    "typescript": "^5.9.0",
-    "vitest": "^4.0.0"
+    "@stryker-mutator/core": "^9.6.1",
+    "@stryker-mutator/vitest-runner": "^9.6.1",
+    "@types/node": "^26.1.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
   }
 }

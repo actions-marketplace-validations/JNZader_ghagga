@@ -11,11 +11,13 @@
 import type { Database } from 'ghagga-db';
 import { Hono } from 'hono';
 import { createInstallationsRouter } from './installations.js';
+import { createIssueDraftsRouter } from './issue-drafts.js';
 import { createMemoryRouter } from './memory.js';
 import { createRepositoriesRouter } from './repositories.js';
 import { createReviewsRouter } from './reviews.js';
 import { createRunnerRouter } from './runner.js';
 import { createSettingsRouter } from './settings.js';
+import { createStatsCostRouter } from './stats-cost.js';
 
 export { buildProviderChainView } from './utils.js';
 
@@ -28,6 +30,8 @@ export function createApiRouter(db: Database) {
   router.route('/', createSettingsRouter(db));
   router.route('/', createMemoryRouter(db));
   router.route('/', createRunnerRouter(db));
+  router.route('/', createStatsCostRouter(db));
+  router.route('/', createIssueDraftsRouter(db));
 
   return router;
 }

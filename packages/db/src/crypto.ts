@@ -2,7 +2,24 @@
  * AES-256-GCM encryption/decryption for API keys.
  *
  * Uses Node.js crypto module (Web Crypto API compatible).
- * Format: base64(iv[12] + ciphertext + authTag[16])
+ *
+ * ## Formats
+ *
+ * v1 (legacy, read-only): base64(iv[12] + ciphertext + authTag[16])
+ *   — compact packed format used by ghagga ≤ v3.x
+ *
+ * v2 (current): "v2:<base64iv>:<base64cipher>:<base64authtag>"
+ *   — aligns with mcp-llm-bridge vault/crypto.ts EncryptedData layout;
+ *     each component is separately base64-encoded and colon-delimited.
+ *     Canonical implementation: mcp-llm-bridge/src/vault/crypto.ts
+ *
+ * `decrypt()` auto-detects the format by checking for the "v2:" prefix.
+ * `encrypt()` always produces v2. Existing v1 values decrypt transparently.
+ *
+ * ## Migration
+ * ghagga v4 is a fresh deploy — there is no production data to migrate from v1
+ * to v2. v2 is the only format `encrypt()` writes; v1 reads are still supported
+ * by `decrypt()` for any rare legacy values.
  *
  * ENCRYPTION_KEY env var: 64 hex characters (32 bytes).
  * Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -13,6 +30,7 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 const ALGORITHM = 'aes-256-gcm';
+const V2_PREFIX = 'v2:';
 
 function getEncryptionKey(): Buffer {
   const key = process.env.ENCRYPTION_KEY;
@@ -27,7 +45,7 @@ function getEncryptionKey(): Buffer {
 
 /**
  * Encrypt plaintext using AES-256-GCM.
- * @returns base64(iv[12] + ciphertext + authTag[16])
+ * @returns v2 format: "v2:<base64iv>:<base64cipher>:<base64authtag>"
  */
 export function encrypt(plaintext: string): string {
   const key = getEncryptionKey();
@@ -37,16 +55,26 @@ export function encrypt(plaintext: string): string {
   const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
-  // Combine: iv + ciphertext + authTag
-  const combined = Buffer.concat([iv, encrypted, authTag]);
-  return combined.toString('base64');
+  return `${V2_PREFIX}${iv.toString('base64')}:${encrypted.toString('base64')}:${authTag.toString('base64')}`;
 }
 
 /**
- * Decrypt base64(iv[12] + ciphertext + authTag[16]) back to plaintext.
+ * Decrypt a v1 or v2 encrypted string back to plaintext.
+ *
+ * v1: base64(iv[12] + ciphertext + authTag[16])
+ * v2: "v2:<base64iv>:<base64cipher>:<base64authtag>"
  */
-export function decrypt(base64str: string): string {
+export function decrypt(value: string): string {
   const key = getEncryptionKey();
+
+  if (value.startsWith(V2_PREFIX)) {
+    return decryptV2(value.slice(V2_PREFIX.length), key);
+  }
+
+  return decryptV1(value, key);
+}
+
+function decryptV1(base64str: string, key: Buffer): string {
   const combined = Buffer.from(base64str, 'base64');
 
   if (combined.length < IV_LENGTH + AUTH_TAG_LENGTH) {
@@ -57,9 +85,48 @@ export function decrypt(base64str: string): string {
   const authTag = combined.subarray(combined.length - AUTH_TAG_LENGTH);
   const ciphertext = combined.subarray(IV_LENGTH, combined.length - AUTH_TAG_LENGTH);
 
-  const decipher = createDecipheriv(ALGORITHM, key, iv);
+  // Defense in depth: the length check above already guarantees these, but
+  // assert explicitly so a future refactor cannot silently weaken them.
+  if (iv.length !== IV_LENGTH) {
+    throw new Error('Invalid encrypted data: IV must be exactly 12 bytes');
+  }
+  if (authTag.length !== AUTH_TAG_LENGTH) {
+    throw new Error('Invalid encrypted data: auth tag must be exactly 16 bytes');
+  }
+
+  // authTagLength makes Node reject any setAuthTag() of a different length.
+  const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
   decipher.setAuthTag(authTag);
 
-  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-  return decrypted.toString('utf8');
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+}
+
+function decryptV2(payload: string, key: Buffer): string {
+  const parts = payload.split(':');
+  if (parts.length !== 3) {
+    throw new Error('Invalid v2 encrypted data: expected "iv:cipher:authTag"');
+  }
+
+  const iv = Buffer.from(parts[0]!, 'base64');
+  const ciphertext = Buffer.from(parts[1]!, 'base64');
+  const authTag = Buffer.from(parts[2]!, 'base64');
+
+  // SECURITY: enforce exact component lengths. Node's GCM implementation
+  // accepts truncated auth tags (e.g. 4 bytes), which would drop forgery
+  // resistance from 2^128 to 2^32 for an attacker with DB write access.
+  // Arbitrary-length IVs are likewise rejected — only the 96-bit IV that
+  // encrypt() produces is valid.
+  if (iv.length !== IV_LENGTH) {
+    throw new Error('Invalid v2 encrypted data: IV must be exactly 12 bytes');
+  }
+  if (authTag.length !== AUTH_TAG_LENGTH) {
+    throw new Error('Invalid v2 encrypted data: auth tag must be exactly 16 bytes');
+  }
+
+  // authTagLength makes Node reject any setAuthTag() of a different length
+  // (defense in depth alongside the explicit check above).
+  const decipher = createDecipheriv(ALGORITHM, key, iv, { authTagLength: AUTH_TAG_LENGTH });
+  decipher.setAuthTag(authTag);
+
+  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
 }

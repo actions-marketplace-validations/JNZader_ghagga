@@ -46,4 +46,9 @@ export { initializeDefaultTools, resetInitialization } from './plugins/index.js'
 // ─── Runner ─────────────────────────────────────────────────────
 
 /** @deprecated Always returns true. Kept for backward compatibility. */
-export { isToolRegistryEnabled } from './runner.js';
+export { formatStaticAnalysisContext, isToolRegistryEnabled } from './runner.js';
+
+// ─── Remote Code Query ─────────────────────────────────────────
+
+export type { RemoteQueryOptions } from './remote-query.js';
+export { fetchRemoteFile, searchRemoteCode } from './remote-query.js';

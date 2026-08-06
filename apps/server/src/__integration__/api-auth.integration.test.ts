@@ -21,6 +21,9 @@ const mockGetReposByInstallationId = vi.fn();
 const mockGetReviewStats = vi.fn();
 const mockGetReviewsByDay = vi.fn();
 const mockGetReviewsByRepoId = vi.fn();
+const mockCountReviewsByRepoId = vi.fn();
+const mockGetReviewsByInstallationIds = vi.fn();
+const mockCountReviewsByInstallationIds = vi.fn();
 const mockGetInstallationsByUserId = vi.fn();
 const mockGetInstallationsByAccountLogin = vi.fn();
 const mockUpsertUserMapping = vi.fn();
@@ -44,6 +47,9 @@ vi.mock('ghagga-db', () => ({
   getReviewStats: (...args: unknown[]) => mockGetReviewStats(...args),
   getReviewsByDay: (...args: unknown[]) => mockGetReviewsByDay(...args),
   getReviewsByRepoId: (...args: unknown[]) => mockGetReviewsByRepoId(...args),
+  countReviewsByRepoId: (...args: unknown[]) => mockCountReviewsByRepoId(...args),
+  getReviewsByInstallationIds: (...args: unknown[]) => mockGetReviewsByInstallationIds(...args),
+  countReviewsByInstallationIds: (...args: unknown[]) => mockCountReviewsByInstallationIds(...args),
   getInstallationsByUserId: (...args: unknown[]) => mockGetInstallationsByUserId(...args),
   getInstallationsByAccountLogin: (...args: unknown[]) =>
     mockGetInstallationsByAccountLogin(...args),
@@ -94,17 +100,7 @@ vi.mock('../lib/provider-models.js', () => ({
 
 // Mock runner functions
 vi.mock('../github/runner.js', () => ({
-  discoverRunnerRepo: vi.fn(),
-  createRunnerRepo: vi.fn(),
-  setRunnerSecret: vi.fn(),
-  RunnerCreationError: class extends Error {
-    constructor(
-      public code: string,
-      message: string,
-    ) {
-      super(message);
-    }
-  },
+  injectWorkflow: vi.fn().mockResolvedValue({ sha: 'mock-sha', created: false }),
 }));
 
 // ─── Test Data ──────────────────────────────────────────────────
@@ -164,7 +160,7 @@ function buildApp() {
 function apiRequest(path: string, token?: string, init?: RequestInit): Request {
   const headers: Record<string, string> = {};
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    headers.Authorization = `Bearer ${token}`;
   }
   return new Request(`http://localhost${path}`, {
     ...init,
@@ -184,7 +180,7 @@ beforeEach(() => {
 
     // Mock GitHub /user API for auth middleware
     if (url === 'https://api.github.com/user') {
-      const authHeader = (_init?.headers as Record<string, string>)?.['Authorization'] ?? '';
+      const authHeader = (_init?.headers as Record<string, string>)?.Authorization ?? '';
       const token = authHeader.replace('Bearer ', '');
 
       if (token === VALID_TOKEN) {
@@ -303,5 +299,89 @@ describe('integration: API endpoints with auth', () => {
     const json = await res.json();
     expect(json.error).toBe('FORBIDDEN');
     expect(json.message).toBe('Forbidden');
+  });
+
+  // S2.6: Authenticated request to /api/reviews (per-repo) returns mapped reviews
+  it('S2.6: authenticated GET /api/reviews returns reviews for an owned repo', async () => {
+    mockGetRepoByFullName.mockResolvedValue(FAKE_REPO);
+    mockGetReviewsByRepoId.mockResolvedValue([
+      {
+        id: 7,
+        prNumber: 42,
+        status: 'PASSED',
+        mode: 'simple',
+        summary: 'Looks good',
+        findings: [],
+        metadata: { coverageComplete: true },
+        createdAt: new Date('2026-03-07T00:00:00.000Z'),
+      },
+    ]);
+    mockCountReviewsByRepoId.mockResolvedValue(1);
+
+    const app = buildApp();
+    const res = await app.request(apiRequest('/api/reviews?repo=testuser/myapp', VALID_TOKEN));
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toHaveLength(1);
+    // `repo` is composed from the validated repo row, not stored on the review.
+    expect(json.data[0].repo).toBe('testuser/myapp');
+    expect(json.data[0].status).toBe('PASSED');
+    expect(json.data[0].coverageComplete).toBe(true);
+    expect(json.pagination.total).toBe(1);
+    // Reviews are scoped to the repo id the user's installation owns.
+    expect(mockGetReviewsByRepoId).toHaveBeenCalledWith(mockDb, FAKE_REPO.id, {
+      limit: 50,
+      offset: 0,
+    });
+  });
+
+  // S2.7: Authenticated user requesting reviews for a repo from a different installation
+  it('S2.7: user accessing reviews for a repo from a different installation returns 403', async () => {
+    // User has installation 100, but the repo belongs to installation 999.
+    mockGetRepoByFullName.mockResolvedValue({ ...FAKE_REPO, installationId: 999 });
+
+    const app = buildApp();
+    const res = await app.request(
+      apiRequest('/api/reviews?repo=otherorg/secret-repo', VALID_TOKEN),
+    );
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toBe('FORBIDDEN');
+    // The forbidden check runs BEFORE any review query.
+    expect(mockGetReviewsByRepoId).not.toHaveBeenCalled();
+  });
+
+  // S2.8: Authenticated /api/reviews with no repo → "all repositories", scoped to installations
+  it('S2.8: authenticated GET /api/reviews (all repos) is scoped to caller installations', async () => {
+    mockGetReviewsByInstallationIds.mockResolvedValue([
+      {
+        id: 9,
+        prNumber: 7,
+        status: 'FAILED',
+        mode: 'consensus',
+        summary: 'Found issues',
+        findings: [],
+        metadata: { coverageComplete: false },
+        createdAt: new Date('2026-03-08T00:00:00.000Z'),
+        fullName: 'testuser/myapp',
+      },
+    ]);
+    mockCountReviewsByInstallationIds.mockResolvedValue(1);
+
+    const app = buildApp();
+    const res = await app.request(apiRequest('/api/reviews', VALID_TOKEN));
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toHaveLength(1);
+    expect(json.data[0].repo).toBe('testuser/myapp');
+    expect(json.data[0].coverageComplete).toBe(false);
+    // Tenant isolation: queried strictly by the caller's installation IDs.
+    expect(mockGetReviewsByInstallationIds).toHaveBeenCalledWith(mockDb, [INSTALLATION.id], {
+      limit: 50,
+      offset: 0,
+    });
   });
 });

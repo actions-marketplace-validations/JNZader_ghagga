@@ -12,8 +12,7 @@
  *   - If thresholds not met → NEEDS_HUMAN_REVIEW
  */
 
-import { generateText } from 'ai';
-import { createModel } from '../providers/index.js';
+import type { GenerateTextFn } from '../providers/generate-fn.js';
 import type {
   ConsensusStance,
   ConsensusVote,
@@ -23,14 +22,22 @@ import type {
   ReviewResult,
   ReviewStatus,
 } from '../types.js';
+import { runWithConcurrency } from '../utils/concurrency.js';
+import { calculateRateSchedule } from '../utils/token-budget.js';
 import {
   buildMemoryContext,
   buildReviewLevelInstruction,
+  COMPACT_CALIBRATION,
   CONSENSUS_AGAINST_SYSTEM,
   CONSENSUS_FOR_SYSTEM,
   CONSENSUS_NEUTRAL_SYSTEM,
   REVIEW_CALIBRATION,
+  STATIC_ANALYSIS_UNTRUSTED_LABEL,
+  UNTRUSTED_CONTENT_POLICY,
+  wrapUntrusted,
+  wrapUntrustedDiff,
 } from './prompts.js';
+import { getDeadVoiceReason } from './voice-validation.js';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -49,6 +56,27 @@ export interface ConsensusReviewInput {
   stackHints: string;
   reviewLevel: ReviewLevel;
   onProgress?: ProgressCallback;
+
+  /**
+   * Max concurrent votes (default: 1 — sequential for TPM safety).
+   * Set to 3 for full parallel (original behavior).
+   */
+  concurrency?: number;
+
+  /**
+   * Delay in ms between concurrency batches (default: 0).
+   */
+  delayMs?: number;
+
+  /**
+   * Backend-agnostic generation functions for votes (round-robin).
+   * When provided, each stance uses generateFns[index % generateFns.length].
+   * When omitted, functions are created from models config (backward compat).
+   */
+  generateFns?: GenerateTextFn[];
+
+  /** Optional SOLID/boundary checklist context for structured review. */
+  checklistContext?: string;
 }
 
 // ─── Constants ──────────────────────────────────────────────────
@@ -191,48 +219,85 @@ export async function runConsensusReview(input: ConsensusReviewInput): Promise<R
   const { diff, models, staticContext, memoryContext, stackHints, reviewLevel } = input;
   const emit = input.onProgress ?? (() => {});
 
+  // ── Resolve GenerateTextFn array ──────────────────────────
+  // generateFns must be provided by the pipeline (required).
+  if (!input.generateFns || input.generateFns.length === 0) {
+    throw new Error(
+      'runConsensusReview requires generateFns to be provided. ' +
+        'The pipeline must resolve the backend and pass GenerateTextFn instances.',
+    );
+  }
+  const resolvedGenerateFns: GenerateTextFn[] = input.generateFns;
+
+  // staticContext is attacker-influenceable tool/data output → fence as untrusted
+  // DATA. Only the first vote receives full context (others get compact calibration).
+  const fencedStaticContext = staticContext
+    ? wrapUntrusted(STATIC_ANALYSIS_UNTRUSTED_LABEL, staticContext)
+    : '';
+
+  // Auto-calculate scheduling from primary model's TPM.
+  // For CLI bridge/gateway (single generateFn), force concurrency=1.
+  const primaryModel = models[0]?.model ?? 'gpt-4o-mini';
+  const rateSchedule = calculateRateSchedule(primaryModel);
+  const concurrency =
+    resolvedGenerateFns.length === 1
+      ? Math.min(input.concurrency ?? rateSchedule.concurrency, 1)
+      : (input.concurrency ?? rateSchedule.concurrency);
+  const delayMs = input.delayMs ?? rateSchedule.delayMs;
+
   const startTime = Date.now();
 
-  // Build the user prompt (same for all models)
-  const userPrompt = `Review the following code changes:\n\n\`\`\`diff\n${diff}\n\`\`\``;
+  // Build the user prompt (same for all models, wrapped in untrusted-content delimiters)
+  const userPrompt = `Review the following code changes:\n\n${wrapUntrustedDiff(diff)}`;
 
   emit({
     step: 'consensus-start',
-    message: `Launching ${models.length} model votes in parallel`,
+    message: `Launching ${models.length} model votes (concurrency: ${concurrency}, delay: ${Math.round(delayMs / 1000)}s)`,
     detail: models.map((m) => `  → ${m.provider}/${m.model} (stance: ${m.stance})`).join('\n'),
   });
 
-  // ── Step 1: Run all model votes in parallel ────────────────
-  const votePromises = models.map(async (config) => {
-    const system = [
-      STANCE_PROMPTS[config.stance],
-      staticContext,
-      buildMemoryContext(memoryContext),
-      stackHints,
-      buildReviewLevelInstruction(reviewLevel),
-      REVIEW_CALIBRATION,
-    ]
-      .filter(Boolean)
-      .join('\n');
+  // ── Step 1: Run model votes with bounded concurrency ───────
+  //
+  // First vote gets full context; subsequent votes get compact calibration.
+  const voteTasks = models.map((config, index) => {
+    return async () => {
+      // Round-robin assignment of generateFn
+      const generateFn = resolvedGenerateFns[index % resolvedGenerateFns.length] as GenerateTextFn;
 
-    const languageModel = createModel(config.provider, config.model, config.apiKey);
+      const isFirst = index === 0;
+      const system = [
+        STANCE_PROMPTS[config.stance],
+        UNTRUSTED_CONTENT_POLICY,
+        isFirst ? fencedStaticContext : '',
+        isFirst ? buildMemoryContext(memoryContext) : '',
+        isFirst ? stackHints : '',
+        input.checklistContext ?? '',
+        buildReviewLevelInstruction(reviewLevel),
+        isFirst ? REVIEW_CALIBRATION : COMPACT_CALIBRATION,
+      ]
+        .filter(Boolean)
+        .join('\n');
 
-    const result = await generateText({
-      model: languageModel,
-      system,
-      prompt: userPrompt,
-      temperature: 0.3,
-    });
+      const result = await generateFn(system, userPrompt);
 
-    const tokensUsed = (result.usage?.inputTokens ?? 0) + (result.usage?.outputTokens ?? 0);
+      // A fulfilled call can still be a dead voice (e.g. gateway returned
+      // HTTP 200 whose text is a raw CLI error envelope). Route it into the
+      // existing rejected/failure path instead of counting it as a vote.
+      const deadReason = getDeadVoiceReason(result.text);
+      if (deadReason) {
+        throw new Error(
+          `${config.stance} vote (${result.provider}/${result.model}): ${deadReason}`,
+        );
+      }
 
-    return {
-      vote: parseVote(result.text, config.provider, config.model, config.stance),
-      tokensUsed,
+      return {
+        vote: parseVote(result.text, result.provider as LLMProvider, result.model, config.stance),
+        tokensUsed: result.tokensUsed,
+      };
     };
   });
 
-  const results = await Promise.allSettled(votePromises);
+  const results = await runWithConcurrency(voteTasks, { concurrency, delayMs });
 
   // ── Step 2: Collect votes and token usage ──────────────────
   const votes: ConsensusVote[] = [];
@@ -249,7 +314,7 @@ export async function runConsensusReview(input: ConsensusReviewInput): Promise<R
       const v = result.value.vote;
       emit({
         step: `vote-${config.stance}`,
-        message: `✓ ${config.stance} (${config.provider}/${config.model}) → ${v.decision} (${(v.confidence * 100).toFixed(0)}% confidence)`,
+        message: `✓ ${config.stance} (${v.provider}/${v.model}) → ${v.decision} (${(v.confidence * 100).toFixed(0)}% confidence)`,
         detail: v.reasoning,
       });
     } else {
@@ -269,17 +334,24 @@ export async function runConsensusReview(input: ConsensusReviewInput): Promise<R
 
   const executionTimeMs = Date.now() - startTime;
 
-  // Build detailed reasoning from all votes
+  // Build formatted vote details with visual distinction per stance
+  const STANCE_EMOJI: Record<string, string> = {
+    for: '🟢',
+    against: '🔴',
+    neutral: '🟡',
+  };
+
   const voteDetails = votes
-    .map(
-      (v) =>
-        `[${v.provider}/${v.model}] Stance: ${v.stance} | Decision: ${v.decision} | Confidence: ${v.confidence}\n${v.reasoning}`,
-    )
-    .join('\n\n---\n\n');
+    .map((v) => {
+      const emoji = STANCE_EMOJI[v.stance] ?? '⚪';
+      const decisionLabel = v.decision.charAt(0).toUpperCase() + v.decision.slice(1);
+      return `### ${emoji} ${v.stance.charAt(0).toUpperCase() + v.stance.slice(1)} — ${decisionLabel} (confidence: ${v.confidence})\n${v.reasoning}`;
+    })
+    .join('\n\n');
 
   return {
     status,
-    summary: `${summary}\n\n## Individual Votes\n\n${voteDetails}`,
+    summary: `${summary}\n### Individual Votes\n\n${voteDetails}`,
     findings: [], // Consensus mode produces votes, not individual findings
     staticAnalysis: {
       semgrep: { status: 'skipped', findings: [], executionTimeMs: 0 },
@@ -295,6 +367,7 @@ export async function runConsensusReview(input: ConsensusReviewInput): Promise<R
       executionTimeMs,
       toolsRun: [],
       toolsSkipped: [],
+      modelsUsed: models.map((m) => `${m.stance}:${m.provider}/${m.model}`),
     },
   };
 }

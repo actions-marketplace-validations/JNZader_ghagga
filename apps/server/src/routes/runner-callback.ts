@@ -1,8 +1,8 @@
 /**
  * Runner callback route.
  *
- * Receives static analysis results from the GitHub Actions runner
- * workflow. Authenticates via per-dispatch HMAC signatures
+ * Receives static-analysis results from the GitHub Actions runner workflow.
+ * Authenticates via per-dispatch HMAC signatures
  * (not the user session auth middleware).
  *
  * POST /runner/callback
@@ -21,12 +21,14 @@
 import type { StaticAnalysisResult } from 'ghagga-core';
 import { Hono } from 'hono';
 import { verifyCallbackSignature } from '../github/runner.js';
-import { inngest } from '../inngest/client.js';
 import { logger as rootLogger } from '../lib/logger.js';
+import { CALLBACK_RESULT_TTL, callbackResultKey, redis } from '../lib/redis.js';
 
 const logger = rootLogger.child({ module: 'runner-callback' });
 
-interface CallbackPayload {
+// ─── Payload Types ──────────────────────────────────────────────
+
+interface StaticAnalysisCallbackPayload {
   callbackId: string;
   repoFullName: string;
   prNumber: number;
@@ -42,9 +44,9 @@ export function createRunnerCallbackRouter() {
     const rawBody = await c.req.text();
 
     // Parse the body
-    let payload: CallbackPayload;
+    let payload: StaticAnalysisCallbackPayload;
     try {
-      payload = JSON.parse(rawBody) as CallbackPayload;
+      payload = JSON.parse(rawBody) as StaticAnalysisCallbackPayload;
     } catch {
       logger.warn('Runner callback: invalid JSON body');
       return c.json({ error: 'Invalid JSON body' }, 400);
@@ -52,12 +54,13 @@ export function createRunnerCallbackRouter() {
 
     // Validate required fields
     const { callbackId, repoFullName, prNumber, headSha, staticAnalysis } = payload;
+
     if (!callbackId || !repoFullName || !prNumber || !headSha || !staticAnalysis) {
       logger.warn({ callbackId }, 'Runner callback: missing required fields');
       return c.json({ error: 'Missing required fields' }, 400);
     }
 
-    // Verify HMAC signature using per-dispatch secret
+    // Verify HMAC signature
     const signature = c.req.header('x-ghagga-signature');
     if (!signature) {
       logger.warn({ callbackId }, 'Runner callback: missing x-ghagga-signature header');
@@ -70,21 +73,17 @@ export function createRunnerCallbackRouter() {
       return c.json({ error: 'Invalid signature' }, 401);
     }
 
-    // Send Inngest event to resume the waiting review function
-    await inngest.send({
-      name: 'ghagga/runner.completed',
-      data: {
-        callbackId,
-        repoFullName,
-        prNumber,
-        headSha,
-        staticAnalysis,
-      },
-    });
+    // Write static analysis results to Redis for the BullMQ worker to pick up
+    await redis.set(
+      callbackResultKey(callbackId),
+      JSON.stringify(staticAnalysis),
+      'EX',
+      CALLBACK_RESULT_TTL,
+    );
 
     logger.info(
-      { callbackId, repoFullName, prNumber },
-      'Runner callback accepted — dispatched Inngest event',
+      { callbackId, repoFullName, prNumber, staticAnalysisTools: Object.keys(staticAnalysis) },
+      'Runner callback accepted — static analysis results stored in Redis',
     );
 
     return c.json({ ok: true });

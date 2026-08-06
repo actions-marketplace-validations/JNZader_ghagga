@@ -2,8 +2,8 @@
  * Integration: Webhook -> Review Dispatch
  *
  * Tests the full HTTP flow from GitHub webhook receipt through
- * signature verification, event routing, DB lookups, and Inngest
- * event dispatch. All external services are mocked; the integration
+ * signature verification, event routing, DB lookups, and BullMQ
+ * review queue dispatch. All external services are mocked; the integration
  * boundary being tested is the wiring between these components.
  *
  * Addresses audit item #13: no tests validating webhook -> review dispatch flow.
@@ -34,9 +34,9 @@ vi.mock('ghagga-db', () => ({
     mockDeleteMappingsByInstallationId(...args),
 }));
 
-const mockInngestSend = vi.fn();
-vi.mock('../inngest/client.js', () => ({
-  inngest: { send: (...args: unknown[]) => mockInngestSend(...args) },
+const mockEnqueueReview = vi.fn();
+vi.mock('../queues/review.js', () => ({
+  enqueueReview: (...args: unknown[]) => mockEnqueueReview(...args),
 }));
 
 const mockAddCommentReaction = vi.fn();
@@ -61,7 +61,7 @@ const TRACKED_REPO = {
   githubRepoId: 12345,
   installationId: 1,
   fullName: 'acme/webapp',
-  llmProvider: 'anthropic',
+  llmProvider: 'gateway',
   llmModel: 'claude-sonnet-4-20250514',
   reviewMode: 'simple',
   encryptedApiKey: 'encrypted-key-abc',
@@ -79,7 +79,7 @@ const TRACKED_REPO = {
 const EFFECTIVE_SETTINGS = {
   providerChain: [
     {
-      provider: 'anthropic',
+      provider: 'gateway',
       model: 'claude-sonnet-4-20250514',
       encryptedApiKey: 'encrypted-key-abc',
     },
@@ -144,7 +144,7 @@ beforeEach(() => {
   // Default mock returns
   mockGetRepoByGithubId.mockResolvedValue(TRACKED_REPO);
   mockGetEffectiveRepoSettings.mockResolvedValue(EFFECTIVE_SETTINGS);
-  mockInngestSend.mockResolvedValue(undefined);
+  mockEnqueueReview.mockResolvedValue(undefined);
   mockUpsertInstallation.mockResolvedValue({ id: 1 });
   mockUpsertRepository.mockResolvedValue({ id: 1 });
   mockGetInstallationToken.mockResolvedValue('ghs-fake-token');
@@ -166,7 +166,7 @@ afterEach(() => {
 
 describe('integration: webhook -> review dispatch', () => {
   // S1.1: Valid PR webhook triggers full dispatch flow
-  it('S1.1: valid PR webhook triggers Inngest dispatch with correct data shape', async () => {
+  it('S1.1: valid PR webhook triggers BullMQ enqueueReview with correct data shape', async () => {
     const payload = {
       action: 'opened',
       number: 99,
@@ -174,6 +174,7 @@ describe('integration: webhook -> review dispatch', () => {
         number: 99,
         head: { sha: 'deadbeef' },
         base: { ref: 'main' },
+        user: { login: 'pr-author' },
       },
       repository: { id: 12345, full_name: 'acme/webapp' },
       installation: { id: 777 },
@@ -194,13 +195,11 @@ describe('integration: webhook -> review dispatch', () => {
     // Verify the complete dispatch chain was called
     expect(mockGetRepoByGithubId).toHaveBeenCalledOnce();
     expect(mockGetEffectiveRepoSettings).toHaveBeenCalledOnce();
-    expect(mockInngestSend).toHaveBeenCalledOnce();
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
 
-    // Verify Inngest event data shape
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
-    const event = mockInngestSend.mock.calls[0]![0];
-    expect(event.name).toBe('ghagga/review.requested');
-    expect(event.data).toMatchObject({
+    // Verify enqueueReview job data shape
+    const jobData = mockEnqueueReview.mock.calls[0]![0];
+    expect(jobData).toMatchObject({
       installationId: 777,
       repoFullName: 'acme/webapp',
       prNumber: 99,
@@ -216,8 +215,10 @@ describe('integration: webhook -> review dispatch', () => {
         enableMemory: true,
       },
     });
-    expect(event.data.providerChain).toBeDefined();
-    expect(event.data.providerChain.length).toBeGreaterThan(0);
+    // SECURITY: encrypted credentials must NOT be enqueued — the worker
+    // re-fetches them from the DB by repositoryId at processing time.
+    expect(jobData.providerChain).toBeUndefined();
+    expect(jobData.encryptedApiKey).toBeUndefined();
   });
 
   // S1.2: Invalid signature rejects and does NOT dispatch
@@ -237,7 +238,7 @@ describe('integration: webhook -> review dispatch', () => {
 
     expect(res.status).toBe(401);
     expect(mockGetRepoByGithubId).not.toHaveBeenCalled();
-    expect(mockInngestSend).not.toHaveBeenCalled();
+    expect(mockEnqueueReview).not.toHaveBeenCalled();
   });
 
   // S1.3: Non-PR events are acknowledged but not dispatched
@@ -250,7 +251,7 @@ describe('integration: webhook -> review dispatch', () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.message).toContain('ignored');
-      expect(mockInngestSend).not.toHaveBeenCalled();
+      expect(mockEnqueueReview).not.toHaveBeenCalled();
     }
   });
 
@@ -260,7 +261,7 @@ describe('integration: webhook -> review dispatch', () => {
       action: 'created',
       comment: {
         id: 555,
-        body: 'Please ghagga review this PR',
+        body: 'ghagga review',
         user: { login: 'dev-user', type: 'User' },
         author_association: 'CONTRIBUTOR',
       },
@@ -291,14 +292,13 @@ describe('integration: webhook -> review dispatch', () => {
     );
     expect(mockFetchPRDetails).toHaveBeenCalledWith('acme', 'webapp', 42, 'ghs-fake-token');
 
-    // Verify Inngest event includes comment metadata
-    expect(mockInngestSend).toHaveBeenCalledOnce();
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
-    const event = mockInngestSend.mock.calls[0]![0];
-    expect(event.data.triggerCommentId).toBe(555);
-    expect(event.data.headSha).toBe('abc123def');
-    expect(event.data.baseBranch).toBe('main');
-    expect(event.data.prNumber).toBe(42);
+    // Verify enqueueReview job includes comment metadata
+    expect(mockEnqueueReview).toHaveBeenCalledOnce();
+    const jobData = mockEnqueueReview.mock.calls[0]![0];
+    expect(jobData.triggerCommentId).toBe(555);
+    expect(jobData.headSha).toBe('abc123def');
+    expect(jobData.baseBranch).toBe('main');
+    expect(jobData.prNumber).toBe(42);
   });
 
   // S1.5: Unauthorized comment association does NOT dispatch
@@ -325,6 +325,6 @@ describe('integration: webhook -> review dispatch', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.message).toContain('Insufficient permissions');
-    expect(mockInngestSend).not.toHaveBeenCalled();
+    expect(mockEnqueueReview).not.toHaveBeenCalled();
   });
 });

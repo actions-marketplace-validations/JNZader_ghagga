@@ -1,0 +1,47 @@
+# =============================================================================
+# LEGACY: Railway Deployment Configuration for GHAGGA Server
+# =============================================================================
+# NOTE: GHAGGA has migrated to self-hosted deployment via Coolify on Hetzner.
+# This file is kept for reference only. The recommended deployment method is
+# documented in docs/deployment.md.
+#
+# If you still want to deploy on Railway, you will also need a Redis add-on
+# or external Redis instance for BullMQ job processing.
+# =============================================================================
+# Docs: https://docs.railway.app/deploy/config-as-code
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "apps/server/Dockerfile"
+
+[deploy]
+startCommand = ""
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+# Resource allocation (adjust based on your plan)
+[numReplicas]
+min = 1
+max = 1
+
+[resources]
+cpu = 1
+memory = "1Gi"
+
+# Environment variables (set these in Railway Dashboard or via CLI)
+# Required:
+#   DATABASE_URL
+#   REDIS_URL
+#   GITHUB_APP_ID
+#   GITHUB_PRIVATE_KEY
+#   GITHUB_WEBHOOK_SECRET
+#   ENCRYPTION_KEY
+#   STATE_SECRET
+#   GITHUB_CLIENT_SECRET
+# Optional:
+#   WORKER_CONCURRENCY (default: 3)
+#   CALLBACK_TTL_MINUTES
+#   PORT (Railway sets this automatically)
+#   NODE_ENV

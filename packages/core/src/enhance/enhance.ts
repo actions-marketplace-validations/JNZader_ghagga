@@ -5,15 +5,9 @@
  * Failures are non-blocking — returns empty result on any error.
  */
 
-import { generateText } from 'ai';
-import { createModel } from '../providers/index.js';
-import type { LLMProvider, ReviewFinding } from '../types.js';
-import {
-  buildEnhancePrompt,
-  ENHANCE_SYSTEM_PROMPT,
-  serializeFindings,
-  truncateByTokenBudget,
-} from './prompt.js';
+import { createOllamaGenerateFn } from '../providers/ollama.js';
+import type { ReviewFinding } from '../types.js';
+import { buildEnhancePrompt, ENHANCE_SYSTEM_PROMPT, truncateByTokenBudget } from './prompt.js';
 import type { EnhanceInput, EnhanceMetadata, EnhanceResult } from './types.js';
 
 /** A ReviewFinding augmented with AI enhance metadata. */
@@ -62,14 +56,9 @@ export async function enhanceFindings(
     const truncated = truncateByTokenBudget(input.findings, DEFAULT_TOKEN_BUDGET);
     const prompt = buildEnhancePrompt(truncated);
 
-    // Call LLM
-    const model = createModel(input.provider as LLMProvider, input.model, input.apiKey);
-    const response = await generateText({
-      model,
-      system: ENHANCE_SYSTEM_PROMPT,
-      prompt,
-      maxOutputTokens: 2000,
-    });
+    // Use injected generateFn if provided, otherwise fall back to Ollama
+    const generateFn = input.generateFn ?? createOllamaGenerateFn(input.model);
+    const response = await generateFn(ENHANCE_SYSTEM_PROMPT, prompt);
 
     // Parse response
     const parsed = parseEnhanceResponse(response.text);
@@ -77,10 +66,10 @@ export async function enhanceFindings(
     return {
       result: parsed,
       metadata: {
-        model: input.model,
+        model: response.model,
         tokenUsage: {
-          input: response.usage?.inputTokens ?? 0,
-          output: response.usage?.outputTokens ?? 0,
+          input: response.tokensUsed,
+          output: 0,
         },
         groupCount: parsed.groups.length,
         filteredCount: parsed.filtered.length,

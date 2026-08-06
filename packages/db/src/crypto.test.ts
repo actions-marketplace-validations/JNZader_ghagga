@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { createCipheriv, randomBytes } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { decrypt, encrypt } from './crypto.js';
 
@@ -56,7 +56,6 @@ describe('crypto', () => {
     const encrypted = encrypt('secret');
     const buf = Buffer.from(encrypted, 'base64');
     // Flip a byte in the ciphertext portion
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known data
     buf[15] = buf[15]! ^ 0xff;
     const tampered = buf.toString('base64');
 
@@ -87,5 +86,61 @@ describe('crypto', () => {
   it('should throw when ENCRYPTION_KEY has non-hex chars', () => {
     process.env.ENCRYPTION_KEY = 'g'.repeat(64);
     expect(() => encrypt('test')).toThrow('ENCRYPTION_KEY must be exactly 64 hex characters');
+  });
+
+  // ── v2 component length enforcement (Sprint 2) ──
+  //
+  // Node's GCM implementation accepts truncated auth tags (e.g. 4 bytes),
+  // which drops forgery resistance from 2^128 to 2^32 for an attacker with
+  // DB write access. decrypt() must reject any IV/tag of the wrong length.
+
+  it('rejects a v2 payload with a truncated auth tag', () => {
+    const encrypted = encrypt('secret');
+    const [iv, cipher, authTag] = encrypted.slice('v2:'.length).split(':') as [
+      string,
+      string,
+      string,
+    ];
+
+    // Truncate the 16-byte tag to 4 bytes
+    const truncatedTag = Buffer.from(authTag, 'base64').subarray(0, 4).toString('base64');
+    const forged = `v2:${iv}:${cipher}:${truncatedTag}`;
+
+    expect(() => decrypt(forged)).toThrow('auth tag must be exactly 16 bytes');
+  });
+
+  it('rejects a v2 payload with a wrong-length IV', () => {
+    const encrypted = encrypt('secret');
+    const [, cipher, authTag] = encrypted.slice('v2:'.length).split(':') as [
+      string,
+      string,
+      string,
+    ];
+
+    for (const badIvBytes of [8, 16, 1]) {
+      const badIv = randomBytes(badIvBytes).toString('base64');
+      const forged = `v2:${badIv}:${cipher}:${authTag}`;
+      expect(() => decrypt(forged), `IV of ${badIvBytes} bytes must be rejected`).toThrow(
+        'IV must be exactly 12 bytes',
+      );
+    }
+  });
+
+  it('rejects a v2 payload with an empty auth tag', () => {
+    const encrypted = encrypt('secret');
+    const [iv, cipher] = encrypted.slice('v2:'.length).split(':') as [string, string, string];
+    expect(() => decrypt(`v2:${iv}:${cipher}:`)).toThrow('auth tag must be exactly 16 bytes');
+  });
+
+  it('still decrypts legacy v1 format (packed iv+cipher+tag)', () => {
+    // Build a v1 blob manually: base64(iv[12] + ciphertext + authTag[16])
+    const key = Buffer.from(TEST_KEY, 'hex');
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const ciphertext = Buffer.concat([cipher.update('legacy-secret', 'utf8'), cipher.final()]);
+    const authTag = cipher.getAuthTag();
+    const v1 = Buffer.concat([iv, ciphertext, authTag]).toString('base64');
+
+    expect(decrypt(v1)).toBe('legacy-secret');
   });
 });

@@ -1,75 +1,72 @@
 /**
- * Consensus review integration tests — reviewLevel + calibration injection.
+ * Consensus review tests — reviewLevel + calibration injection.
  *
- * Mirrors the pattern in workflow.test.ts: mock `ai` and `../providers`,
- * then verify that runConsensusReview assembles stance system prompts
- * containing the review-level instruction and REVIEW_CALIBRATION block.
+ * Tests use mock generateFns to verify that runConsensusReview assembles
+ * stance system prompts containing the review-level instruction and
+ * REVIEW_CALIBRATION block, without depending on deleted AI SDK providers.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
-vi.mock('ai', () => ({
-  generateText: vi.fn(),
-}));
-
-vi.mock('../providers/index.js', () => ({
-  createModel: vi.fn(() => 'mock-language-model'),
-}));
-
 vi.mock('./prompts.js', () => ({
   CONSENSUS_FOR_SYSTEM: 'CONSENSUS_FOR_SYSTEM',
   CONSENSUS_AGAINST_SYSTEM: 'CONSENSUS_AGAINST_SYSTEM',
   CONSENSUS_NEUTRAL_SYSTEM: 'CONSENSUS_NEUTRAL_SYSTEM',
   REVIEW_CALIBRATION: 'REVIEW_CALIBRATION_BLOCK',
+  COMPACT_CALIBRATION: 'COMPACT_CALIBRATION_BLOCK',
+  UNTRUSTED_CONTENT_POLICY: 'UNTRUSTED_CONTENT_POLICY_BLOCK',
   buildMemoryContext: vi.fn((ctx: string | null) => (ctx ? `MEMORY:${ctx}` : '')),
   buildReviewLevelInstruction: vi.fn((level: string) => `REVIEW_LEVEL:${level}`),
+  wrapUntrustedDiff: vi.fn(
+    (diff: string) => `<USER_DIFF>\n\`\`\`diff\n${diff}\n\`\`\`\n</USER_DIFF>`,
+  ),
 }));
 
-import { generateText } from 'ai';
+import type { GenerateTextFn } from '../providers/generate-fn.js';
 import type { ConsensusReviewInput } from './consensus.js';
 import { runConsensusReview } from './consensus.js';
 
 // ─── Helpers ────────────────────────────────────────────────────
 
-const mockGenerateText = vi.mocked(generateText);
+function makeVoteText(decision = 'approve') {
+  return `DECISION: ${decision}\nCONFIDENCE: 0.8\nREASONING: Looks good.`;
+}
+
+/** Create a mock generateFn that tracks (system, prompt) calls */
+function makeMockGenerateFn(
+  providerName = 'gateway',
+  modelName = 'auto',
+): { fn: GenerateTextFn; calls: Array<{ system: string; prompt: string }> } {
+  const calls: Array<{ system: string; prompt: string }> = [];
+  const fn: GenerateTextFn = vi.fn(async (system: string, prompt: string) => {
+    calls.push({ system, prompt });
+    return {
+      text: makeVoteText(),
+      tokensUsed: 150,
+      provider: providerName,
+      model: modelName,
+    };
+  });
+  return { fn, calls };
+}
 
 function makeInput(overrides: Partial<ConsensusReviewInput> = {}): ConsensusReviewInput {
+  const { fn } = makeMockGenerateFn();
   return {
     diff: '--- a/file.ts\n+++ b/file.ts\n@@ -1,3 +1,3 @@\n-old\n+new',
     models: [
-      {
-        provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
-        apiKey: 'sk-test',
-        stance: 'for',
-      },
-      {
-        provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
-        apiKey: 'sk-test',
-        stance: 'against',
-      },
-      {
-        provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
-        apiKey: 'sk-test',
-        stance: 'neutral',
-      },
+      { provider: 'gateway', model: 'auto', apiKey: 'token', stance: 'for' },
+      { provider: 'gateway', model: 'auto', apiKey: 'token', stance: 'against' },
+      { provider: 'gateway', model: 'auto', apiKey: 'token', stance: 'neutral' },
     ],
     staticContext: '',
     memoryContext: null,
     stackHints: '',
     reviewLevel: 'normal',
+    generateFns: [fn],
     ...overrides,
-  };
-}
-
-function makeVoteResponse(decision = 'approve', confidence = '0.8') {
-  return {
-    text: `DECISION: ${decision}\nCONFIDENCE: ${confidence}\nREASONING: Looks good.`,
-    usage: { inputTokens: 100, outputTokens: 50 },
   };
 }
 
@@ -78,50 +75,184 @@ function makeVoteResponse(decision = 'approve', confidence = '0.8') {
 describe('runConsensusReview reviewLevel injection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // biome-ignore lint/suspicious/noExplicitAny: mock cast
-    mockGenerateText.mockResolvedValue(makeVoteResponse() as any);
+  });
+
+  it('throws when generateFns is not provided', async () => {
+    const input = makeInput({ generateFns: undefined });
+    await expect(runConsensusReview(input)).rejects.toThrow('requires generateFns');
+  });
+
+  it('throws when generateFns is empty', async () => {
+    const input = makeInput({ generateFns: [] });
+    await expect(runConsensusReview(input)).rejects.toThrow('requires generateFns');
   });
 
   it('includes soft review-level instruction in all 3 stance prompts', async () => {
-    await runConsensusReview(makeInput({ reviewLevel: 'soft' }));
+    const { fn, calls } = makeMockGenerateFn();
+    await runConsensusReview(makeInput({ reviewLevel: 'soft', generateFns: [fn] }));
 
-    expect(mockGenerateText).toHaveBeenCalledTimes(3);
-    for (let i = 0; i < 3; i++) {
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      const call = mockGenerateText.mock.calls[i]?.[0] as any;
+    expect(calls).toHaveLength(3);
+    for (const call of calls) {
       expect(call.system).toContain('REVIEW_LEVEL:soft');
     }
   });
 
   it('includes normal review-level instruction in all 3 stance prompts', async () => {
-    await runConsensusReview(makeInput({ reviewLevel: 'normal' }));
+    const { fn, calls } = makeMockGenerateFn();
+    await runConsensusReview(makeInput({ reviewLevel: 'normal', generateFns: [fn] }));
 
-    expect(mockGenerateText).toHaveBeenCalledTimes(3);
-    for (let i = 0; i < 3; i++) {
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      const call = mockGenerateText.mock.calls[i]?.[0] as any;
+    expect(calls).toHaveLength(3);
+    for (const call of calls) {
       expect(call.system).toContain('REVIEW_LEVEL:normal');
     }
   });
 
   it('includes strict review-level instruction in all 3 stance prompts', async () => {
-    await runConsensusReview(makeInput({ reviewLevel: 'strict' }));
+    const { fn, calls } = makeMockGenerateFn();
+    await runConsensusReview(makeInput({ reviewLevel: 'strict', generateFns: [fn] }));
 
-    expect(mockGenerateText).toHaveBeenCalledTimes(3);
-    for (let i = 0; i < 3; i++) {
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      const call = mockGenerateText.mock.calls[i]?.[0] as any;
+    expect(calls).toHaveLength(3);
+    for (const call of calls) {
       expect(call.system).toContain('REVIEW_LEVEL:strict');
     }
   });
 
-  it('includes REVIEW_CALIBRATION in all 3 stance prompts', async () => {
-    await runConsensusReview(makeInput());
+  it('includes full REVIEW_CALIBRATION for the first vote, compact for the rest', async () => {
+    const { fn, calls } = makeMockGenerateFn();
+    await runConsensusReview(makeInput({ generateFns: [fn] }));
 
-    for (let i = 0; i < 3; i++) {
-      // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      const call = mockGenerateText.mock.calls[i]?.[0] as any;
-      expect(call.system).toContain('REVIEW_CALIBRATION_BLOCK');
+    // First vote gets full calibration
+    expect(calls[0]?.system).toContain('REVIEW_CALIBRATION_BLOCK');
+
+    // Subsequent votes get compact calibration
+    for (let i = 1; i < 3; i++) {
+      expect(calls[i]?.system).toContain('COMPACT_CALIBRATION_BLOCK');
+      expect(calls[i]?.system).not.toContain('REVIEW_CALIBRATION_BLOCK');
     }
+  });
+});
+
+// ─── Multi-provider distribution via generateFns array ───────────────────────
+
+describe('runConsensusReview — multi-provider distribution via generateFns array', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('uses distinct generateFns for each stance when 3 fns are provided', async () => {
+    const fn0 = vi.fn().mockResolvedValue({
+      text: makeVoteText(),
+      tokensUsed: 100,
+      provider: 'gateway',
+      model: 'p0',
+    });
+    const fn1 = vi.fn().mockResolvedValue({
+      text: makeVoteText(),
+      tokensUsed: 100,
+      provider: 'gateway',
+      model: 'p1',
+    });
+    const fn2 = vi.fn().mockResolvedValue({
+      text: makeVoteText(),
+      tokensUsed: 100,
+      provider: 'gateway',
+      model: 'p2',
+    });
+
+    await runConsensusReview(makeInput({ generateFns: [fn0, fn1, fn2] }));
+
+    // Each stance gets a different generateFn (round-robin)
+    expect(fn0).toHaveBeenCalledTimes(1); // for-vote (index 0)
+    expect(fn1).toHaveBeenCalledTimes(1); // against-vote (index 1)
+    expect(fn2).toHaveBeenCalledTimes(1); // neutral-vote (index 2)
+  });
+
+  it('wraps back to fn0 for neutral when only 2 fns provided', async () => {
+    const fn0 = vi.fn().mockResolvedValue({
+      text: makeVoteText(),
+      tokensUsed: 100,
+      provider: 'gateway',
+      model: 'p0',
+    });
+    const fn1 = vi.fn().mockResolvedValue({
+      text: makeVoteText(),
+      tokensUsed: 100,
+      provider: 'gateway',
+      model: 'p1',
+    });
+
+    await runConsensusReview(makeInput({ generateFns: [fn0, fn1] }));
+
+    // 3 votes, 2 fns: vote 0 → fn0, vote 1 → fn1, vote 2 → fn0 (wraps)
+    expect(fn0).toHaveBeenCalledTimes(2); // for + neutral
+    expect(fn1).toHaveBeenCalledTimes(1); // against
+  });
+
+  it('all 3 votes use same fn when only 1 fn is provided', async () => {
+    const fn0 = vi.fn().mockResolvedValue({
+      text: makeVoteText(),
+      tokensUsed: 100,
+      provider: 'gateway',
+      model: 'p0',
+    });
+
+    await runConsensusReview(makeInput({ generateFns: [fn0] }));
+
+    expect(fn0).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ─── Dead voices (fulfilled with garbage) ───────────────────────
+
+describe('runConsensusReview — dead voice validation', () => {
+  it('treats a vote that fulfills with a CLI error envelope as failed', async () => {
+    const errorEnvelope = JSON.stringify({
+      type: 'result',
+      subtype: 'error_max_turns',
+      is_error: true,
+    });
+    const onProgress = vi.fn();
+    let callCount = 0;
+    const fn: GenerateTextFn = vi.fn(async () => {
+      callCount++;
+      if (callCount === 2) {
+        return { text: errorEnvelope, tokensUsed: 999, provider: 'gateway', model: 'auto' };
+      }
+      return { text: makeVoteText(), tokensUsed: 150, provider: 'gateway', model: 'auto' };
+    });
+
+    const result = await runConsensusReview(makeInput({ onProgress, generateFns: [fn] }));
+
+    // Dead voice emitted as ✗ FAILED, not counted as a vote
+    const failedCalls = onProgress.mock.calls.filter(
+      // biome-ignore lint/suspicious/noExplicitAny: mock callback type
+      ([event]: [any]) => event.step.startsWith('vote-') && event.message.includes('✗'),
+    );
+    expect(failedCalls).toHaveLength(1);
+    expect(failedCalls[0]?.[0].message).toContain('error envelope');
+
+    // Tokens from the dead voice are not counted: 2 healthy votes * 150
+    expect(result.metadata.tokensUsed).toBe(300);
+  });
+
+  it('treats a vote that fulfills with empty text as failed', async () => {
+    const onProgress = vi.fn();
+    let callCount = 0;
+    const fn: GenerateTextFn = vi.fn(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return { text: '   ', tokensUsed: 150, provider: 'gateway', model: 'auto' };
+      }
+      return { text: makeVoteText(), tokensUsed: 150, provider: 'gateway', model: 'auto' };
+    });
+
+    const result = await runConsensusReview(makeInput({ onProgress, generateFns: [fn] }));
+
+    const failedCalls = onProgress.mock.calls.filter(
+      // biome-ignore lint/suspicious/noExplicitAny: mock callback type
+      ([event]: [any]) => event.step.startsWith('vote-') && event.message.includes('✗'),
+    );
+    expect(failedCalls).toHaveLength(1);
+    expect(result.metadata.tokensUsed).toBe(300);
   });
 });

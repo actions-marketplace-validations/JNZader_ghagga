@@ -97,7 +97,7 @@ describe('runLocalAnalysis with registry-driven orchestrator', () => {
   });
 
   it('uses registry-driven path when feature flag is enabled', async () => {
-    const result = await runLocalAnalysis({
+    await runLocalAnalysis({
       enableSemgrep: true,
       enableTrivy: true,
       enableCpd: true,
@@ -167,11 +167,11 @@ describe('runLocalAnalysis with registry-driven orchestrator', () => {
 
     // ruff should be force-enabled
     expect(result).toHaveProperty('ruff');
-    const ruffResult = result['ruff'] as ToolResult;
+    const ruffResult = result.ruff as ToolResult;
     expect(ruffResult).toBeDefined();
 
     // gitleaks should be disabled (skipped via legacy key guarantee)
-    const gitleaksResult = result['gitleaks'] as ToolResult | undefined;
+    const _gitleaksResult = result.gitleaks as ToolResult | undefined;
     // gitleaks shouldn't have run as a tool
     // It may be absent or skipped — depends on legacy key handling
   });
@@ -214,7 +214,7 @@ describe('runLocalAnalysis with registry-driven orchestrator', () => {
       repoDir: '/workspace',
     });
 
-    for (const [name, toolResult] of Object.entries(result)) {
+    for (const [_name, toolResult] of Object.entries(result)) {
       expect(toolResult).toHaveProperty('status');
       expect(['success', 'skipped', 'error', 'timeout']).toContain(
         (toolResult as ToolResult).status,

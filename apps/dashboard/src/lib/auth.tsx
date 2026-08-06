@@ -1,6 +1,7 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { API_URL, fetchGitHubUser, type GitHubUser } from './oauth';
+import { consumeSessionExpired, SESSION_EXPIRED_EVENT } from './session-expired';
 import type { User } from './types';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -36,6 +37,36 @@ const TOKEN_KEY = 'ghagga_token';
 const USER_KEY = 'ghagga_user';
 /** sessionStorage key for redirect-after-login destination */
 export const REDIRECT_KEY = 'ghagga_redirect_after_login';
+
+/**
+ * Sanitize a redirect-after-login destination read from sessionStorage.
+ *
+ * REDIRECT_KEY is attacker-controllable (plain sessionStorage), so its value
+ * must never be navigated to verbatim. Only honor in-app, single-leading-slash
+ * paths. Reject:
+ *   - anything not starting with '/'        → 'https://evil.com', 'evil.com'
+ *   - protocol-relative '//...'             → '//evil.com' (off-site)
+ *   - backslash-escaped '/\...'             → browsers normalize '\' to '/'
+ *   - control-char bypass '/\n/evil.com'    → browsers strip \t \n \r per the
+ *     WHATWG URL spec, collapsing '/\n/evil.com' → '//evil.com' (off-site).
+ *     We must strip the same chars BEFORE validating, or the second-slash
+ *     check below is trivially bypassed.
+ * Returns the safe path, or '/' as the default for anything unsafe/empty.
+ */
+export function safeInternalPath(path: string | null | undefined): string {
+  if (!path) return '/';
+  // Strip the control chars the browser silently removes from URLs (the WHATWG
+  // URL parser drops \t \n \r). We strip all of C0 (\x00-\x1F) + DEL (\x7F) to
+  // be safe, then validate the CLEANED string — otherwise '/\n/evil.com' slips
+  // past the second-slash guard and the browser later collapses it to
+  // '//evil.com' (a protocol-relative, off-site URL).
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping these is the whole point
+  const cleaned = path.replace(/[\x00-\x1F\x7F]/g, '');
+  // '//evil.com' (protocol-relative) and '/\evil.com' (browser-normalized to
+  // '//') both escape the origin — reject any second leading slash/backslash.
+  if (cleaned?.[0] !== '/' || cleaned[1] === '/' || cleaned[1] === '\\') return '/';
+  return cleaned;
+}
 
 // ─── Context ────────────────────────────────────────────────────
 
@@ -84,6 +115,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
     }
   }, [token, user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clear auth state when the API layer reports an expired session (401).
+  // api.ts is not a React module, so it signals via a window event; clearing
+  // React state here makes ProtectedRoute redirect naturally and prevents
+  // Login from bouncing a stale "authenticated" user back into the app.
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      setToken(null);
+      setUser(null);
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+    // Drain any 401 that fired before this listener was registered (cold-boot
+    // race). The sticky flag in session-expired.ts ensures the signal is not lost.
+    if (consumeSessionExpired()) {
+      handleSessionExpired();
+    }
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, handleSessionExpired);
+  }, []);
 
   // ── Web Flow Callback Login ─────────────────────────────────
 

@@ -14,6 +14,24 @@ vi.mock('./agents/simple.js', () => ({
   runSimpleReview: vi.fn(),
 }));
 
+vi.mock('./graph/blast-radius.js', () => ({
+  computeBlastRadius: vi.fn(),
+}));
+
+// Partial mock (real impl by default): the warn-only coverage test below
+// forces ONE buildCallChainFromDiff throw via mockImplementationOnce.
+vi.mock('./graph/call-chain.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./graph/call-chain.js')>();
+  return { ...actual, buildCallChainFromDiff: vi.fn(actual.buildCallChainFromDiff) };
+});
+
+// Partial mock (real impl by default): the semantic-diff warn-only test below
+// forces ONE extractSemanticDiff throw via mockImplementationOnce.
+vi.mock('./semantic-diff/index.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./semantic-diff/index.js')>();
+  return { ...actual, extractSemanticDiff: vi.fn(actual.extractSemanticDiff) };
+});
+
 vi.mock('./agents/workflow.js', () => ({
   runWorkflowReview: vi.fn(),
 }));
@@ -50,9 +68,15 @@ vi.mock('./memory/persist.js', () => ({
 import { runConsensusReview } from './agents/consensus.js';
 import { runSimpleReview } from './agents/simple.js';
 import { runWorkflowReview } from './agents/workflow.js';
+import type { BlastRadiusResult } from './graph/blast-radius.js';
+import { computeBlastRadius } from './graph/blast-radius.js';
+import { buildCallChainFromDiff } from './graph/call-chain.js';
+import type { DependencyGraph, GraphLoader } from './graph/schema.js';
 import { persistReviewObservations } from './memory/persist.js';
 import { searchMemoryForContext } from './memory/search.js';
+import { SEMANTIC_DIFF_MAX_DIFF_CHARS } from './pipeline/enrich.js';
 import { reviewPipeline } from './pipeline.js';
+import { extractSemanticDiff } from './semantic-diff/index.js';
 import { formatStaticAnalysisContext, runStaticAnalysis } from './tools/runner.js';
 import type { ReviewInput, ReviewResult } from './types.js';
 import { DEFAULT_SETTINGS } from './types.js';
@@ -81,7 +105,7 @@ const SIMPLE_RESULT: ReviewResult = {
   memoryContext: null,
   metadata: {
     mode: 'simple',
-    provider: 'anthropic',
+    provider: 'gateway',
     model: 'claude-sonnet-4-20250514',
     tokensUsed: 100,
     executionTimeMs: 500,
@@ -100,7 +124,7 @@ function makeInput(overrides: Partial<ReviewInput> = {}): ReviewInput {
   return {
     diff: MINIMAL_DIFF,
     mode: 'simple',
-    provider: 'anthropic',
+    provider: 'gateway',
     model: 'claude-sonnet-4-20250514',
     apiKey: 'test-api-key',
     settings: {
@@ -161,16 +185,26 @@ describe('reviewPipeline', () => {
     });
 
     it('throws on missing API key', async () => {
-      await expect(reviewPipeline(makeInput({ apiKey: '' }))).rejects.toThrow('API key');
+      // After Cluster A (gateway-only): apiKey is no longer validated for 'gateway' provider
+      // because mcp-llm-bridge handles upstream auth. resolvePrimaryProvider() now rejects
+      // inputs without a provider chain AND without all single-provider fields.
+      await expect(reviewPipeline(makeInput({ apiKey: '' }))).rejects.toThrow(
+        'No provider chain and no single provider configured',
+      );
     });
 
     it('throws on missing provider', async () => {
       // biome-ignore lint/suspicious/noExplicitAny: mock cast
-      await expect(reviewPipeline(makeInput({ provider: '' as any }))).rejects.toThrow('provider');
+      await expect(reviewPipeline(makeInput({ provider: '' as any }))).rejects.toThrow(
+        'Review input must specify an LLM provider',
+      );
     });
 
     it('throws on missing model', async () => {
-      await expect(reviewPipeline(makeInput({ model: '' }))).rejects.toThrow('model');
+      // After Cluster A: see "throws on missing API key" — same migration message applies.
+      await expect(reviewPipeline(makeInput({ model: '' }))).rejects.toThrow(
+        'No provider chain and no single provider configured',
+      );
     });
   });
 
@@ -320,17 +354,154 @@ index 1234567..abcdefg 100644
     });
   });
 
+  // ── Semantic Diff (enrich, warn-only) ─────────────────────
+
+  describe('semantic diff', () => {
+    it('populates result.semanticDiff from the filtered diff in enrich', async () => {
+      const fnDiff = `diff --git a/src/util.ts b/src/util.ts
+index 1234567..abcdefg 100644
+--- a/src/util.ts
++++ b/src/util.ts
+@@ -1,2 +1,5 @@
+ const x = 1;
++export function newHelper(input: string): string {
++  return input.trim();
++}
+`;
+      const result = await reviewPipeline(makeInput({ diff: fnDiff }));
+
+      expect(result.semanticDiff).toBeDefined();
+      expect(result.semanticDiff?.changes).toEqual([
+        expect.objectContaining({
+          kind: 'function_added',
+          name: 'newHelper',
+          filePath: 'src/util.ts',
+        }),
+      ]);
+      expect(result.semanticDiff?.summary).toBe('1 function added');
+    });
+
+    it('early-return SKIPPED (all files filtered) carries NO semanticDiff', async () => {
+      const mdOnlyDiff = `diff --git a/README.md b/README.md
+index 1234567..abcdefg 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,2 @@
+ # Hello
++World
+`;
+      const result = await reviewPipeline(
+        makeInput({
+          diff: mdOnlyDiff,
+          settings: { ...makeInput().settings, ignorePatterns: ['*.md'] },
+        }),
+      );
+
+      expect(result.status).toBe('SKIPPED');
+      expect(result.semanticDiff).toBeUndefined();
+    });
+
+    it('extractor throw degrades warn-only: PASSED + no failedSteps + coverageComplete false', async () => {
+      (extractSemanticDiff as MockedFunction<typeof extractSemanticDiff>).mockImplementationOnce(
+        () => {
+          throw new Error('semantic diff exploded');
+        },
+      );
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await reviewPipeline(makeInput());
+
+      // Warn-only contract (reportFailure: false — see pipeline/degrade.ts):
+      // 1. the verdict is untouched — a cosmetic section cannot downgrade it.
+      expect(result.status).toBe('PASSED');
+      // 2. failedSteps stays absent — warn-only step names are internal.
+      expect(result.failedSteps).toBeUndefined();
+      // 3. coverageComplete still tells the truth: a step degraded.
+      expect(result.coverageComplete).toBe(false);
+      // 4. the field is simply absent — silent degradation downstream.
+      expect(result.semanticDiff).toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[ghagga] Semantic diff extraction failed (non-fatal):',
+        'semantic diff exploded',
+      );
+
+      warnSpy.mockRestore();
+    });
+
+    it('computes over filteredDiff, NOT input.diff: ignored file contributes no entities', async () => {
+      // Two files: one matches ignorePatterns (carries a decoy declaration),
+      // one is reviewable. semanticDiff must only see the reviewable one —
+      // pins that the extract runs on state.filteredDiff (post path filter).
+      const twoFileDiff = `diff --git a/api.generated.ts b/api.generated.ts
+index 1234567..abcdefg 100644
+--- a/api.generated.ts
++++ b/api.generated.ts
+@@ -1,1 +1,2 @@
+ const stub = 0;
++export function ghostFn(): void {}
+diff --git a/src/real.ts b/src/real.ts
+index 1234567..abcdefg 100644
+--- a/src/real.ts
++++ b/src/real.ts
+@@ -1,1 +1,2 @@
+ const x = 1;
++export function realFn(): void {}
+`;
+      const result = await reviewPipeline(
+        makeInput({
+          diff: twoFileDiff,
+          settings: { ...makeInput().settings, ignorePatterns: ['*.generated.ts'] },
+        }),
+      );
+
+      expect(result.semanticDiff).toBeDefined();
+      expect(result.semanticDiff?.changes).toEqual([
+        expect.objectContaining({
+          kind: 'function_added',
+          name: 'realFn',
+          filePath: 'src/real.ts',
+        }),
+      ]);
+      expect(result.semanticDiff?.changes.map((c) => c.name)).not.toContain('ghostFn');
+    });
+
+    it('size gate: oversized filteredDiff skips extraction as POLICY — no degradation recorded', async () => {
+      // One context line pushes filteredDiff past the cap. The gate must
+      // skip the extract WITHOUT calling it, WITHOUT failedSteps, and
+      // WITHOUT flipping coverageComplete — skipping is policy, not failure.
+      const hugeDiff = `diff --git a/src/big.ts b/src/big.ts
+index 1234567..abcdefg 100644
+--- a/src/big.ts
++++ b/src/big.ts
+@@ -1,1 +1,2 @@
+ const pad = '${'x'.repeat(SEMANTIC_DIFF_MAX_DIFF_CHARS)}';
++export function gated(): void {}
+`;
+      const result = await reviewPipeline(makeInput({ diff: hugeDiff }));
+
+      expect(result.status).toBe('PASSED');
+      expect(result.semanticDiff).toBeUndefined();
+      expect(extractSemanticDiff).not.toHaveBeenCalled();
+      expect(result.failedSteps).toBeUndefined();
+      // Deliberate gate ≠ degradation: coverage stays complete.
+      expect(result.coverageComplete).toBe(true);
+    });
+  });
+
   // ── Graceful Degradation ──────────────────────────────────
 
   describe('graceful degradation', () => {
     it('continues when static analysis throws', async () => {
-      (runStaticAnalysis as MockedFunction<typeof runStaticAnalysis>).mockRejectedValue(
+      (runStaticAnalysis as MockedFunction<typeof runStaticAnalysis>).mockRejectedValueOnce(
         new Error('semgrep crashed'),
       );
 
       const result = await reviewPipeline(makeInput());
-      // Pipeline should still complete via the agent
-      expect(result.status).toBe('PASSED');
+      // Pipeline should still complete via the agent, but marked as PARTIAL
+      expect(result.status).toBe('PARTIAL');
+      expect(result.failedSteps).toEqual(
+        expect.arrayContaining([expect.objectContaining({ step: 'static-analysis' })]),
+      );
       expect(runSimpleReview).toHaveBeenCalledOnce();
     });
 
@@ -349,12 +520,15 @@ index 1234567..abcdefg 100644
         memoryStorage: {} as any, // Fake memoryStorage to enable memory
       });
 
-      (searchMemoryForContext as MockedFunction<typeof searchMemoryForContext>).mockRejectedValue(
-        new Error('database connection failed'),
-      );
+      (
+        searchMemoryForContext as MockedFunction<typeof searchMemoryForContext>
+      ).mockRejectedValueOnce(new Error('database connection failed'));
 
       const result = await reviewPipeline(inputWithMemory);
-      expect(result.status).toBe('PASSED');
+      expect(result.status).toBe('PARTIAL');
+      expect(result.failedSteps).toEqual(
+        expect.arrayContaining([expect.objectContaining({ step: 'memory-search' })]),
+      );
       expect(runSimpleReview).toHaveBeenCalledOnce();
     });
   });
@@ -421,7 +595,7 @@ index 1234567..abcdefg 100644
 
       expect(runSimpleReview).toHaveBeenCalledWith(
         expect.objectContaining({
-          provider: 'anthropic',
+          provider: 'gateway',
           model: 'claude-sonnet-4-20250514',
           apiKey: 'test-api-key',
         }),
@@ -523,6 +697,163 @@ index 1234567..abcdefg 100644
         expect.objectContaining({ reviewLevel: 'normal' }),
       );
     });
+
+    it('passes providerChain to workflow agent', async () => {
+      await reviewPipeline(
+        makeInput({
+          mode: 'workflow',
+          providerChain: [{ provider: 'gateway', model: 'test', apiKey: 'key' }],
+        }),
+      );
+
+      expect(runWorkflowReview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          providerChain: [{ provider: 'gateway', model: 'test', apiKey: 'key' }],
+        }),
+      );
+    });
+
+    it('passes reviewConcurrency from settings to workflow agent', async () => {
+      await reviewPipeline(
+        makeInput({
+          mode: 'workflow',
+          settings: {
+            enableSemgrep: false,
+            enableTrivy: false,
+            enableCpd: false,
+            enableMemory: false,
+            customRules: [],
+            ignorePatterns: [],
+            reviewLevel: 'normal',
+            reviewConcurrency: 3,
+          },
+        }),
+      );
+
+      expect(runWorkflowReview).toHaveBeenCalledWith(expect.objectContaining({ concurrency: 3 }));
+    });
+
+    it('passes reviewDelayMs from settings to consensus agent', async () => {
+      await reviewPipeline(
+        makeInput({
+          mode: 'consensus',
+          settings: {
+            enableSemgrep: false,
+            enableTrivy: false,
+            enableCpd: false,
+            enableMemory: false,
+            customRules: [],
+            ignorePatterns: [],
+            reviewLevel: 'normal',
+            reviewDelayMs: 500,
+          },
+        }),
+      );
+
+      expect(runConsensusReview).toHaveBeenCalledWith(expect.objectContaining({ delayMs: 500 }));
+    });
+
+    // ── CORE-CONC-004: boundary validation of concurrency/delay ──
+    // Invalid reviewConcurrency would make runWithConcurrency's `i += concurrency`
+    // loop stall (0) or run backwards (negatives). Reject at the settings boundary.
+    function settingsWith(overrides: Record<string, unknown>) {
+      return {
+        enableSemgrep: false,
+        enableTrivy: false,
+        enableCpd: false,
+        enableMemory: false,
+        customRules: [],
+        ignorePatterns: [],
+        reviewLevel: 'normal' as const,
+        ...overrides,
+      };
+    }
+
+    it.each([
+      ['zero', 0],
+      ['negative', -1],
+      ['NaN', Number.NaN],
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['fractional', 1.5],
+    ])('rejects reviewConcurrency = %s at the boundary (no infinite loop)', async (_label, value) => {
+      await expect(
+        reviewPipeline(
+          makeInput({
+            mode: 'workflow',
+            // biome-ignore lint/suspicious/noExplicitAny: exercising invalid runtime input
+            settings: settingsWith({ reviewConcurrency: value }) as any,
+          }),
+        ),
+      ).rejects.toThrow('reviewConcurrency must be a finite integer >= 1');
+    });
+
+    it('rejects a negative reviewDelayMs at the boundary', async () => {
+      await expect(
+        reviewPipeline(
+          makeInput({
+            mode: 'consensus',
+            // biome-ignore lint/suspicious/noExplicitAny: exercising invalid runtime input
+            settings: settingsWith({ reviewDelayMs: -100 }) as any,
+          }),
+        ),
+      ).rejects.toThrow('reviewDelayMs must be a finite number >= 0');
+    });
+
+    it('accepts a valid reviewConcurrency of 1', async () => {
+      await expect(
+        reviewPipeline(
+          makeInput({
+            mode: 'workflow',
+            settings: settingsWith({ reviewConcurrency: 1 }),
+          }),
+        ),
+      ).resolves.toBeDefined();
+    });
+  });
+
+  // ── CORE-INTEL-003: code-intel failure visibility ─────────
+  describe('code-intel degradation', () => {
+    it('all code-intel queries fail: coverageComplete false + failedStep + filesFailed count', async () => {
+      const failingProvider = {
+        getCallers: async () => [],
+        getCallees: async () => [],
+        getFileImports: async () => {
+          throw new Error('code-intel provider offline');
+        },
+        getFileExports: async () => {
+          throw new Error('code-intel provider offline');
+        },
+        // biome-ignore lint/suspicious/noExplicitAny: minimal provider stub
+      } as any;
+
+      const result = await reviewPipeline(
+        makeInput({
+          codeIntelProvider: failingProvider,
+          settings: {
+            enableSemgrep: false,
+            enableTrivy: false,
+            enableCpd: false,
+            enableMemory: false,
+            customRules: [],
+            ignorePatterns: [],
+            reviewLevel: 'normal',
+            enableCodeIntel: true,
+          },
+        }),
+      );
+
+      // Degradation is now visible: coverage is incomplete and a failedStep exists.
+      expect(result.coverageComplete).toBe(false);
+      expect(result.failedSteps).toEqual(
+        expect.arrayContaining([expect.objectContaining({ step: 'code-intel' })]),
+      );
+      // The diff touches exactly one file (src/index.ts) → filesFailed = 1.
+      expect(result.codeIntelMetadata?.filesQueried).toBe(1);
+      expect(result.codeIntelMetadata?.filesFailed).toBe(1);
+      expect(result.codeIntelMetadata?.filesWithData).toBe(0);
+      // A previously-PASSED review downgrades to PARTIAL on a tracked failure.
+      expect(result.status).toBe('PARTIAL');
+    });
   });
 
   // ── SKIPPED Result Verification ───────────────────────────
@@ -585,7 +916,7 @@ index 1234567..abcdefg 100644
     it('skipped result has correct mode/provider/model from input', async () => {
       const result = await reviewPipeline(skipInput());
       expect(result.metadata.mode).toBe('simple');
-      expect(result.metadata.provider).toBe('anthropic');
+      expect(result.metadata.provider).toBe('gateway');
       expect(result.metadata.model).toBe('claude-sonnet-4-20250514');
     });
 
@@ -704,6 +1035,95 @@ diff --git a/README.md b/README.md
     });
   });
 
+  // ── Failed Steps Tracking ──────────────────────────────────
+
+  describe('failed steps tracking', () => {
+    it('populates failedSteps and sets PARTIAL status when a step throws', async () => {
+      // Make static analysis throw — this triggers runStaticAnalysisSafe's catch
+      (runStaticAnalysis as MockedFunction<typeof runStaticAnalysis>).mockRejectedValueOnce(
+        new Error('semgrep crashed'),
+      );
+
+      const result = await reviewPipeline(makeInput());
+
+      // failedSteps should contain the static-analysis failure
+      expect(result.failedSteps).toBeDefined();
+      expect(result.failedSteps).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ step: 'static-analysis', error: 'semgrep crashed' }),
+        ]),
+      );
+
+      // Status should be PARTIAL since the review would otherwise PASS
+      expect(result.status).toBe('PARTIAL');
+
+      // Coverage signal: a degraded step means incomplete coverage
+      expect(result.coverageComplete).toBe(false);
+    });
+
+    it('does not set failedSteps when all steps succeed', async () => {
+      const result = await reviewPipeline(makeInput());
+
+      expect(result.failedSteps).toBeUndefined();
+      expect(result.status).toBe('PASSED');
+
+      // Coverage signal: every pipeline step ran
+      expect(result.coverageComplete).toBe(true);
+    });
+
+    it('preserves FAILED status even when steps fail (does not downgrade to PARTIAL)', async () => {
+      // Make static analysis throw AND the agent return a FAILED result
+      (runStaticAnalysis as MockedFunction<typeof runStaticAnalysis>).mockRejectedValueOnce(
+        new Error('tool error'),
+      );
+      (runSimpleReview as MockedFunction<typeof runSimpleReview>).mockResolvedValueOnce({
+        ...SIMPLE_RESULT,
+        status: 'FAILED',
+      });
+
+      const result = await reviewPipeline(makeInput());
+
+      // failedSteps should be populated
+      expect(result.failedSteps).toBeDefined();
+      expect(result.failedSteps?.length).toBeGreaterThan(0);
+
+      // Status should remain FAILED, not downgraded to PARTIAL
+      expect(result.status).toBe('FAILED');
+
+      // Coverage signal is ORTHOGONAL to the verdict: FAILED stands, but the
+      // incomplete coverage is surfaced first-class instead of via downgrade.
+      expect(result.coverageComplete).toBe(false);
+    });
+
+    it('warn-only degradation alone: PASSED + no failedSteps + coverageComplete false', async () => {
+      // Force ONLY call-chain (a reportFailure: false site) to degrade.
+      (
+        buildCallChainFromDiff as MockedFunction<typeof buildCallChainFromDiff>
+      ).mockImplementationOnce(() => {
+        throw new Error('call-chain parser exploded');
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const result = await reviewPipeline(
+        makeInput({
+          fileReader: async () => 'export function helper() {}\n',
+          settings: { ...makeInput().settings, enableBlastRadius: true },
+        }),
+      );
+
+      // The fine-grained orthogonality trio:
+      // 1. status stays PASSED — the PARTIAL downgrade keys off failedSteps,
+      //    and warn-only degradations never enter it.
+      expect(result.status).toBe('PASSED');
+      // 2. failedSteps stays absent — warn-only step names are internal.
+      expect(result.failedSteps).toBeUndefined();
+      // 3. coverageComplete still tells the truth: a step degraded.
+      expect(result.coverageComplete).toBe(false);
+
+      warnSpy.mockRestore();
+    });
+  });
+
   // ── Backward Compatibility ─────────────────────────────────
 
   describe('backward compatibility', () => {
@@ -726,5 +1146,275 @@ diff --git a/README.md b/README.md
         expect.objectContaining({ reviewLevel: 'normal' }),
       );
     });
+  });
+});
+
+// ─── Blast-Radius Tests ──────────────────────────────────────────
+
+// Minimal valid DependencyGraph fixture
+const MINIMAL_GRAPH: DependencyGraph = {
+  version: 1,
+  rootDir: '/repo',
+  nodes: {
+    'src/index.ts': {
+      hash: 'abc123',
+      language: 'typescript',
+      imports: [],
+      exports: ['default'],
+      calls: [],
+      isTest: false,
+    },
+    'src/utils.ts': {
+      hash: 'def456',
+      language: 'typescript',
+      imports: ['src/index.ts'],
+      exports: ['helper'],
+      calls: [],
+      isTest: false,
+    },
+    'src/index.test.ts': {
+      hash: 'ghi789',
+      language: 'typescript',
+      imports: ['src/index.ts'],
+      exports: [],
+      calls: [],
+      isTest: true,
+    },
+  },
+};
+
+// Minimal blast-radius result when files are under cap
+const BLAST_RESULT_NORMAL: BlastRadiusResult = {
+  files: new Set(['src/index.ts', 'src/utils.ts', 'src/index.test.ts']),
+  changedFiles: ['src/index.ts'],
+  dependents: ['src/utils.ts'],
+  testFiles: ['src/index.test.ts'],
+  depth: 1,
+  exceededCap: false,
+};
+
+// Blast-radius result that exceeds cap
+const BLAST_RESULT_EXCEEDED: BlastRadiusResult = {
+  files: new Set(Array.from({ length: 55 }, (_, i) => `src/file${i}.ts`)),
+  changedFiles: ['src/index.ts'],
+  dependents: Array.from({ length: 54 }, (_, i) => `src/file${i}.ts`),
+  testFiles: [],
+  depth: 3,
+  exceededCap: true,
+};
+
+function makeGraphLoader(overrides: Partial<GraphLoader> = {}): GraphLoader {
+  return {
+    load: vi.fn().mockResolvedValue(null),
+    loadMetadata: vi.fn().mockResolvedValue(null),
+    ...overrides,
+  };
+}
+
+describe('blast-radius', () => {
+  it('skips blast-radius when enableBlastRadius is false', async () => {
+    const graphLoader = makeGraphLoader({
+      load: vi.fn().mockResolvedValue(MINIMAL_GRAPH),
+    });
+
+    const result = await reviewPipeline(
+      makeInput({
+        graphLoader,
+        settings: {
+          enableSemgrep: false,
+          enableTrivy: false,
+          enableCpd: false,
+          enableMemory: false,
+          customRules: [],
+          ignorePatterns: [],
+          reviewLevel: 'normal',
+          enableBlastRadius: false,
+        },
+      }),
+    );
+
+    expect(graphLoader.load).not.toHaveBeenCalled();
+    expect(result.status).toBe('PASSED');
+  });
+
+  it('skips blast-radius when no graphLoader provided', async () => {
+    const result = await reviewPipeline(
+      makeInput({
+        settings: {
+          enableSemgrep: false,
+          enableTrivy: false,
+          enableCpd: false,
+          enableMemory: false,
+          customRules: [],
+          ignorePatterns: [],
+          reviewLevel: 'normal',
+          enableBlastRadius: true,
+        },
+        // No graphLoader
+      }),
+    );
+
+    expect(result.status).toBe('PASSED');
+    expect(runSimpleReview).toHaveBeenCalledOnce();
+  });
+
+  it('filters diff to blast-radius files when graph is available', async () => {
+    const graphLoader = makeGraphLoader({
+      load: vi.fn().mockResolvedValue(MINIMAL_GRAPH),
+      loadMetadata: vi.fn().mockResolvedValue(null),
+    });
+
+    (computeBlastRadius as MockedFunction<typeof computeBlastRadius>).mockReturnValueOnce(
+      BLAST_RESULT_NORMAL,
+    );
+
+    await reviewPipeline(
+      makeInput({
+        graphLoader,
+        settings: {
+          enableSemgrep: false,
+          enableTrivy: false,
+          enableCpd: false,
+          enableMemory: false,
+          customRules: [],
+          ignorePatterns: [],
+          reviewLevel: 'normal',
+          enableBlastRadius: true,
+        },
+      }),
+    );
+
+    expect(computeBlastRadius).toHaveBeenCalledOnce();
+    // The diff passed to the agent should only include blast-radius files
+    const callArgs = (runSimpleReview as MockedFunction<typeof runSimpleReview>).mock.calls[0]?.[0];
+    expect(callArgs).toBeDefined();
+    expect(callArgs.diff).toBeDefined();
+  });
+
+  it('falls back to full diff when graph loader returns null', async () => {
+    const graphLoader = makeGraphLoader({
+      load: vi.fn().mockResolvedValue(null),
+    });
+
+    const result = await reviewPipeline(
+      makeInput({
+        graphLoader,
+        settings: {
+          enableSemgrep: false,
+          enableTrivy: false,
+          enableCpd: false,
+          enableMemory: false,
+          customRules: [],
+          ignorePatterns: [],
+          reviewLevel: 'normal',
+          enableBlastRadius: true,
+        },
+      }),
+    );
+
+    expect(graphLoader.load).toHaveBeenCalledOnce();
+    expect(result.status).toBe('PASSED');
+    // Agent should still be called with the original diff files
+    expect(runSimpleReview).toHaveBeenCalledOnce();
+    const callArgs = (runSimpleReview as MockedFunction<typeof runSimpleReview>).mock.calls[0]?.[0];
+    expect(callArgs.diff).toContain('src/index.ts');
+  });
+
+  it('falls back to full diff when blast-radius cap is exceeded', async () => {
+    const graphLoader = makeGraphLoader({
+      load: vi.fn().mockResolvedValue(MINIMAL_GRAPH),
+      loadMetadata: vi.fn().mockResolvedValue(null),
+    });
+
+    (computeBlastRadius as MockedFunction<typeof computeBlastRadius>).mockReturnValueOnce(
+      BLAST_RESULT_EXCEEDED,
+    );
+
+    const result = await reviewPipeline(
+      makeInput({
+        graphLoader,
+        settings: {
+          enableSemgrep: false,
+          enableTrivy: false,
+          enableCpd: false,
+          enableMemory: false,
+          customRules: [],
+          ignorePatterns: [],
+          reviewLevel: 'normal',
+          enableBlastRadius: true,
+          maxBlastRadiusFiles: 50,
+        },
+      }),
+    );
+
+    expect(result.status).toBe('PASSED');
+    // Pipeline should complete normally with the full diff
+    expect(runSimpleReview).toHaveBeenCalledOnce();
+    // blastRadius metadata should indicate fallback
+    expect(result.metadata.blastRadius?.fallbackReason).toContain('blast radius exceeds');
+  });
+
+  it('handles graph loader errors gracefully', async () => {
+    const graphLoader = makeGraphLoader({
+      load: vi.fn().mockRejectedValue(new Error('graph file not found')),
+    });
+
+    const result = await reviewPipeline(
+      makeInput({
+        graphLoader,
+        settings: {
+          enableSemgrep: false,
+          enableTrivy: false,
+          enableCpd: false,
+          enableMemory: false,
+          customRules: [],
+          ignorePatterns: [],
+          reviewLevel: 'normal',
+          enableBlastRadius: true,
+        },
+      }),
+    );
+
+    // Pipeline should complete — no crash
+    expect(runSimpleReview).toHaveBeenCalledOnce();
+    // The error should be recorded in failedSteps
+    expect(result.failedSteps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ step: 'blast-radius', error: 'graph file not found' }),
+      ]),
+    );
+    expect(result.status).toBe('PARTIAL');
+  });
+
+  it('populates blastRadius metadata when graph is available', async () => {
+    const graphLoader = makeGraphLoader({
+      load: vi.fn().mockResolvedValue(MINIMAL_GRAPH),
+      loadMetadata: vi.fn().mockResolvedValue(null),
+    });
+
+    (computeBlastRadius as MockedFunction<typeof computeBlastRadius>).mockReturnValueOnce(
+      BLAST_RESULT_NORMAL,
+    );
+
+    const result = await reviewPipeline(
+      makeInput({
+        graphLoader,
+        settings: {
+          enableSemgrep: false,
+          enableTrivy: false,
+          enableCpd: false,
+          enableMemory: false,
+          customRules: [],
+          ignorePatterns: [],
+          reviewLevel: 'normal',
+          enableBlastRadius: true,
+        },
+      }),
+    );
+
+    expect(result.metadata.blastRadius).toBeDefined();
+    expect(result.metadata.blastRadius?.enabled).toBe(true);
+    expect(result.metadata.blastRadius?.graphAvailable).toBe(true);
+    expect(result.metadata.blastRadius?.blastRadiusFiles).toBe(BLAST_RESULT_NORMAL.files.size);
   });
 });

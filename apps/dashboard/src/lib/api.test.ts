@@ -1,5 +1,5 @@
 /**
- * Tests for Runner API hooks: useRunnerStatus, useCreateRunner, useConfigureRunnerSecret.
+ * Tests for dashboard API hooks.
  *
  * Uses vi.stubGlobal('fetch') to mock network calls since the hooks
  * use fetchApi/fetchData which call the global fetch.
@@ -10,44 +10,50 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTestQueryClient, createWrapper } from '../test/test-utils';
 import {
+  ApiError,
+  useApproveIssueDraft,
   useBatchDeleteObservations,
   useBatchDeleteReviews,
   useCleanupEmptySessions,
   useClearRepoMemory,
-  useConfigureRunnerSecret,
-  useCreateRunner,
   useDeleteObservation,
   useDeleteRepoReviews,
   useDeleteReview,
   useDeleteSession,
+  useEditIssueDraft,
   useInstallationSettings,
   useInstallations,
+  useIssueDrafts,
   useMemorySessions,
   useObservations,
   usePurgeAllMemory,
+  useRejectIssueDraft,
   useRepositories,
   useReviews,
-  useRunnerStatus,
   useSettings,
   useStats,
   useUpdateInstallationSettings,
   useUpdateSettings,
   useValidateProvider,
 } from './api';
+import { REDIRECT_KEY } from './auth';
+import { SESSION_EXPIRED_EVENT } from './session-expired';
 
 // ─── Mocks ──────────────────────────────────────────────────────
 
 const mockFetch = vi.fn();
+let mockLocalStorage: Record<string, ReturnType<typeof vi.fn>>;
 
 beforeEach(() => {
   vi.stubGlobal('fetch', mockFetch);
   mockFetch.mockReset();
   // Set up localStorage token (required by fetchApi)
-  vi.stubGlobal('localStorage', {
+  mockLocalStorage = {
     getItem: vi.fn().mockReturnValue('ghp_test-token'),
     setItem: vi.fn(),
     removeItem: vi.fn(),
-  });
+  };
+  vi.stubGlobal('localStorage', mockLocalStorage);
 });
 
 afterEach(() => {
@@ -64,181 +70,238 @@ function mockJsonResponse(data: unknown, status = 200) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// useRunnerStatus
+// fetchApi — Global 401 Handler
 // ═══════════════════════════════════════════════════════════════════
 
-describe('useRunnerStatus', () => {
-  it('returns runner status when ownerLogin is provided', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({
-        data: { exists: true, repoFullName: 'acme/ghagga-runner', isPrivate: false },
-      }),
+describe('fetchApi 401 handler', () => {
+  it('clears token and redirects to login on 401', async () => {
+    // Simulate being on a dashboard page
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, hash: '#/dashboard' },
+      writable: true,
+    });
+
+    mockFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const { result } = renderHook(() => useRepositories(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    // Should clear both token and user from localStorage
+    expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('ghagga_token');
+    expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('ghagga_user');
+
+    // Should redirect to login with expired param
+    expect(window.location.hash).toBe('#/login?expired=1');
+  });
+
+  it('does NOT redirect if already on login page', async () => {
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, hash: '#/login' },
+      writable: true,
+    });
+
+    mockFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const { result } = renderHook(() => useRepositories(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    // Should NOT have cleared localStorage (we're already on login)
+    expect(mockLocalStorage.removeItem).not.toHaveBeenCalled();
+
+    // Hash should remain on login (no redirect loop)
+    expect(window.location.hash).toBe('#/login');
+  });
+
+  it('does NOT redirect if on auth callback page', async () => {
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, hash: '#/auth/callback?token=abc' },
+      writable: true,
+    });
+
+    mockFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const { result } = renderHook(() => useRepositories(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    // Should NOT redirect
+    expect(mockLocalStorage.removeItem).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe('#/auth/callback?token=abc');
+  });
+
+  it('dispatches the session-expired event so AuthProvider clears React state', async () => {
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, hash: '#/dashboard' },
+      writable: true,
+    });
+
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    mockFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const { result } = renderHook(() => useRepositories(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ type: SESSION_EXPIRED_EVENT }),
     );
+    dispatchSpy.mockRestore();
+  });
 
-    const { result } = renderHook(() => useRunnerStatus('acme'), {
+  it('does NOT dispatch the session-expired event when already on the login page', async () => {
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, hash: '#/login' },
+      writable: true,
+    });
+
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    mockFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const { result } = renderHook(() => useRepositories(), {
       wrapper: createWrapper(),
     });
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.isError).toBe(true));
 
-    expect(result.current.data).toEqual({
-      exists: true,
-      repoFullName: 'acme/ghagga-runner',
-      isPrivate: false,
-    });
-  });
-
-  it('does not fetch when ownerLogin is undefined (enabled: false)', async () => {
-    const { result } = renderHook(() => useRunnerStatus(undefined), {
-      wrapper: createWrapper(),
-    });
-
-    // Should stay in idle/pending state, not fire a request
-    expect(result.current.fetchStatus).toBe('idle');
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
-
-  it('does not fetch when ownerLogin is empty string', async () => {
-    const { result } = renderHook(() => useRunnerStatus(''), {
-      wrapper: createWrapper(),
-    });
-
-    expect(result.current.fetchStatus).toBe('idle');
-    expect(mockFetch).not.toHaveBeenCalled();
-  });
-
-  it('returns isError true on API failure', async () => {
-    // useRunnerStatus has retry: 1, so we need to provide responses for both attempts
-    mockFetch.mockResolvedValue(new Response('Internal Server Error', { status: 500 }));
-
-    const { result } = renderHook(() => useRunnerStatus('acme'), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => expect(result.current.isError).toBe(true), { timeout: 5000 });
-  });
-
-  it('returns exists: false for runner not configured', async () => {
-    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { exists: false } }));
-
-    const { result } = renderHook(() => useRunnerStatus('acme'), {
-      wrapper: createWrapper(),
-    });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.exists).toBe(false);
-  });
-
-  it('includes isPrivate and warning fields when runner is private', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({
-        data: {
-          exists: true,
-          repoFullName: 'acme/ghagga-runner',
-          isPrivate: true,
-          warning: 'Private repo uses org minutes',
-        },
-      }),
+    expect(dispatchSpy).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: SESSION_EXPIRED_EVENT }),
     );
+    dispatchSpy.mockRestore();
+  });
 
-    const { result } = renderHook(() => useRunnerStatus('acme'), {
+  it('throws ApiError with status 401 and "Session expired" message', async () => {
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, hash: '#/login' },
+      writable: true,
+    });
+
+    mockFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const { result } = renderHook(() => useRepositories(), {
       wrapper: createWrapper(),
     });
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data?.isPrivate).toBe(true);
-    expect(result.current.data?.warning).toBe('Private repo uses org minutes');
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(result.current.error).toBeInstanceOf(ApiError);
+    expect((result.current.error as InstanceType<typeof ApiError>).status).toBe(401);
+    expect(result.current.error?.message).toBe('Session expired');
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// useCreateRunner
+// fetchApi 401 handler — redirect-after-login preservation (DSH-A9)
 // ═══════════════════════════════════════════════════════════════════
+//
+// On session expiry the global 401 handler bounces the user to #/login. It
+// must FIRST stash the current route in REDIRECT_KEY so a successful
+// re-login lands the user back where they were — not on '/'. Today the
+// handler never writes REDIRECT_KEY, so the destination is lost.
 
-describe('useCreateRunner', () => {
-  let queryClient: QueryClient;
+describe('fetchApi 401 handler — redirect preservation (DSH-A9)', () => {
+  let mockSessionStorage: Record<string, ReturnType<typeof vi.fn>>;
 
   beforeEach(() => {
-    queryClient = createTestQueryClient();
-  });
-
-  it('creates runner successfully and invalidates runner status cache', async () => {
-    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
-
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({
-        data: {
-          created: true,
-          repoFullName: 'acme/ghagga-runner',
-          secretConfigured: true,
-          isPrivate: false,
-        },
+    const store: Record<string, string> = {};
+    mockSessionStorage = {
+      getItem: vi.fn((key: string) => store[key] ?? null),
+      setItem: vi.fn((key: string, value: string) => {
+        store[key] = value;
       }),
-    );
-
-    const { result } = renderHook(() => useCreateRunner(), {
-      wrapper: createWrapper(queryClient),
-    });
-
-    act(() => {
-      result.current.mutate();
-    });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    expect(result.current.data).toEqual({
-      created: true,
-      repoFullName: 'acme/ghagga-runner',
-      secretConfigured: true,
-      isPrivate: false,
-    });
-
-    // Should invalidate runner status queries
-    expect(invalidateSpy).toHaveBeenCalledWith({
-      queryKey: ['runner', 'status'],
-    });
-  });
-
-  it('sends POST to /api/runner/create', async () => {
-    mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({
-        data: {
-          created: true,
-          repoFullName: 'acme/ghagga-runner',
-          secretConfigured: true,
-          isPrivate: false,
-        },
+      removeItem: vi.fn((key: string) => {
+        delete store[key];
       }),
-    );
-
-    const { result } = renderHook(() => useCreateRunner(), {
-      wrapper: createWrapper(queryClient),
-    });
-
-    await act(async () => {
-      await result.current.mutateAsync();
-    });
-
-    expect(mockFetch).toHaveBeenCalledOnce();
-    const [url, options] = mockFetch.mock.calls[0];
-    expect(url).toContain('/api/runner/create');
-    expect(options.method).toBe('POST');
+    };
+    vi.stubGlobal('sessionStorage', mockSessionStorage);
   });
 
-  it('reports error on API failure (scope mismatch 403)', async () => {
-    mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: 'insufficient_scope' }), { status: 403 }),
-    );
-
-    const { result } = renderHook(() => useCreateRunner(), {
-      wrapper: createWrapper(queryClient),
+  it('stashes the current route in REDIRECT_KEY before redirecting on 401', async () => {
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, hash: '#/settings' },
+      writable: true,
     });
 
-    act(() => {
-      result.current.mutate();
+    mockFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const { result } = renderHook(() => useRepositories(), {
+      wrapper: createWrapper(),
     });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
+
+    // The route was normalized (leading '#' stripped) and stored so re-login
+    // returns the user to /settings instead of collapsing to '/'.
+    expect(mockSessionStorage.getItem(REDIRECT_KEY)).toBe('/settings');
+    // And it redirects to login as before.
+    expect(window.location.hash).toBe('#/login?expired=1');
+  });
+
+  it('does NOT write REDIRECT_KEY when already on the login page', async () => {
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, hash: '#/login' },
+      writable: true,
+    });
+
+    mockFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const { result } = renderHook(() => useRepositories(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    // Being on /login is not a meaningful redirect target — the handler must
+    // not clobber a previously-stashed destination with '/login'.
+    expect(mockSessionStorage.setItem).not.toHaveBeenCalled();
+    expect(mockSessionStorage.getItem(REDIRECT_KEY)).toBeNull();
+  });
+
+  it('does NOT write REDIRECT_KEY when on the auth callback page', async () => {
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, hash: '#/auth/callback?token=abc' },
+      writable: true,
+    });
+
+    mockFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const { result } = renderHook(() => useRepositories(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(mockSessionStorage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('does NOT stash a bare "/" route (nothing meaningful to preserve)', async () => {
+    Object.defineProperty(window, 'location', {
+      value: { ...window.location, hash: '#/' },
+      writable: true,
+    });
+
+    mockFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+    const { result } = renderHook(() => useRepositories(), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    // A redirect to '/' is the default anyway — don't overwrite a possibly
+    // better stored value with '/'.
+    expect(mockSessionStorage.setItem).not.toHaveBeenCalled();
+    // Redirect still happens.
+    expect(window.location.hash).toBe('#/login?expired=1');
   });
 });
 
@@ -300,6 +363,121 @@ describe('useDeleteReview', () => {
     });
 
     await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Issue-triage draft hooks
+// ═══════════════════════════════════════════════════════════════════
+
+describe('useIssueDrafts', () => {
+  it('GETs /api/issue-drafts with the status filter and unwraps data', async () => {
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: [{ id: 9, status: 'DRAFT' }] }));
+
+    const { result } = renderHook(() => useIssueDrafts('DRAFT'), { wrapper: createWrapper() });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/issue-drafts?status=DRAFT');
+    expect(result.current.data).toEqual([{ id: 9, status: 'DRAFT' }]);
+  });
+});
+
+describe('useEditIssueDraft', () => {
+  it('PATCHes the body and invalidates issue-drafts', async () => {
+    const queryClient = createTestQueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { id: 9, body: 'x' } }));
+
+    const { result } = renderHook(() => useEditIssueDraft(), {
+      wrapper: createWrapper(queryClient),
+    });
+    await act(async () => {
+      await result.current.mutateAsync({ id: 9, body: 'x' });
+    });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/issue-drafts/9');
+    expect(options.method).toBe('PATCH');
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['issue-drafts'] });
+  });
+});
+
+describe('useApproveIssueDraft', () => {
+  it('POSTs to /approve and invalidates issue-drafts', async () => {
+    const queryClient = createTestQueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { id: 9, status: 'POSTED' } }));
+
+    const { result } = renderHook(() => useApproveIssueDraft(), {
+      wrapper: createWrapper(queryClient),
+    });
+    await act(async () => {
+      await result.current.mutateAsync({ id: 9 });
+    });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/issue-drafts/9/approve');
+    expect(options.method).toBe('POST');
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['issue-drafts'] });
+  });
+
+  it('invalidates issue-drafts on FAILURE (e.g. 409 concurrent decision) so the stale row refetches (REL-002)', async () => {
+    const queryClient = createTestQueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'ALREADY_DECIDED' }), { status: 409 }),
+    );
+
+    const { result } = renderHook(() => useApproveIssueDraft(), {
+      wrapper: createWrapper(queryClient),
+    });
+    act(() => {
+      result.current.mutate({ id: 9 });
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    // The list must refetch so a draft another maintainer already decided stops
+    // showing as an actionable DRAFT.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['issue-drafts'] });
+  });
+});
+
+describe('useRejectIssueDraft', () => {
+  it('POSTs to /reject and invalidates issue-drafts', async () => {
+    const queryClient = createTestQueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { id: 9, status: 'REJECTED' } }));
+
+    const { result } = renderHook(() => useRejectIssueDraft(), {
+      wrapper: createWrapper(queryClient),
+    });
+    await act(async () => {
+      await result.current.mutateAsync({ id: 9 });
+    });
+
+    const [url, options] = mockFetch.mock.calls[0];
+    expect(url).toContain('/api/issue-drafts/9/reject');
+    expect(options.method).toBe('POST');
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['issue-drafts'] });
+  });
+
+  it('invalidates issue-drafts on FAILURE (e.g. 409 concurrent decision) so the stale row refetches (REL-002)', async () => {
+    const queryClient = createTestQueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'ALREADY_DECIDED' }), { status: 409 }),
+    );
+
+    const { result } = renderHook(() => useRejectIssueDraft(), {
+      wrapper: createWrapper(queryClient),
+    });
+    act(() => {
+      result.current.mutate({ id: 9 });
+    });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['issue-drafts'] });
   });
 });
 
@@ -456,60 +634,6 @@ describe('useBatchDeleteObservations', () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
   });
 });
-
-// ═══════════════════════════════════════════════════════════════════
-// useConfigureRunnerSecret
-// ═══════════════════════════════════════════════════════════════════
-
-describe('useConfigureRunnerSecret', () => {
-  it('configures secret successfully', async () => {
-    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { configured: true } }));
-
-    const { result } = renderHook(() => useConfigureRunnerSecret(), {
-      wrapper: createWrapper(),
-    });
-
-    act(() => {
-      result.current.mutate();
-    });
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toEqual({ configured: true });
-  });
-
-  it('sends POST to /api/runner/configure-secret', async () => {
-    mockFetch.mockResolvedValueOnce(mockJsonResponse({ data: { configured: true } }));
-
-    const { result } = renderHook(() => useConfigureRunnerSecret(), {
-      wrapper: createWrapper(),
-    });
-
-    act(() => {
-      result.current.mutate();
-    });
-
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledOnce());
-
-    const [url, options] = mockFetch.mock.calls[0];
-    expect(url).toContain('/api/runner/configure-secret');
-    expect(options.method).toBe('POST');
-  });
-
-  it('reports error on failure', async () => {
-    mockFetch.mockResolvedValueOnce(new Response('Server Error', { status: 500 }));
-
-    const { result } = renderHook(() => useConfigureRunnerSecret(), {
-      wrapper: createWrapper(),
-    });
-
-    act(() => {
-      result.current.mutate();
-    });
-
-    await waitFor(() => expect(result.current.isError).toBe(true));
-  });
-});
-
 // ═══════════════════════════════════════════════════════════════════
 // useReviews
 // ═══════════════════════════════════════════════════════════════════
@@ -531,7 +655,7 @@ describe('useReviews', () => {
     mockFetch.mockResolvedValueOnce(
       mockJsonResponse({
         data: reviews,
-        pagination: { page: 1, limit: 20, offset: 0 },
+        pagination: { page: 1, limit: 20, offset: 0, total: 1 },
       }),
     );
 
@@ -549,9 +673,113 @@ describe('useReviews', () => {
     });
   });
 
+  it('omits the repo param and uses the server-populated repo for "All repositories"', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({
+        data: [
+          {
+            id: 1,
+            repo: 'acme/app',
+            prNumber: 10,
+            status: 'PASSED',
+            mode: 'simple',
+            summary: 'ok',
+            findings: [],
+            createdAt: '2026-01-01',
+          },
+          {
+            id: 2,
+            repo: 'acme/api',
+            prNumber: 20,
+            status: 'FAILED',
+            mode: 'workflow',
+            summary: 'issues',
+            findings: [],
+            createdAt: '2026-01-02',
+          },
+        ],
+        pagination: { page: 1, limit: 50, offset: 0, total: 2 },
+      }),
+    );
+
+    const { result } = renderHook(() => useReviews(undefined, 1), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // No repo param → cross-installation listing endpoint
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).not.toContain('repo=');
+
+    // Each row carries its repo fullName, populated by the server
+    expect(result.current.data?.reviews.map((r) => r.repo)).toEqual(['acme/app', 'acme/api']);
+  });
+
+  it('uses the server-provided repo verbatim — no client-side fallback or relabeling', async () => {
+    // The row's repo intentionally differs from the requested filter: the
+    // contract says the SERVER populates repo, so the client must never
+    // overwrite or fall back to the query param.
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({
+        data: [
+          {
+            id: 1,
+            repo: 'acme/api',
+            prNumber: 10,
+            status: 'PASSED',
+            mode: 'simple',
+            summary: 'ok',
+            findings: [],
+            createdAt: '2026-01-01',
+          },
+        ],
+        pagination: { page: 1, limit: 50, offset: 0, total: 1 },
+      }),
+    );
+
+    const { result } = renderHook(() => useReviews('acme/app', 1), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data?.reviews[0]?.repo).toBe('acme/api');
+  });
+
+  it('maps total from the server pagination, not the page row count', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({
+        data: [
+          {
+            id: 1,
+            repo: 'acme/app',
+            prNumber: 42,
+            status: 'PASSED',
+            mode: 'simple',
+            summary: 'All good',
+            findings: [],
+            createdAt: '2026-01-01',
+          },
+        ],
+        pagination: { page: 1, limit: 50, offset: 0, total: 120 },
+      }),
+    );
+
+    const { result } = renderHook(() => useReviews('acme/app', 1), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    // total must come from pagination.total (120), NOT data.length (1)
+    expect(result.current.data?.total).toBe(120);
+    expect(result.current.data?.pageSize).toBe(50);
+  });
+
   it('passes repo filter param in URL', async () => {
     mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: [], pagination: { page: 1, limit: 20, offset: 0 } }),
+      mockJsonResponse({ data: [], pagination: { page: 1, limit: 20, offset: 0, total: 0 } }),
     );
 
     const { result } = renderHook(() => useReviews('acme/app'), {
@@ -566,7 +794,7 @@ describe('useReviews', () => {
 
   it('passes page param in URL', async () => {
     mockFetch.mockResolvedValueOnce(
-      mockJsonResponse({ data: [], pagination: { page: 3, limit: 20, offset: 40 } }),
+      mockJsonResponse({ data: [], pagination: { page: 3, limit: 20, offset: 40, total: 0 } }),
     );
 
     const { result } = renderHook(() => useReviews(undefined, 3), {
@@ -577,6 +805,67 @@ describe('useReviews', () => {
 
     const [url] = mockFetch.mock.calls[0];
     expect(url).toContain('page=3');
+  });
+
+  // ─── PRODOPS-005: forward-compatible limit/status/search options ────
+
+  it('forwards limit, status and search as query params when provided', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: [], pagination: { page: 1, limit: 100, offset: 0, total: 0 } }),
+    );
+
+    const { result } = renderHook(
+      () => useReviews('acme/app', 1, { limit: 100, status: 'FAILED', search: 'security issue' }),
+      { wrapper: createWrapper() },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain('limit=100');
+    expect(url).toContain('status=FAILED');
+    expect(url).toContain('q=security+issue');
+  });
+
+  it('omits limit/status/q params when options are not provided', async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockJsonResponse({ data: [], pagination: { page: 1, limit: 20, offset: 0, total: 0 } }),
+    );
+
+    const { result } = renderHook(() => useReviews('acme/app', 1), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).not.toContain('limit=');
+    expect(url).not.toContain('status=');
+    expect(url).not.toContain('q=');
+  });
+
+  it('scopes the query cache by filter options so different filters never share stale data', async () => {
+    mockFetch
+      .mockResolvedValueOnce(
+        mockJsonResponse({ data: [], pagination: { page: 1, limit: 20, offset: 0, total: 0 } }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse({ data: [], pagination: { page: 1, limit: 100, offset: 0, total: 0 } }),
+      );
+
+    const wrapper = createWrapper();
+    const { result: unfiltered } = renderHook(() => useReviews('acme/app', 1), { wrapper });
+    await waitFor(() => expect(unfiltered.current.isSuccess).toBe(true));
+
+    const { result: filtered } = renderHook(
+      () => useReviews('acme/app', 1, { limit: 100, status: 'FAILED' }),
+      { wrapper },
+    );
+    await waitFor(() => expect(filtered.current.isSuccess).toBe(true));
+
+    // Two distinct fetches — the filtered query key did not hit the
+    // unfiltered query's cache entry.
+    expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -4,7 +4,7 @@ Layer 0 analysis runs **before** any LLM call. Zero tokens consumed. Known issue
 
 ## Tools
 
-GHAGGA supports 15 static analysis tools across 5 categories, organized into two tiers:
+GHAGGA supports 16 static analysis tools across 5 categories, organized into two tiers:
 
 | Tool | Category | Tier | Languages |
 |------|----------|------|-----------|
@@ -23,6 +23,7 @@ GHAGGA supports 15 static analysis tools across 5 categories, organized into two
 | **Psalm** | security | auto-detect | PHP (`*.php`) |
 | **clippy** | lint | auto-detect | Rust (`*.rs`) |
 | **Hadolint** | lint | auto-detect | Docker (`Dockerfile*`) |
+| **zizmor** | security | auto-detect | GitHub Actions (`.github/workflows/*.yml\|yaml`) |
 
 ## Tool Tiers
 
@@ -32,7 +33,7 @@ These 7 tools run on **every review** regardless of what languages are in the di
 
 ### auto-detect
 
-These 8 tools activate **only when matching files are detected** in the diff. For example, Ruff and Bandit only run when the diff contains `*.py` files. This keeps reviews fast — no time wasted on tools that have nothing to scan.
+These 9 tools activate **only when matching files are detected** in the diff. For example, Ruff and Bandit only run when the diff contains `*.py` files. This keeps reviews fast — no time wasted on tools that have nothing to scan.
 
 ### Tool Resolution Order
 
@@ -53,12 +54,12 @@ The tool registry orchestrator resolves active tools, then executes them in para
 flowchart TB
   Config["Review config<br/>+ diff files"] --> Resolve["Resolve active tools<br/>(tier + overrides)"]
   Resolve --> AlwaysOn["Always-on tools<br/>Semgrep, Trivy, CPD,<br/>Gitleaks, ShellCheck,<br/>markdownlint, Lizard"]
-  Resolve --> AutoDetect["Auto-detect tools<br/>(matched by file extensions)"]
+  Resolve --> AutoDetect["Auto-detect tools<br/>(matched by file extensions)<br/>Ruff, Bandit, golangci-lint,<br/>Biome, PMD, Psalm, clippy,<br/>Hadolint, zizmor"]
   AlwaysOn --> Merge["Merged findings<br/>normalized"]
   AutoDetect --> Merge
 ```
 
-> **Where do tools run?** In SaaS mode, tools run on a [delegated runner](runner-architecture.md). In Action mode, tools auto-install on the GitHub Actions runner. In CLI mode, tools run locally if installed. In Docker, tools are pre-installed.
+> **Where do tools run?** In SaaS mode, tools run inside the target repository via an injected inline workflow (`.github/workflows/ghagga.yml`). In Action mode, tools auto-install on the GitHub Actions runner. In CLI mode, tools run locally if installed. In Docker, tools are pre-installed.
 
 Each tool's output is parsed into a common `ReviewFinding` format with severity, file, line, and message.
 
@@ -111,13 +112,13 @@ Tools are optional. If a binary isn't installed or fails to run, it's silently s
 
 | Distribution | Always-on tools | Auto-detect tools | How |
 |-------------|-----------------|-------------------|-----|
-| **SaaS (with runner)** | Yes | Yes | Delegated to `ghagga-runner` via workflow_dispatch |
-| **SaaS (no runner)** | No | No | Falls back to LLM-only review |
+| **SaaS (workflow injection succeeded)** | Yes | Yes | Inline workflow `.github/workflows/ghagga.yml` dispatched on the target repo |
+| **SaaS (injection blocked)** | No | No | Falls back to LLM-only review |
 | **GitHub Action (node20)** | Yes | Yes | Auto-installed + cached on runner |
 | **Docker (action/server)** | Yes | Yes | Pre-installed in Docker image |
 | **CLI** | If installed | If installed | Uses locally installed binaries |
 
-> SaaS mode delegates static analysis to the user's [`ghagga-runner`](runner-architecture.md) repository. If no runner is configured, the review continues with AI only (no static analysis findings). See [Runner Architecture](runner-architecture.md) for details.
+> In SaaS mode the server injects `.github/workflows/ghagga.yml` (built from `templates/ghagga-inline.yml`) into the target repo and triggers it via `workflow_dispatch`. If injection is blocked (branch protection, missing `Contents: write`, Actions disabled), the review continues with AI only — no static-analysis findings.
 
 > The GitHub Action auto-installs tools directly on the `ubuntu-latest` runner and caches binaries with `@actions/cache`. First run takes ~3-5 minutes (installation); subsequent runs use cache (~1-2 minutes).
 
@@ -214,3 +215,7 @@ Official Rust linter. Catches common mistakes and suggests idiomatic improvement
 ## Hadolint (auto-detect: Docker)
 
 Dockerfile linter that validates best practices — pinned versions, minimal layers, security settings. Activates when `Dockerfile*` files are in the diff.
+
+## zizmor (auto-detect: GitHub Actions)
+
+Security analysis tool for GitHub Actions workflows. Detects template injection, unpinned actions, excessive permissions, and credential leaks in workflow files. Output is SARIF format. Activates when `.github/workflows/*.yml` or `.github/workflows/*.yaml` files are in the diff.

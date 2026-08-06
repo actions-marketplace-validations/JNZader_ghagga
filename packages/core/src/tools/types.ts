@@ -27,7 +27,9 @@ export type ToolName =
   | 'pmd'
   | 'psalm'
   | 'clippy'
-  | 'hadolint';
+  | 'hadolint'
+  | 'zizmor'
+  | 'sonarqube';
 
 export type ToolCategory =
   | 'security'
@@ -90,6 +92,13 @@ export interface ExecutionContext {
 
   /** Structured logging */
   log(level: 'info' | 'warn' | 'error', message: string): void;
+
+  /**
+   * Call an MCP tool by name. Optional — only available when an MCP server
+   * is configured (e.g., SonarQube MCP server). Returns the tool's JSON response.
+   * Undefined when no MCP server is connected.
+   */
+  mcpCall?(toolName: string, args: Record<string, unknown>): Promise<unknown>;
 }
 
 // ─── Tool Definition ────────────────────────────────────────────

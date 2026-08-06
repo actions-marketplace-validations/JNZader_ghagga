@@ -9,14 +9,14 @@
  *   ghagga status                  Show current auth and config
  *   ghagga logout                  Clear stored credentials
  *
- * After "ghagga login", reviews use GitHub Models (gpt-4o-mini) for free.
+ * After "ghagga login", reviews use the gateway provider (model: auto).
  * You can override with --provider, --model, --api-key for other providers.
  *
  * Environment variables (override stored config):
  *   GHAGGA_API_KEY          API key for the LLM provider
- *   GHAGGA_PROVIDER         LLM provider: anthropic, openai, google, github, ollama, qwen
+ *   GHAGGA_PROVIDER         LLM provider: gateway, cli-bridge, ollama
  *   GHAGGA_MODEL            Model identifier
- *   GITHUB_TOKEN            GitHub token (fallback for github provider)
+ *   GITHUB_TOKEN            GitHub token (fallback auth for gateway / cli-bridge)
  *   GHAGGA_MEMORY_BACKEND   Memory backend: sqlite (default) or engram
  */
 
@@ -28,14 +28,20 @@ import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import type { LLMProvider, ReviewMode } from 'ghagga-core';
 import { DEFAULT_MODELS } from 'ghagga-core';
+import { auditCommand } from './commands/audit.js';
+import { dismissCommand } from './commands/dismiss.js';
+import { feedbackCommand } from './commands/feedback.js';
 import { healthCommand } from './commands/health.js';
 import { hooksCommand } from './commands/hooks/index.js';
+import { indexCommand } from './commands/index-cmd.js';
 import { loginCommand } from './commands/login.js';
 import { logoutCommand } from './commands/logout.js';
 import { memoryCommand } from './commands/memory/index.js';
 import { reviewCommand } from './commands/review.js';
 import { statusCommand } from './commands/status.js';
+import { triageCommand } from './commands/triage.js';
 import { getStoredToken, loadConfig } from './lib/config.js';
+import { isLegacyProvider } from './lib/providers.js';
 import * as tui from './ui/tui.js';
 
 // Read version from package.json at runtime (no hardcoded strings)
@@ -112,6 +118,10 @@ program
   .option('--enable-tool <name>', 'Force-enable a specific tool (repeatable)', collect, [])
   .option('--list-tools', 'List all available analysis tools and exit')
   .option('--no-memory', 'Disable review memory')
+  .option(
+    '--no-blast-radius',
+    'Disable blast-radius filtering (auto-enabled when .ghagga/graph.json exists)',
+  )
   .option('-c, --config <path>', 'Path to .ghagga.json config file')
   .option('-v, --verbose', 'Show detailed progress during review')
   .option('--staged', 'Review only staged changes (for pre-commit hooks)')
@@ -120,8 +130,25 @@ program
   .option('--quick', 'Static analysis only — skip LLM review')
   .option('--enhance', 'Enable AI-powered post-analysis enhancement')
   .option(
+    '--pr <number>',
+    'Post (idempotently upsert) the review summary as a comment on a GitHub PR',
+  )
+  .option(
+    '--mr <number>',
+    'Post (idempotently upsert) the review summary as a comment on a GitLab MR',
+  )
+  .option(
+    '--pr-soft-fail',
+    'Make a failed --pr/--mr post-back non-blocking (warn + keep exit 0 instead of failing the job)',
+  )
+  .option(
     '--issue <target>',
     'Create/update a GitHub issue with review results (use "new" or issue number)',
+  )
+  .option('--lenses <names>', 'Comma-separated lens names for fan-out mode (e.g., "security,wcag")')
+  .option(
+    '--lens-dir <path>',
+    'Path to custom lens definitions directory (default: .ghagga/lenses/)',
   )
   .option(
     '--memory-backend <type>',
@@ -134,40 +161,72 @@ program
     const storedToken = getStoredToken();
 
     // Priority: CLI flag > env var > stored config
+    let providerFromStoredConfig = false;
     if (!options.provider) {
-      options.provider = config.defaultProvider ?? 'github';
+      options.provider = config.defaultProvider ?? 'gateway';
+      providerFromStoredConfig = true;
     }
 
+    let modelFromStoredConfig = false;
     if (!options.model) {
       options.model = config.defaultModel ?? undefined;
+      modelFromStoredConfig = options.model !== undefined;
     }
 
-    // Auto-resolve API key: CLI flag > env var > GITHUB_TOKEN > stored token
+    // ── Read-time migration: legacy provider stored by an old login ──
+    // Only applies to STORED CONFIG values — explicit --provider flags and
+    // env vars still fail loudly below so the user fixes their invocation.
+    if (providerFromStoredConfig && isLegacyProvider(options.provider)) {
+      const migrationWarning =
+        `⚠️  Stored provider '${options.provider}' is no longer supported — using 'gateway' instead.\n` +
+        `   Run "ghagga login" again to refresh your saved config.`;
+      // When machine output (--output) is requested, stdout is reserved for
+      // SARIF/JSON — route this diagnostic to stderr to keep stdout clean.
+      if (options.output) {
+        console.error(migrationWarning);
+      } else {
+        tui.log.warn(migrationWarning);
+      }
+      options.provider = 'gateway';
+      if (modelFromStoredConfig) {
+        // Stored model (e.g. 'gpt-4o-mini') belongs to the legacy provider —
+        // drop it so the gateway default ('auto') applies.
+        options.model = undefined;
+      }
+    }
+
+    // Auto-resolve API key: CLI flag > env var > stored token (gateway/cli-bridge)
     if (!options.apiKey) {
-      if (options.provider === 'github') {
-        options.apiKey = process.env.GITHUB_TOKEN ?? storedToken ?? undefined;
+      if (options.provider === 'gateway' || options.provider === 'cli-bridge') {
+        options.apiKey = storedToken ?? undefined;
       }
     }
 
     // ── Validate mode ─────────────────────────────────────────
-    const validModes: ReviewMode[] = ['simple', 'workflow', 'consensus'];
+    const validModes: ReviewMode[] = ['simple', 'workflow', 'consensus', 'fan-out'];
     if (!validModes.includes(options.mode as ReviewMode)) {
       tui.log.error(`❌ Invalid mode "${options.mode}". Choose from: ${validModes.join(', ')}`);
       process.exit(1);
     }
 
-    // ── Validate provider ─────────────────────────────────────
-    const validProviders: LLMProvider[] = [
-      'anthropic',
-      'openai',
-      'google',
-      'github',
-      'ollama',
-      'qwen',
-    ];
-    if (!validProviders.includes(options.provider as LLMProvider)) {
+    // ── Validate / migrate provider ───────────────────────────
+    const currentProviders: LLMProvider[] = ['gateway', 'cli-bridge', 'ollama'];
+
+    // Explicit legacy values (--provider flag / env var) are a hard error.
+    // Stored-config legacy values were already remapped above.
+    if (isLegacyProvider(options.provider)) {
       tui.log.error(
-        `❌ Invalid provider "${options.provider}". Choose from: ${validProviders.join(', ')}`,
+        `\n❌ Provider '${options.provider}' is no longer supported directly.\n` +
+          `  → Set --provider gateway and configure credentials in mcp-llm-bridge.\n` +
+          `  → See: https://github.com/JNZader/mcp-llm-bridge\n\n` +
+          `  Or use --provider cli-bridge for local CLI tools (Claude Code, OpenCode, Copilot).\n`,
+      );
+      process.exit(1);
+    }
+
+    if (!currentProviders.includes(options.provider as LLMProvider)) {
+      tui.log.error(
+        `❌ Invalid provider "${options.provider}". Choose from: ${currentProviders.join(', ')}`,
       );
       process.exit(1);
     }
@@ -196,18 +255,50 @@ program
       outputFormat = options.format as 'json' | 'markdown';
     }
 
-    // ── Validate API key (not required for ollama or --quick mode) ──
-    if (!options.apiKey && options.provider !== 'ollama' && !options.quick) {
+    // ── Validate API key ──────────────────────────────────────
+    // ollama, cli-bridge, and gateway (when self-hosted) don't require a key.
+    const noKeyRequired =
+      options.provider === 'ollama' ||
+      options.provider === 'cli-bridge' ||
+      options.provider === 'gateway';
+
+    if (!options.apiKey && !noKeyRequired && !options.quick) {
       tui.log.error('❌ No API key available.\n');
-      tui.log.error('   Quick fix: run "ghagga login" to authenticate with GitHub (free!)');
+      tui.log.error('   Quick fix: run "ghagga login" to authenticate.');
       tui.log.error('   Or pass --api-key <key> or set GHAGGA_API_KEY.');
-      tui.log.error('   Or use --provider ollama for local models (no key needed).\n');
+      tui.log.error('   Or use --provider ollama / --provider cli-bridge for key-free review.\n');
       process.exit(1);
     }
 
-    // Ollama doesn't need an API key — use a placeholder
+    // Ollama doesn't need an API key — use a placeholder so the pipeline doesn't error
     if (options.provider === 'ollama' && !options.apiKey) {
       options.apiKey = 'ollama';
+    }
+
+    // ── Validate --pr / --mr (mutually exclusive positive ints) ──
+    if (options.pr != null && options.mr != null) {
+      tui.log.error('❌ --pr and --mr are mutually exclusive. Use one or the other.');
+      process.exit(1);
+    }
+
+    let prNumber: number | undefined;
+    if (options.pr != null) {
+      const parsed = Number.parseInt(options.pr, 10);
+      if (Number.isNaN(parsed) || parsed <= 0) {
+        tui.log.error(`❌ Invalid --pr "${options.pr}". Provide a positive PR number.`);
+        process.exit(1);
+      }
+      prNumber = parsed;
+    }
+
+    let mrNumber: number | undefined;
+    if (options.mr != null) {
+      const parsed = Number.parseInt(options.mr, 10);
+      if (Number.isNaN(parsed) || parsed <= 0) {
+        tui.log.error(`❌ Invalid --mr "${options.mr}". Provide a positive MR number.`);
+        process.exit(1);
+      }
+      mrNumber = parsed;
     }
 
     // ── Resolve model default ─────────────────────────────────
@@ -225,6 +316,7 @@ program
       trivy: options.trivy,
       cpd: options.cpd,
       memory: options.memory,
+      blastRadius: options.blastRadius,
       memoryBackend: options.memoryBackend as 'sqlite' | 'engram' | undefined,
       config: options.config,
       verbose: options.verbose ?? false,
@@ -234,9 +326,14 @@ program
       quick: options.quick ?? false,
       enhance: options.enhance ?? false,
       issue: options.issue,
+      pr: prNumber,
+      mr: mrNumber,
+      prSoftFail: options.prSoftFail ?? false,
       disableTools: options.disableTool ?? [],
       enableTools: options.enableTool ?? [],
       listTools: options.listTools ?? false,
+      lenses: options.lenses,
+      lensDir: options.lensDir,
     });
   });
 
@@ -256,9 +353,92 @@ program
     });
   });
 
+// ─── Audit ──────────────────────────────────────────────────────
+
+program
+  .command('audit')
+  .description('Full-project security and code-quality audit')
+  .argument('[path]', 'Path to the repository', '.')
+  .option('--quick', 'Static analysis only — skip LLM audit')
+  .option(
+    '-p, --provider <provider>',
+    'LLM provider (auto-detected from login)',
+    process.env.GHAGGA_PROVIDER,
+  )
+  .option('--model <model>', 'LLM model identifier', process.env.GHAGGA_MODEL)
+  .option('--api-key <key>', 'LLM provider API key', process.env.GHAGGA_API_KEY)
+  .option('-o, --output <format>', 'Output format: text | json')
+  .option('--save', 'Persist audit result to history file')
+  .action(async (path: string, options: AuditCommandOptions) => {
+    await auditCommand(path, {
+      quick: options.quick ?? false,
+      provider: options.provider,
+      model: options.model,
+      apiKey: options.apiKey,
+      output: options.output,
+      save: options.save ?? false,
+    });
+  });
+
+// ─── Index ──────────────────────────────────────────────────────
+
+program
+  .command('index')
+  .description(
+    'Build the dependency graph consumed by blast-radius/review (.ghagga/graph.json). ' +
+      'SCIP-backed cross-file resolution across 8 languages: stable — Go, TypeScript/JavaScript, ' +
+      'Rust (captured fixtures, CI-validated); Python is stable (entry shipped, fixture capture ' +
+      'deferred — scip-python 0.6.6 emits 0 docs in some environments); heavy — Java, Kotlin ' +
+      '(scip-java needs a Maven/Gradle build); experimental — C# (scip-dotnet), PHP (scip-php). ' +
+      'Detects language markers at ANY depth (default 4 levels below repo root; override with ' +
+      '--marker-depth), not just repo root — each marker ' +
+      'directory is indexed independently and merged into one repo-relative graph (a Go marker ' +
+      'in apps/backend and another in services/worker both get indexed; two same-language marker ' +
+      "dirs never clobber each other's output). Vendored-tool directories (.tools, .ghagga, " +
+      '.worktrees, node_modules, vendor, .git, etc.) are always skipped. A marker nested deeper ' +
+      'than the depth bound is silently not detected — this is a known limitation, not a bug. ' +
+      'Per-marker-directory indexer runs are capped at 25 by ' +
+      'default (cheaper/stabler indexers run first, root-first within a maturity tier) — beyond ' +
+      'the cap, a warning names the skipped directories. scip-typescript is the one exception: ' +
+      'its own --infer-tsconfig walk already recursively discovers every nested TS/JS package ' +
+      'from repo root, so it always runs ONCE at repo root rather than once per nested marker dir. ' +
+      'A missing indexer/toolchain for a detected language warns and skips it rather than failing ' +
+      'the whole run; use --fallback-regex as the escape hatch when no language could be SCIP-indexed.',
+  )
+  .argument('[path]', 'Path to the repository', '.')
+  .option('--out <path>', 'Output path for graph.json, relative to the target repo')
+  .option(
+    '--fallback-regex',
+    'Use the regex-based indexer when no detected language could be SCIP-indexed',
+  )
+  .option(
+    '--marker-depth <n>',
+    'Maximum depth (repo root = 0) to walk when detecting nested language markers (positive integer, default: 4)',
+  )
+  .action(
+    async (
+      path: string,
+      options: { out?: string; fallbackRegex?: boolean; markerDepth?: string },
+    ) => {
+      await indexCommand(path, options);
+    },
+  );
+
 // ─── Memory ─────────────────────────────────────────────────────
 
 program.addCommand(memoryCommand);
+
+// ─── Triage ─────────────────────────────────────────────────────
+
+program.addCommand(triageCommand);
+
+// ─── Dismiss ─────────────────────────────────────────────────────
+
+program.addCommand(dismissCommand);
+
+// ─── Feedback ────────────────────────────────────────────────────
+
+program.addCommand(feedbackCommand);
 
 // ─── Hooks ──────────────────────────────────────────────────────
 
@@ -279,6 +459,8 @@ interface ReviewCommandOptions {
   trivy: boolean;
   cpd: boolean;
   memory: boolean;
+  /** `--no-blast-radius` sets this to `false`; absent flag leaves it `true` (Commander negated-option default). */
+  blastRadius: boolean;
   memoryBackend?: string;
   config?: string;
   verbose: boolean;
@@ -290,8 +472,24 @@ interface ReviewCommandOptions {
   enhance?: boolean;
   // Issue export (Phase 6)
   issue?: string;
+  // PR/MR post-back (Phase 3/4: forge-agnostic)
+  pr?: string;
+  mr?: string;
+  prSoftFail?: boolean;
   // Extensible tool system flags (Phase 7)
   disableTool: string[];
   enableTool: string[];
   listTools?: boolean;
+  // Pluggable review lenses (fan-out mode)
+  lenses?: string;
+  lensDir?: string;
+}
+
+interface AuditCommandOptions {
+  quick?: boolean;
+  provider?: string;
+  model?: string;
+  apiKey?: string;
+  output?: string;
+  save?: boolean;
 }

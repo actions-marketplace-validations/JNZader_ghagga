@@ -17,7 +17,7 @@ GHAGGA is a multi-agent AI code reviewer that analyzes your code changes using L
 |------|-------|-------|-----------|
 | **simple** | ~2s | Single-pass review | 1 |
 | **workflow** | ~15s | 5 specialist agents + synthesis | 6 |
-| **consensus** | ~7s | For/against/neutral voting | 3 |
+| **consensus** | ~7s | Same model, three perspectives + algorithmic vote | 3 |
 
 ## Quick Start
 
@@ -277,6 +277,6 @@ MIT
 ## Links
 
 - [GitHub Repository](https://github.com/JNZader/ghagga)
-- [Full CLI Guide](https://jnzader.github.io/ghagga/docs/#/cli) — Complete setup guide with troubleshooting
-- [Documentation](https://jnzader.github.io/ghagga/docs/)
-- [Landing Page](https://jnzader.github.io/ghagga/)
+- [Full CLI Guide](https://ghagga.javierzader.com/docs/#/cli) — Complete setup guide with troubleshooting
+- [Documentation](https://ghagga.javierzader.com/docs/)
+- [Landing Page](https://ghagga.javierzader.com/)

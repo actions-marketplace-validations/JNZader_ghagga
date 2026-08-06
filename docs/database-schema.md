@@ -124,7 +124,13 @@ Individual observations extracted from reviews.
 - `idx_observations_type` on `type`
 - `idx_observations_content_hash` on `content_hash`
 
-A `tsvector` column and GIN index are added via raw SQL migration (`migrations/0001_add_tsvector.sql`) for full-text search.
+**Hidden columns** (added via raw SQL migration `packages/db/drizzle/_custom_tsvector.sql` -- the underscore prefix keeps drizzle-kit from clobbering it on future `generate` runs, since drizzle-kit only manages numerically-prefixed files):
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `search_observations` | tsvector | Auto-generated full-text search vector from `title` and `content` |
+
+A **GIN index** on `search_observations` enables fast full-text search. A **database trigger** (`tsvector_update_trigger`) automatically regenerates the `search_observations` column on INSERT and UPDATE, combining the `title` (weight A) and `content` (weight B) fields. Queries use `ts_rank()` to order results by relevance.
 
 > **Idempotent migrations**: All custom SQL migrations use `IF NOT EXISTS` / `DROP ... IF EXISTS` guards, making them safe to re-execute without errors.
 
@@ -142,6 +148,8 @@ Maps GitHub users to installations. Used by auth middleware to auto-discover whi
 
 **Indexes**: `idx_user_mappings_github_user` on `github_user_id`
 
+---
+
 ## Shared Types
 
 ### DbProviderChainEntry
@@ -150,7 +158,7 @@ Each entry in a `provider_chain` JSONB column. Encrypted API keys are stored per
 
 ```typescript
 interface DbProviderChainEntry {
-  provider: 'anthropic' | 'openai' | 'google' | 'github' | 'qwen';
+  provider: 'anthropic' | 'openai' | 'google' | 'github' | 'qwen' | 'groq' | 'cerebras' | 'deepseek' | 'openrouter';
   model: string;
   encryptedApiKey: string | null; // null for GitHub Models (uses session token)
 }

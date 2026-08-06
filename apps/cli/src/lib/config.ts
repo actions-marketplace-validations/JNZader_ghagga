@@ -18,11 +18,30 @@ export interface GhaggaCliConfig {
   /** GitHub username (fetched after login) */
   githubLogin?: string;
 
+  /**
+   * GitLab Personal/Project/Group Access Token (PAT). SEPARATE from the GitHub
+   * token: a GitHub token MUST NOT be used against GitLab. Resolved by the `--mr`
+   * post-back AFTER env GITLAB_TOKEN / GL_TOKEN.
+   */
+  gitlabToken?: string;
+
   /** Default LLM provider */
   defaultProvider?: string;
 
   /** Default model for the provider */
   defaultModel?: string;
+
+  /**
+   * Embedding provider config overrides (design D2). Config-file keys take
+   * precedence over the matching `EMBEDDING_*` env vars — see
+   * `resolveCliEmbeddingConfig` in `./embedding.js`.
+   */
+  embeddingProvider?: string;
+  embeddingModel?: string;
+  embeddingBaseUrl?: string;
+  embeddingApiKey?: string;
+  embeddingDimension?: number;
+  embeddingCandidateK?: number;
 }
 
 // ─── Paths ──────────────────────────────────────────────────────
@@ -65,10 +84,13 @@ export function saveConfig(config: GhaggaCliConfig): void {
   const configPath = getConfigPath();
 
   if (!existsSync(configDir)) {
-    mkdirSync(configDir, { recursive: true });
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
   }
 
-  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf-8');
+  writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, {
+    encoding: 'utf-8',
+    mode: 0o600,
+  });
 }
 
 /**
@@ -92,6 +114,16 @@ export function isLoggedIn(): boolean {
 export function getStoredToken(): string | null {
   const config = loadConfig();
   return config.githubToken ?? null;
+}
+
+/**
+ * Get the stored GitLab token, or null if none. SEPARATE from
+ * {@link getStoredToken} (GitHub): the `--mr` post-back must never authenticate
+ * to GitLab with a GitHub token.
+ */
+export function getStoredGitLabToken(): string | null {
+  const config = loadConfig();
+  return config.gitlabToken ?? null;
 }
 
 /**

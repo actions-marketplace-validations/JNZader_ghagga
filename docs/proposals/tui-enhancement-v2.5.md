@@ -5,6 +5,8 @@
 **Related**: [Product Strategy v2.5](product-strategy-v2.5.md)
 **Inspired by**: [RepoCheckAI](https://github.com/glaucia86/repocheckai)
 
+> Historical proposal: kept for context. Parts of this document informed shipped v2.5 work, but it is not the canonical source for current behavior.
+
 ---
 
 ## Context
@@ -157,7 +159,7 @@ Add a step counter to the spinner messages in verbose mode:
 [2/7] 📄 Parsing diff (42 files, 12 filtered)...
 [3/7] 🧩 Detecting stacks: TypeScript, Python
 [4/7] 📊 Token budget: 45,000 / 128,000
-[5/7] 🛡️ Running static analysis (15 tools)...
+[5/7] 🛡️ Running static analysis (16 tools)...
 [6/7] 🤖 AI review (workflow mode, 5 agents)...
 [7/7] 📋 Merging findings (18 total)...
 ```

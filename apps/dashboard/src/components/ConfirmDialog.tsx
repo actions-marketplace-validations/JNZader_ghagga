@@ -79,8 +79,10 @@ export function ConfirmDialog({
   }, [open, countdownSeconds, secondsRemaining]);
 
   // ── Escape key handling ───────────────────────────────────────
+  // `HTMLElement` covers both the dialog `<div>` and the backdrop `<button>` —
+  // both attach this handler.
   const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLDivElement>) => {
+    (e: KeyboardEvent<HTMLElement>) => {
       if (e.key === 'Escape' && !isLoading) {
         onCancel();
       }
@@ -107,13 +109,29 @@ export function ConfirmDialog({
   }
 
   return createPortal(
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
-    <div className="fixed inset-0 z-50 flex items-center justify-center" onKeyDown={handleKeyDown}>
-      {/* Backdrop */}
-      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
-      <div
+    // Outer wrapper handles backdrop positioning + Escape key delegation.
+    // It is NOT the dialog itself — the inner div carries role="dialog".
+    // `role="presentation"` keeps the wrapper out of the a11y tree so screen
+    // readers only announce a single dialog (fixes dual-role ARIA violation).
+    // onKeyDown here catches Escape bubbling from ANY focused child (dialog,
+    // inputs, backdrop) regardless of which element holds focus — moving it to a
+    // single interactive child would miss Escape from siblings. The interactive
+    // affordances (close button, dialog) are real elements with proper roles, so
+    // this presentation wrapper is intentionally non-interactive to the a11y tree.
+    // biome-ignore lint/a11y/noStaticElementInteractions: presentation wrapper does Escape delegation only, see above
+    <div
+      role="presentation"
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      onKeyDown={handleKeyDown}
+    >
+      {/* Backdrop — acts as a dismiss button for keyboard/mouse */}
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label="Close dialog"
         className="absolute inset-0 bg-black/60"
         onClick={handleBackdropClick}
+        onKeyDown={handleKeyDown}
         data-testid="confirm-backdrop"
       />
 
@@ -124,7 +142,7 @@ export function ConfirmDialog({
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
         tabIndex={-1}
-        className="relative z-10 w-full max-w-md rounded-lg border border-surface-border bg-surface-card p-6 shadow-xl focus:outline-none"
+        className="relative z-10 w-full max-w-md rounded-lg border border-surface-border bg-surface-card p-6 shadow-xl focus:outline-hidden"
       >
         <h2 id="confirm-dialog-title" className="text-lg font-semibold text-text-primary">
           {title}

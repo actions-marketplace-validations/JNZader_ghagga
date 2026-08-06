@@ -2,7 +2,7 @@
 
 > **AI-Powered Multi-Agent Code Review**
 
-GHAGGA is a code review tool that posts intelligent comments on your Pull Requests. It combines LLM analysis with up to 15 static analysis tools and a project memory system that learns across reviews.
+GHAGGA is a code review tool that posts intelligent comments on your Pull Requests. It combines LLM analysis with up to 16 static analysis tools and a project memory system that learns across reviews.
 
 ## New Here? Start with Your Guide
 
@@ -27,10 +27,10 @@ GHAGGA is a code review tool that posts intelligent comments on your Pull Reques
 
 | Feature | Description |
 |---------|-------------|
-| **3 Review Modes** | Simple (single LLM), Workflow (5 specialist agents), Consensus (multi-model voting) |
-| **15 Static Analysis Tools** | Semgrep, Trivy, CPD, Gitleaks, ShellCheck, markdownlint, Lizard + 8 auto-detect tools — zero tokens |
-| **Delegated Runner** | Static analysis runs on user-owned GitHub Actions runners (7GB RAM, free for public repos) |
-| **Project Memory** | Learns patterns, decisions, and bug fixes across reviews (PostgreSQL + tsvector FTS for Server / SQLite + FTS5 for CLI & Action) |
+| **3 Review Modes** | Simple (single LLM), Workflow (5 specialist agents), Consensus (same model, three perspectives + algorithmic vote) |
+| **16 Static Analysis Tools** | Semgrep, Trivy, CPD, Gitleaks, ShellCheck, markdownlint, Lizard + 9 auto-detect tools — zero tokens |
+| **Inline Static-Analysis Workflow** | Server injects `.github/workflows/ghagga.yml` into each target repo and dispatches it — no separate runner repo to provision |
+| **Project Memory** | Learns patterns, decisions, and bug fixes across reviews. 3 backends: PostgreSQL + tsvector (Server), SQLite + FTS5 (CLI & Action), Engram (optional cross-tool sharing) |
 | **Multi-Provider** | 6 providers: GitHub Models (free), Anthropic, OpenAI, Google, Ollama (local), Qwen (Alibaba) — bring your own key |
 | **3 Distribution Modes** | SaaS, GitHub Action, CLI |
 | **Comment Trigger** | Type `ghagga review` on any PR to re-trigger a review on demand |
@@ -47,18 +47,18 @@ graph TB
     CLI["CLI"]
   end
 
-  subgraph Runner["Delegated Runner"]
-    RunnerRepo["ghagga-runner"]
+  subgraph Inline["Inline workflow (per repo)"]
+    InlineYml[".github/workflows/ghagga.yml"]
   end
 
   subgraph Core["@ghagga/core"]
-    SA["Static Analysis<br/>15-tool registry"]
+    SA["Static Analysis<br/>16-tool registry"]
     Agents["AI Agents<br/>Simple · Workflow · Consensus"]
     Memory["Memory<br/>Search · Persist · Privacy"]
   end
 
-  Server -- "dispatch" --> RunnerRepo
-  RunnerRepo -- "callback" --> Server
+  Server -- "inject + workflow_dispatch" --> InlineYml
+  InlineYml -- "HMAC callback" --> Server
   Server --> Core
   Action --> Core
   CLI --> Core
@@ -69,14 +69,8 @@ The review engine (`@ghagga/core`) is distribution-agnostic. Each app is a thin 
 ## Quick Links
 
 - **[Quick Start](quick-start.md)** — Get running in 5 minutes
-- **[Health Check](health.md)** — Project health scoring, trends, and recommendations
-- **[Architecture](architecture.md)** — Core + Adapters pattern explained
-- **[Review Modes](review-modes.md)** — Simple, Workflow, and Consensus
-- **[Static Analysis](static-analysis.md)** — 15 tools, tier system, per-tool control
-- **[Runner Architecture](runner-architecture.md)** — Delegated static analysis on GitHub Actions
-- **[Memory System](memory-system.md)** — How GHAGGA learns across reviews
-- **[Configuration](configuration.md)** — Environment variables and config files
-- **[GitHub Action](github-action.md)** — The fastest way to get started
+- **[SaaS Guide](saas-getting-started.md)** — GitHub App setup (easiest)
+- **[GitHub Action](github-action.md)** — CI/CD integration
 - **[CLI](cli.md)** — Review local changes from your terminal
 - **[Self-Hosted](self-hosted.md)** — Full deployment with Docker
 

@@ -6,8 +6,7 @@
  * would be overkill.
  */
 
-import { generateText } from 'ai';
-import { createModel } from '../providers/index.js';
+import type { GenerateTextFn } from '../providers/generate-fn.js';
 import type {
   FindingSeverity,
   FindingSource,
@@ -23,6 +22,10 @@ import {
   buildReviewLevelInstruction,
   REVIEW_CALIBRATION,
   SIMPLE_REVIEW_SYSTEM,
+  STATIC_ANALYSIS_UNTRUSTED_LABEL,
+  UNTRUSTED_CONTENT_POLICY,
+  wrapUntrusted,
+  wrapUntrustedDiff,
 } from './prompts.js';
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -37,6 +40,16 @@ export interface SimpleReviewInput {
   stackHints: string;
   reviewLevel: ReviewLevel;
   onProgress?: ProgressCallback;
+
+  /** Optional SOLID/boundary checklist context for structured review. */
+  checklistContext?: string;
+
+  /**
+   * Optional backend-agnostic generation function.
+   * When provided, used instead of createModel + generateTextWithTimeout.
+   * When omitted, one is created internally from provider/model/apiKey (backward compat).
+   */
+  generateFn?: GenerateTextFn;
 }
 
 // ─── Response Parsing ───────────────────────────────────────────
@@ -63,9 +76,17 @@ function parseReviewResponse(
   const status: ReviewStatus =
     (statusMatch?.[1]?.toUpperCase() as ReviewStatus) ?? 'NEEDS_HUMAN_REVIEW';
 
-  // Extract SUMMARY
+  // Extract SUMMARY — fall back to raw text if structured format is not found
   const summaryMatch = /SUMMARY:\s*(.+?)(?:\n(?:FINDINGS:|$))/is.exec(text);
-  const summary = summaryMatch?.[1]?.trim() ?? 'Review completed but summary could not be parsed.';
+  let summary: string;
+  if (summaryMatch?.[1]?.trim()) {
+    summary = summaryMatch[1].trim();
+  } else {
+    // CLI providers (e.g., copilot) may return raw text without SUMMARY: markers.
+    // Use the raw text (minus any FINDINGS block) as the summary instead of a generic error.
+    const withoutFindings = text.replace(/FINDINGS:[\s\S]*$/i, '').trim();
+    summary = withoutFindings || 'Review completed but summary could not be parsed.';
+  }
 
   // Extract FINDINGS
   const findings = parseFindingsBlock(text);
@@ -145,58 +166,81 @@ function parseFindingsBlock(text: string): ReviewFinding[] {
  * @returns Parsed ReviewResult
  */
 export async function runSimpleReview(input: SimpleReviewInput): Promise<ReviewResult> {
-  const { diff, provider, model, apiKey, staticContext, memoryContext, stackHints, reviewLevel } =
-    input;
+  const { diff, provider, model, staticContext, memoryContext, stackHints, reviewLevel } = input;
   const emit = input.onProgress ?? (() => {});
+
+  // Resolve the generation function (required — must be injected by pipeline)
+  const generateFn = input.generateFn;
+  if (!generateFn) {
+    throw new Error(
+      'runSimpleReview requires generateFn to be provided in SimpleReviewInput. ' +
+        'The pipeline must resolve the backend and pass a GenerateTextFn instance.',
+    );
+  }
 
   const startTime = Date.now();
 
-  // Build the full system prompt with all context layers
+  // Build the full system prompt with all context layers.
+  // staticContext is attacker-influenceable tool/data output → fence as untrusted.
+  // memoryContext is fenced inside buildMemoryContext().
   const system = [
     SIMPLE_REVIEW_SYSTEM,
-    staticContext,
+    UNTRUSTED_CONTENT_POLICY,
+    staticContext ? wrapUntrusted(STATIC_ANALYSIS_UNTRUSTED_LABEL, staticContext) : '',
     buildMemoryContext(memoryContext),
     stackHints,
+    input.checklistContext ?? '',
     buildReviewLevelInstruction(reviewLevel),
     REVIEW_CALIBRATION,
   ]
     .filter(Boolean)
     .join('\n');
 
-  // Build the user prompt with the diff
-  const prompt = `Please review the following code changes:\n\n\`\`\`diff\n${diff}\n\`\`\``;
-
-  const languageModel = createModel(provider, model, apiKey);
+  // Build the user prompt with the diff (wrapped in untrusted-content delimiters)
+  const prompt = `Please review the following code changes:\n\n${wrapUntrustedDiff(diff)}`;
 
   emit({
     step: 'simple-call',
     message: `Calling ${provider}/${model} for single-pass review...`,
   });
 
-  const result = await generateText({
-    model: languageModel,
-    system,
-    prompt,
-    temperature: 0.3,
-  });
+  try {
+    const result = await generateFn(system, prompt);
 
-  const executionTimeMs = Date.now() - startTime;
-  const tokensUsed = (result.usage?.inputTokens ?? 0) + (result.usage?.outputTokens ?? 0);
+    const executionTimeMs = Date.now() - startTime;
 
-  emit({
-    step: 'simple-done',
-    message: `Review complete — ${tokensUsed} tokens, ${(executionTimeMs / 1000).toFixed(1)}s`,
-  });
+    emit({
+      step: 'simple-done',
+      message: `Review complete — ${result.tokensUsed} tokens, ${(executionTimeMs / 1000).toFixed(1)}s`,
+    });
 
-  return parseReviewResponse(
-    result.text,
-    provider,
-    model,
-    tokensUsed,
-    executionTimeMs,
-    memoryContext,
-  );
+    return parseReviewResponse(
+      result.text,
+      result.provider as LLMProvider,
+      result.model,
+      result.tokensUsed,
+      executionTimeMs,
+      memoryContext,
+    );
+  } catch (error) {
+    const executionTimeMs = Date.now() - startTime;
+
+    // Timeout or other failure: fall back to empty AI result (static analysis still applies)
+    emit({
+      step: 'simple-done',
+      message: `LLM failed — falling back to static-analysis-only results: ${error instanceof Error ? error.message : String(error)}`,
+    });
+
+    return parseReviewResponse(
+      'STATUS: NEEDS_HUMAN_REVIEW\nSUMMARY: LLM call failed. Only static analysis results are available.\nFINDINGS:\n',
+      provider,
+      model,
+      0,
+      executionTimeMs,
+      memoryContext,
+    );
+  }
 }
 
 // Re-export the parser for use in workflow and consensus modes
-export { parseReviewResponse, parseFindingsBlock };
+export { parseFindingsBlock, parseReviewResponse };

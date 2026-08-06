@@ -7,7 +7,6 @@
 - Architecture
   - [Core + Adapters](architecture.md)
   - [Review Pipeline](review-pipeline.md)
-  - [Runner Architecture](runner-architecture.md)
   - [Review Modes](review-modes.md)
 
 - Features
@@ -15,7 +14,8 @@
   - [Tool Candidates](static-analysis-candidates.md)
   - [Health Check](health.md)
   - [Memory System](memory-system.md)
-  - [Security](security.md)
+  - [Issue Triage](issue-triage.md)
+  - [Security Policy](security.md)
 
 - Distribution
   - [SaaS (GitHub App)](saas-getting-started.md)
@@ -30,6 +30,6 @@
   - [v1 vs v2](v1-vs-v2.md)
 
 - Links
-  - [Home](https://jnzader.github.io/ghagga/)
-  - [Dashboard](https://jnzader.github.io/ghagga/app/)
+  - [Home](https://ghagga.javierzader.com/)
+  - [Dashboard](https://ghagga.javierzader.com/app/)
   - [GitHub](https://github.com/JNZader/ghagga)

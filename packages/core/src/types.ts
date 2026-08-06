@@ -5,13 +5,27 @@
  * and all distribution adapters (server, CLI, action).
  */
 
+// ─── Re-exports from embed module ──────────────────────────────
+
+export type { EmbeddingProvider, EmbeddingProviderFactory } from './embed.js';
+
 // ─── Review Input ───────────────────────────────────────────────
 
-export type ReviewMode = 'simple' | 'workflow' | 'consensus';
-export type LLMProvider = 'anthropic' | 'openai' | 'google' | 'github' | 'ollama' | 'qwen';
+export type ReviewMode = 'simple' | 'workflow' | 'consensus' | 'diagnostic' | 'fan-out';
 
-/** Providers available in the SaaS dashboard (excludes Ollama) */
-export type SaaSProvider = 'anthropic' | 'openai' | 'google' | 'github' | 'qwen';
+/**
+ * Supported LLM provider modes.
+ * - gateway: delegates to mcp-llm-bridge (recommended for server/action)
+ * - cli-bridge: calls local CLIs directly (Claude, OpenCode, Gemini, Copilot) — CLI only
+ * - ollama: calls local Ollama instance directly (no subprocess, OpenAI-compatible)
+ *
+ * Migration: 'anthropic', 'openai', 'google', etc. → set provider: 'gateway' and
+ * configure credentials in mcp-llm-bridge vault.
+ */
+export type LLMProvider = 'gateway' | 'cli-bridge' | 'ollama';
+
+/** Providers available in the SaaS dashboard */
+export type SaaSProvider = 'gateway' | 'cli-bridge' | 'ollama';
 
 export type ReviewLevel = 'soft' | 'normal' | 'strict';
 
@@ -31,6 +45,20 @@ export interface ProviderChainEntry {
 
   /** Decrypted API key (populated at runtime by the server, never stored in plaintext) */
   apiKey: string;
+
+  /** OpenCode model in `provider/model` format. Only meaningful when provider === 'cli-bridge'. */
+  cliModel?: string;
+
+  /** Gateway base URL. Only meaningful when provider === 'gateway'. */
+  gatewayUrl?: string;
+
+  /**
+   * Bridge-side provider id to route to (e.g. 'codex-cli', 'cli-claude').
+   * Forwarded to the gateway as `provider`, which short-circuits the bridge's
+   * model-based routing and selects this provider directly regardless of model.
+   * Only meaningful when provider === 'gateway'.
+   */
+  targetProvider?: string;
 }
 
 /**
@@ -95,6 +123,12 @@ export interface ReviewInput {
   memoryStorage?: MemoryStorage;
 
   /**
+   * Base URL for the local Ollama instance.
+   * Only meaningful when provider === 'ollama'. Defaults to 'http://localhost:11434/v1'.
+   */
+  ollamaBaseURL?: string;
+
+  /**
    * Optional progress callback for verbose/debug output.
    * Called at each pipeline step with status updates.
    */
@@ -107,8 +141,70 @@ export interface ReviewInput {
    */
   precomputedStaticAnalysis?: StaticAnalysisResult;
 
+  /**
+   * Graph loader for blast-radius analysis.
+   * Injected by the caller (SaaS: GitHubApiGraphLoader, CLI: SQLiteGraphLoader).
+   * When undefined, blast-radius is skipped (current behavior).
+   */
+  graphLoader?: import('./graph/schema.js').GraphLoader;
+
+  /**
+   * The commit SHA the diff's post-image is computed against (the review's
+   * `git rev-parse HEAD` at review time). Used exclusively as the Pillar 0
+   * freshness precondition for symbol-precise blast-radius narrowing
+   * (scip-symbol-exclusion D0) — line-number-based `symbolRanges`
+   * attribution is only valid when the graph was indexed at this SAME
+   * commit. Absent/empty (non-git repo, detached-without-HEAD) ⇒ not
+   * fresh ⇒ narrowing never runs; file-level blast radius is unaffected.
+   */
+  currentHead?: string;
+
+  /**
+   * File content reader for usage analysis.
+   * Injected by the caller to read project source files.
+   * When undefined, function-level usage analysis is skipped.
+   */
+  fileReader?: import('./exploitability/analyzer.js').FileReader;
+
   /** Enable AI-powered post-analysis enhancement. Default: false. */
   enhance?: boolean;
+
+  /**
+   * Code intelligence provider for structural queries via MCP.
+   * Injected by the caller (connects to codedb, repoforge graph, etc.).
+   * When undefined, code intelligence context is skipped (graceful degradation).
+   */
+  codeIntelProvider?: import('./code-intel/types.js').CodeIntelProvider;
+
+  /**
+   * Embedding provider for semantic features (hybrid search, semantic ranking, negative examples).
+   * When undefined, all embedding-dependent features are skipped (graceful degradation).
+   */
+  embeddingProvider?: import('./embed.js').EmbeddingProvider;
+
+  /**
+   * PR author identifier (e.g. GitHub login or git author string).
+   * Used by the author trust scoring feature when features.authorTrust is enabled.
+   * When absent, trust scoring is skipped gracefully.
+   */
+  author?: string;
+
+  /**
+   * Feature flags for intelligence v2 capabilities.
+   * Defaults: hybridSearch/semanticRanking auto-enable when embeddingProvider is set.
+   */
+  features?: {
+    /** Enable hybrid BM25 + semantic vector search. Default: false (auto-enabled when embeddingProvider present). */
+    hybridSearch?: boolean;
+    /** Enable author trust-based finding prioritization. Default: false. */
+    authorTrust?: boolean;
+    /** Enable circuit breaker for LLM cascading failures. Default: true. */
+    circuitBreaker?: boolean;
+    /** Enable semantic re-ranking of findings. Default: false (auto-enabled when embeddingProvider present). */
+    semanticRanking?: boolean;
+    /** Enable negative example filtering (suppress known false positives). Default: false. */
+    negativeExamples?: boolean;
+  };
 }
 
 export interface ReviewSettings {
@@ -123,6 +219,59 @@ export interface ReviewSettings {
   enabledTools?: string[];
   /** Force-disable specific tools (overrides always-on and auto-detect) */
   disabledTools?: string[];
+
+  /** Enable blast-radius analysis using dependency graph. Default: false. */
+  enableBlastRadius?: boolean;
+  /** Max files in blast-radius before falling back to full diff. Default: 50. */
+  maxBlastRadiusFiles?: number;
+  /** Max traversal depth for dependency graph. Default: 3. */
+  traversalDepth?: number;
+
+  /**
+   * Enable symbol-precise blast-radius narrowing (scip-symbol-exclusion).
+   * Opt-in sub-flag under `enableBlastRadius` — Default: false/undefined.
+   * When off (or `enableBlastRadius` is off), `applyBlastRadius` output is
+   * byte-identical to the pre-narrowing behavior; `narrowBySymbols` is
+   * never invoked. Requires a graph with `builtVia` set AND a
+   * EXACT-COMMIT-FRESH graph (see `ReviewInput.currentHead`) to have any
+   * effect — CLI-only (the SaaS/Action paths do not currently populate
+   * `currentHead`).
+   */
+  enableSymbolExclusion?: boolean;
+
+  /** SOLID + boundary conditions review checklist configuration. */
+  checklist?: import('./checklist/types.js').ChecklistConfig;
+
+  /** Enable recursive review loop to validate suggested fixes. Default: false. */
+  enableRecursiveReview?: boolean;
+  /** Max re-review iterations for recursive review. Default: 2. */
+  maxRecursiveIterations?: number;
+
+  /** Lens names to use in fan-out mode (e.g., ["security", "wcag"]). */
+  lenses?: string[];
+  /** Path to directory containing custom lens JSON definitions. Default: .ghagga/lenses/ */
+  lensDir?: string;
+
+  /** Enable bidirectional code-doc validation. Default: false. */
+  enableDocValidation?: boolean;
+
+  /** Enable code intelligence structural context via MCP. Default: false. */
+  enableCodeIntel?: boolean;
+  /** Timeout in ms for code intelligence queries. Default: 5000. */
+  codeIntelTimeout?: number;
+  /** Max tokens for code intelligence context. Default: 1500. */
+  codeIntelMaxTokens?: number;
+  /** Max concurrent LLM calls in workflow/consensus modes. Default: 2. */
+  reviewConcurrency?: number;
+  /** Delay in ms between sequential LLM call batches. Default: 0. */
+  reviewDelayMs?: number;
+
+  /**
+   * Path to the JSONL file for the self-improving review loop.
+   * When set, past feedback is loaded and improvement rules are injected into agent prompts.
+   * Default: undefined (feature disabled).
+   */
+  selfImprovePath?: string;
 }
 
 export interface ReviewContext {
@@ -139,9 +288,37 @@ export interface ReviewContext {
   fileList: string[];
 }
 
+// ─── Hypothesis Types (Diagnostic Mode) ────────────────────────
+
+export type HypothesisConfidence = 'high' | 'medium' | 'low';
+
+/**
+ * A testable hypothesis about a potential bug or issue.
+ * Generated by the diagnostic review mode.
+ */
+export interface Hypothesis {
+  /** Hypothesis identifier (e.g., "H1", "H2") */
+  id: string;
+
+  /** Short description of what might be wrong */
+  title: string;
+
+  /** When/why this would fail — the conditions that trigger the bug */
+  conditions: string;
+
+  /** How to test or verify this hypothesis */
+  verification: string;
+
+  /** Confidence level based on evidence in the diff */
+  confidence: HypothesisConfidence;
+
+  /** Files related to this hypothesis */
+  relatedFiles: string[];
+}
+
 // ─── Review Output ──────────────────────────────────────────────
 
-export type ReviewStatus = 'PASSED' | 'FAILED' | 'NEEDS_HUMAN_REVIEW' | 'SKIPPED';
+export type ReviewStatus = 'PASSED' | 'FAILED' | 'NEEDS_HUMAN_REVIEW' | 'SKIPPED' | 'PARTIAL';
 export type FindingSeverity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export type FindingSource = 'ai' | 'semgrep' | 'trivy' | 'cpd' | (string & {});
 
@@ -169,6 +346,82 @@ export interface ReviewResult {
 
   /** Metadata from the AI enhance pass (present when enhanced === true). */
   enhanceMetadata?: import('./enhance/types.js').EnhanceMetadata;
+
+  /** Diagnostic hypotheses (present when mode === 'diagnostic'). */
+  hypotheses?: Hypothesis[];
+
+  /** Checklist scoring results (present when checklist is enabled). */
+  checklistScore?: import('./checklist/scorer.js').ChecklistScoreResult;
+
+  /** Recursive review report (present when enableRecursiveReview is true). */
+  recursiveReview?: import('./recursive/types.js').RecursiveReviewReport;
+
+  /** Doc-validation results (present when enableDocValidation is true). */
+  docValidation?: import('./doc-validation/types.js').DocValidationResult;
+
+  /**
+   * Code intelligence metadata (present when enableCodeIntel is true).
+   * `filesFailed` augments CodeIntelMetadata to report per-file query
+   * failures (CORE-INTEL-003); optional for backward compatibility.
+   */
+  codeIntelMetadata?: import('./code-intel/types.js').CodeIntelMetadata & {
+    filesFailed?: number;
+  };
+
+  /**
+   * Entity-level semantic diff, computed in the enrich phase over the
+   * FILTERED diff (settled in prepare, NEVER truncated — truncateDiff
+   * writes the separate `truncatedDiff` field), so counts stay honest even
+   * when the prompt diff was cut.
+   *
+   * Consumed by `formatReviewComment` for the "What changed" section.
+   *
+   * Serialization surface (precise truth):
+   *   - NOT persisted: server `saveReview` stores discrete columns + the
+   *     metadata blob, never top-level result fields.
+   *   - NOT on the HTTP API: `toReviewDto` is an explicit pick-list.
+   *   - DOES appear in full-result serializations — `ghagga review
+   *     --format json` (apps/cli review.ts) and the ACP `review-result`
+   *     artifact (acp/adapter.ts) both stringify the entire result. This
+   *     is DELIBERATE (additive-optional field; those consumers already
+   *     own the raw diff) and pinned by tests in apps/cli review.test.ts
+   *     and acp/adapter.test.ts. The CLI JSON output is an observable
+   *     contract — removing/renaming this field is a breaking change there.
+   */
+  semanticDiff?: import('./semantic-diff/index.js').SemanticDiff;
+
+  /**
+   * Pipeline steps that failed but were gracefully degraded. Present whenever
+   * at least one TRACKED step degraded, REGARDLESS of status — a FAILED or
+   * NEEDS_HUMAN_REVIEW review with degraded steps carries it too (only a
+   * PASSED review is downgraded to PARTIAL; see pipeline/finalize.ts).
+   *
+   * NOT exhaustive: a few steps degrade warn-only (call-chain,
+   * negative-examples, self-improve, semantic-diff) and never appear here —
+   * they surface ONLY through `coverageComplete === false`.
+   */
+  failedSteps?: { step: string; error: string }[];
+
+  /**
+   * First-class coverage signal, ORTHOGONAL to the review verdict (`status`):
+   * the verdict says what the review concluded; coverage says how much of the
+   * pipeline actually ran to reach it.
+   *
+   *   - `true`      — every pipeline step ran (full coverage)
+   *   - `false`     — at least one step degraded: either a tracked failure
+   *                   (see `failedSteps`) OR a warn-only degradation
+   *                   (call-chain, negative-examples, self-improve,
+   *                   semantic-diff — internal
+   *                   steps that never enter `failedSteps` and never trigger
+   *                   the PARTIAL downgrade). The verdict stands but was
+   *                   produced with incomplete coverage. `false` with an
+   *                   absent `failedSteps` is therefore VALID: only warn-only
+   *                   steps degraded.
+   *   - `undefined` — not applicable: the pipeline never ran (e.g. SKIPPED
+   *                   early-returns like flood-skip / all-files-filtered,
+   *                   which short-circuit before the finalize phase)
+   */
+  coverageComplete?: boolean;
 }
 
 export interface ReviewFinding {
@@ -204,6 +457,18 @@ export interface ReviewFinding {
 
   /** Reason for AI filtering (present when aiFiltered === true). */
   filterReason?: string;
+
+  /** Exploitability label for CVE findings (present when exploitability analysis runs). */
+  exploitability?: import('./exploitability/types.js').ExploitabilityLabel;
+
+  /** Detailed exploitability analysis (present when exploitability analysis runs). */
+  exploitabilityDetail?: import('./exploitability/types.js').ExploitabilityDetail;
+
+  /** Function-level usage label for CVE findings (present when usage analysis runs). */
+  usageLabel?: import('./exploitability/types.js').UsageLabel;
+
+  /** Detailed usage analysis (present when usage analysis runs). */
+  usageDetail?: import('./exploitability/types.js').UsageDetail;
 }
 
 export interface ReviewMetadata {
@@ -227,6 +492,25 @@ export interface ReviewMetadata {
 
   /** Static analysis tools that were skipped or failed */
   toolsSkipped: string[];
+
+  /** Blast-radius analysis results (present when enableBlastRadius is true). */
+  blastRadius?: import('./graph/schema.js').BlastRadiusMetadata;
+
+  /** Total additions across all diff files. */
+  totalAdditions?: number;
+
+  /** Total deletions across all diff files. */
+  totalDeletions?: number;
+
+  /** List of changed file paths (from the diff, after filtering). */
+  fileList?: string[];
+
+  /**
+   * Models used per specialist/vote (workflow and consensus modes).
+   * Format: ["scope-analysis:anthropic/claude-sonnet-4-20250514", ...]
+   * Useful for debugging multi-provider distribution.
+   */
+  modelsUsed?: string[];
 }
 
 // ─── Static Analysis ────────────────────────────────────────────
@@ -291,6 +575,34 @@ export interface ConsensusVote {
   /** Reasoning for the decision */
   reasoning: string;
 }
+
+// ─── Memory Decay ──────────────────────────────────────────────
+
+/**
+ * Configuration for memory strength decay.
+ * Observations not re-accessed lose strength over time:
+ *   active (strength=1.0) → dormant → decaying → cleared (strength=0.0)
+ */
+export interface DecayConfig {
+  /** Days after last access before decay begins. Default: 7 */
+  dormancyDays: number;
+
+  /** Days over which strength linearly drops from 1.0 to 0.0 (after dormancy). Default: 30 */
+  decayDays: number;
+
+  /** Days after last access at which strength reaches 0.0. Default: 90 */
+  clearanceDays: number;
+
+  /** Minimum strength to include in search results. Default: 0.1 */
+  minStrength: number;
+}
+
+export const DEFAULT_DECAY_CONFIG: DecayConfig = {
+  dormancyDays: 7,
+  decayDays: 30,
+  clearanceDays: 90,
+  minStrength: 0.1,
+};
 
 // ─── Memory Types ───────────────────────────────────────────────
 
@@ -371,6 +683,49 @@ export interface MemoryStorage {
 
   /** Delete all observations, optionally scoped to a project. Returns count of deleted rows. */
   clearObservations(options?: { project?: string }): Promise<number>;
+
+  // ── Backfill (design D6) ────────────────────────────────────────
+  // Optional: only backends with per-row embedding columns (SQLite,
+  // PostgreSQL) implement these. EngramMemoryStorage has no local embedding
+  // storage to backfill and omits them — the backfill script checks for
+  // their presence and errors clearly when a storage lacks support.
+
+  /**
+   * List up to `limit` observations (ordered by id ascending, keyset-paginated
+   * via `afterId`) that need an embedding for the active provider/model.
+   * Always includes NULL-embedding rows; additionally includes rows whose
+   * `embedding_model`/`embedding_dim` don't match the active provider when
+   * `includeMismatched` is true (backfill `--re-embed`, design D6). Returns
+   * the exact `"{title} {content}"` text used at save time (packages/core/src/memory/sqlite.ts `_computeEmbeddingMeta`).
+   */
+  listObservationsNeedingEmbedding?(options: {
+    afterId: number;
+    limit: number;
+    activeModel: string;
+    activeDim: number;
+    includeMismatched: boolean;
+  }): Promise<{ id: number; text: string }[]>;
+
+  /**
+   * Persist a backfilled embedding for a single observation (design D6).
+   * Metadata-only write — does not touch content, `updated_at`, or
+   * `last_accessed_at`.
+   */
+  updateObservationEmbedding?(
+    id: number,
+    embedding: number[],
+    model: string,
+    dim: number,
+  ): Promise<void>;
+
+  /**
+   * Optional durability hook for backends that buffer writes in memory
+   * before an explicit flush (SQLite: export + write to disk). Backends
+   * whose writes are already durable per-statement (PostgreSQL) can omit
+   * this — the backfill script calls it only when present (design D6,
+   * task 6.1 "commits per batch").
+   */
+  flush?(): Promise<void>;
 }
 
 /**
@@ -384,6 +739,17 @@ export interface MemoryObservationRow {
   content: string;
   filePaths: string[] | null;
   severity: string | null;
+
+  /** Decay strength score (0.0–1.0). Present when decay is enabled, undefined otherwise. */
+  strength?: number;
+
+  /**
+   * Backend-native keyword RELEVANCE for this row, normalized to [0,1]
+   * (SQLite bm25 / Postgres ts_rank → saturating map). Telemetry/observability
+   * only — NOT a gate. Undefined on backends that expose no relevance score
+   * (Engram). Issue dedup gates on a separate backend-agnostic keyword overlap.
+   */
+  relevanceScore?: number;
 }
 
 /**
@@ -427,6 +793,135 @@ export interface ListObservationsOptions {
   offset?: number;
 }
 
+// ─── Memory Versioning ─────────────────────────────────────────
+
+/**
+ * A named branch in the memory versioning system.
+ * Observations are scoped to branches, enabling isolated experimentation.
+ */
+export interface MemoryBranch {
+  id: number;
+  name: string;
+  parentId: number | null;
+  createdAt: string; // ISO 8601
+}
+
+/**
+ * A named snapshot capturing the set of observation IDs at a point in time.
+ * Used for rollback operations.
+ */
+export interface MemorySnapshot {
+  id: number;
+  name: string;
+  branchId: number;
+  observationIds: number[];
+  createdAt: string; // ISO 8601
+}
+
+/**
+ * A pair of contradicting observations detected during merge.
+ * Both observations target the same file and category but suggest conflicting actions.
+ */
+export interface Contradiction {
+  observationA: MemoryObservationRow;
+  observationB: MemoryObservationRow;
+  reason: string;
+}
+
+/**
+ * Result of a branch merge operation.
+ */
+export interface MergeResult {
+  /** IDs of observations successfully merged into the target branch. */
+  merged: number[];
+
+  /** Contradictions detected during merge (observations are still merged). */
+  contradictions: Contradiction[];
+}
+
+/**
+ * Configuration for the memory versioning system.
+ */
+export interface VersioningConfig {
+  /** Similarity threshold for contradiction detection (0.0–1.0). Default: 0.5 */
+  contradictionThreshold: number;
+}
+
+export const DEFAULT_VERSIONING_CONFIG: VersioningConfig = {
+  contradictionThreshold: 0.5,
+};
+
+// ─── Intelligence v2 Types ──────────────────────────────────────
+
+export type AuthorTrustTier = 'trusted' | 'standard' | 'new';
+
+export interface AuthorTrustScore {
+  author: string;
+  /** Normalized trust score in the range [0, 1]. */
+  score: number;
+  tier: AuthorTrustTier;
+  commitCount: number;
+  firstSeenDaysAgo: number;
+  lastUpdated: Date;
+}
+
+export interface NegativeExample {
+  /** SHA256(filePath + lineRange + category) — uniquely identifies a suppressed finding location. */
+  findingHash: string;
+  /** SHA256(filePath) — identifies the file context for the suppression. */
+  contextHash: string;
+  category: string;
+  reason?: string;
+  createdAt: Date;
+}
+
+// ─── Audit Types ────────────────────────────────────────────────
+
+export interface AuditInput {
+  /** Path to the repository to audit */
+  repoPath: string;
+
+  /** Pre-formatted static analysis context (findings as string) */
+  staticContext: string;
+
+  /** LLM provider identifier */
+  provider: string;
+
+  /** Model identifier */
+  model: string;
+
+  /** Decrypted API key */
+  apiKey: string;
+
+  /**
+   * Optional backend-agnostic generation function.
+   * When provided, used instead of creating one from provider/model/apiKey.
+   */
+  generateFn?: import('./providers/generate-fn.js').GenerateTextFn;
+
+  /** Optional progress callback for verbose/debug output. */
+  onProgress?: (event: ProgressEvent) => void;
+}
+
+export type AuditStatus = 'completed' | 'no-findings' | 'error';
+
+export interface AuditResult {
+  /** Audit outcome */
+  status: AuditStatus;
+
+  /** Executive report from the LLM auditor */
+  report: string;
+
+  /** Raw static analysis findings passed to the auditor */
+  findings: StaticAnalysisResult;
+
+  /** ISO 8601 timestamp of when the audit ran */
+  timestamp: string;
+
+  /** Error message when status === 'error' */
+  error?: string;
+}
+
 // ─── Configuration Defaults ─────────────────────────────────────
 
 export const DEFAULT_SETTINGS: ReviewSettings = {
@@ -435,17 +930,28 @@ export const DEFAULT_SETTINGS: ReviewSettings = {
   enableCpd: true,
   enableMemory: true,
   customRules: [],
-  ignorePatterns: ['*.md', '*.txt', '.gitignore', 'LICENSE', '*.lock'],
+  ignorePatterns: [
+    '*.md',
+    '*.txt',
+    '.gitignore',
+    'LICENSE',
+    '*.lock',
+    'package-lock.json',
+    'pnpm-lock.yaml',
+    'bun.lockb',
+    'composer.lock',
+    'Gemfile.lock',
+    'Cargo.lock',
+    'poetry.lock',
+    'go.sum',
+  ],
   reviewLevel: 'normal',
   enabledTools: [],
   disabledTools: [],
 };
 
 export const DEFAULT_MODELS: Record<LLMProvider, string> = {
-  anthropic: 'claude-sonnet-4-20250514',
-  openai: 'gpt-4o',
-  google: 'gemini-2.5-flash',
-  github: 'gpt-4o-mini',
-  ollama: 'qwen2.5-coder:7b',
-  qwen: 'qwen-coder-plus',
+  gateway: 'auto',
+  'cli-bridge': 'auto',
+  ollama: 'llama3',
 };

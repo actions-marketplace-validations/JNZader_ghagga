@@ -10,10 +10,9 @@
  * from react-router-dom which handles this automatically.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { REDIRECT_KEY, useAuth } from '@/lib/auth';
-import { fetchGitHubUser } from '@/lib/oauth';
+import { REDIRECT_KEY, safeInternalPath, useAuth } from '@/lib/auth';
 
 // ─── Error Messages ─────────────────────────────────────────────
 
@@ -39,7 +38,21 @@ export function AuthCallback() {
   const [status, setStatus] = useState<'loading' | 'error'>('loading');
   const [errorMessage, setErrorMessage] = useState<string>('');
 
+  // Once-flag making the callback effect idempotent under React StrictMode,
+  // which double-invokes the mount effect (mount → cleanup → mount) in dev.
+  // Without this, the token would be processed twice: a double GitHub API
+  // round-trip, and a redirect bug where the second fire reads REDIRECT_KEY
+  // *after* the first fire removed it, collapsing the destination to '/'.
+  // The flag is set synchronously before any async work; the cleanup must
+  // NOT reset it, otherwise the second mount reprocesses the token.
+  const processedRef = useRef(false);
+
   useEffect(() => {
+    if (processedRef.current) {
+      return;
+    }
+    processedRef.current = true;
+
     const token = searchParams.get('token');
     const error = searchParams.get('error');
 
@@ -62,32 +75,33 @@ export function AuthCallback() {
 
     async function handleToken(accessToken: string) {
       try {
-        // Validate token against GitHub API
-        await fetchGitHubUser(accessToken);
-
-        // Save credentials via AuthProvider
+        // Validate token + save credentials via AuthProvider.
+        // loginFromCallback internally validates against the GitHub API
+        // (fetchGitHubUser), so no separate validation round-trip is needed.
         const success = await loginFromCallback(accessToken);
 
         if (success) {
-          // Redirect to the original destination or /
-          const redirectTo = sessionStorage.getItem(REDIRECT_KEY) || '/';
+          // Redirect to the original destination or /. REDIRECT_KEY is plain
+          // sessionStorage (attacker-controllable), so sanitize it to an
+          // internal path before navigating — a value like '//evil.com' would
+          // otherwise be treated as a protocol-relative off-site redirect.
+          const redirectTo = safeInternalPath(sessionStorage.getItem(REDIRECT_KEY));
           sessionStorage.removeItem(REDIRECT_KEY);
           navigate(redirectTo, { replace: true });
         } else {
           setStatus('error');
-          setErrorMessage('Invalid token. Could not verify your identity.');
+          setErrorMessage('Invalid or expired token. Please try again.');
         }
       } catch {
         setStatus('error');
         setErrorMessage('Invalid or expired token. Please try again.');
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    loginFromCallback, // No token, no error — redirect to login
-    navigate,
-    searchParams.get,
-  ]);
+    // Deps below are listed to satisfy exhaustive-deps, but the `processedRef`
+    // once-flag guarantees the effect processes the callback EXACTLY ONCE — it
+    // does NOT react to `searchParams` changes by design (a callback page is
+    // single-use: it consumes the token/error on mount and never re-runs).
+  }, [loginFromCallback, navigate, searchParams]);
 
   // ─── Loading State ────────────────────────────────────────────
 

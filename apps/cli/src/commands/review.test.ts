@@ -6,8 +6,27 @@
  * needing an actual LLM API key.
  */
 
-import type { FindingSeverity, ReviewResult, ReviewStatus } from 'ghagga-core';
+import type { FindingSeverity, LLMProvider, ReviewResult, ReviewStatus } from 'ghagga-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Mutable control cell for the mocked `FilesystemGraphLoader` — lets
+// individual tests (blast-radius integration coverage, R4-002) drive the
+// graph/metadata `load()` returns without needing a real `.ghagga/graph.json`
+// on disk. Declared with `vi.hoisted` so it's initialized before the
+// `vi.mock('ghagga-core', ...)` factory below runs (which is itself hoisted).
+const graphLoaderControl = vi.hoisted(() => ({
+  // biome-ignore lint/suspicious/noExplicitAny: test control cell, shape mirrors DependencyGraph
+  graph: null as any,
+  // biome-ignore lint/suspicious/noExplicitAny: test control cell, shape mirrors GraphMetadata
+  metadata: null as any,
+  // When set, `load()` invokes the constructor's `onOversize`/`onMalformed`
+  // callback (mirroring the REAL FilesystemGraphLoader contract) and
+  // resolves to null — lets tests drive the oversize/malformed degrade path
+  // without a real oversized/corrupt graph.json on disk.
+  oversize: null as { bytes: number; max: number } | null,
+  malformed: null as string | null,
+  loadCallCount: 0,
+}));
 
 // ─── Mock ghagga-core to prevent actual LLM calls ───────────────
 
@@ -122,6 +141,66 @@ vi.mock('ghagga-core', () => {
 
   return {
     reviewPipeline: vi.fn(),
+    // Blast-radius wire-up (sdd/scip-graph-wireup): a real class so
+    // `new FilesystemGraphLoader(...)` never throws; `load()` defaults to
+    // null (no graph) unless an individual test overrides the instance.
+    FilesystemGraphLoader: class {
+      constructor(
+        _repoRoot: string,
+        // biome-ignore lint/suspicious/noExplicitAny: mirrors real FilesystemGraphLoaderOptions
+        private opts?: any,
+      ) {}
+      async load() {
+        graphLoaderControl.loadCallCount++;
+        if (graphLoaderControl.oversize) {
+          this.opts?.onOversize?.(
+            graphLoaderControl.oversize.bytes,
+            graphLoaderControl.oversize.max,
+          );
+          return null;
+        }
+        if (graphLoaderControl.malformed) {
+          this.opts?.onMalformed?.(graphLoaderControl.malformed);
+          return null;
+        }
+        return graphLoaderControl.graph;
+      }
+      async loadMetadata() {
+        return graphLoaderControl.metadata;
+      }
+    },
+    // Wired in alongside FilesystemGraphLoader (R4-001 fix): reviewCommand
+    // wraps the already-loaded graph in one of these instead of handing the
+    // pipeline the same FilesystemGraphLoader instance (which would re-read
+    // graph.json a second time).
+    NullGraphLoader: class {
+      async load() {
+        return null;
+      }
+      async loadMetadata() {
+        return null;
+      }
+    },
+    PreloadedGraphLoader: class {
+      constructor(
+        private readonly graph: unknown,
+        private readonly metadata?: unknown,
+      ) {}
+      async load() {
+        return this.graph;
+      }
+      async loadMetadata() {
+        return this.metadata ?? null;
+      }
+    },
+    detectLanguage: vi.fn().mockReturnValue(undefined),
+    GRAPH_VERSION: 1,
+    isGraphStale: vi.fn().mockReturnValue(false),
+    parseDiffFiles: vi.fn().mockReturnValue([]),
+    formatReviewComment: vi.fn().mockReturnValue('<!-- ghagga-review -->\nbody'),
+    formatBoxSummary: vi.fn().mockReturnValue([]),
+    REVIEW_COMMENT_MARKER: '<!-- ghagga-review -->',
+    EngramMemoryStorage: { create: vi.fn() },
     buildSarif: vi.fn().mockReturnValue({
       $schema:
         'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json',
@@ -149,9 +228,9 @@ vi.mock('ghagga-core', () => {
       disabledTools: [],
     },
     DEFAULT_MODELS: {
-      anthropic: 'claude-sonnet-4-20250514',
-      openai: 'gpt-4o',
-      google: 'gemini-2.0-flash',
+      gateway: 'auto',
+      'cli-bridge': 'auto',
+      ollama: 'llama3',
     },
     initializeDefaultTools: vi.fn(),
     toolRegistry: {
@@ -175,6 +254,16 @@ vi.mock('node:fs', () => ({
   existsSync: vi.fn().mockReturnValue(false),
 }));
 
+// Embedding resolution is unrelated to this suite's behavior — stub to
+// `none` (undefined provider) so the SqliteMemoryStorage.create call stays
+// on the pre-existing keyword-only path the mocked ghagga-core above expects.
+vi.mock('../lib/embedding.js', () => ({
+  resolveCliEmbeddingProvider: () => ({
+    config: { provider: 'none', candidateK: 200 },
+    provider: undefined,
+  }),
+}));
+
 describe('CLI review module', () => {
   it('exports reviewCommand function', async () => {
     const mod = await import('./review.js');
@@ -196,18 +285,20 @@ describe('CLI review module', () => {
 describe('CLI output formatting and exit codes', () => {
   // We test the internal formatting/exit code logic by checking types/contracts
 
-  it('defines valid exit codes: PASSED=0, SKIPPED=0, FAILED=1, NEEDS_HUMAN_REVIEW=1', () => {
+  it('defines valid exit codes: PASSED=0, SKIPPED=0, FAILED=1, NEEDS_HUMAN_REVIEW=1, PARTIAL=1', () => {
     const exitCodes: Record<ReviewStatus, number> = {
       PASSED: 0,
       SKIPPED: 0,
       FAILED: 1,
       NEEDS_HUMAN_REVIEW: 1,
+      PARTIAL: 1,
     };
 
     expect(exitCodes.PASSED).toBe(0);
     expect(exitCodes.SKIPPED).toBe(0);
     expect(exitCodes.FAILED).toBe(1);
     expect(exitCodes.NEEDS_HUMAN_REVIEW).toBe(1);
+    expect(exitCodes.PARTIAL).toBe(1);
   });
 
   it('ReviewResult findings have expected structure', () => {
@@ -231,7 +322,7 @@ describe('CLI output formatting and exit codes', () => {
   it('ReviewResult has all required metadata fields', () => {
     const metadata = {
       mode: 'simple' as const,
-      provider: 'anthropic' as const,
+      provider: 'gateway' as const,
       model: 'claude-sonnet-4-20250514',
       tokensUsed: 500,
       executionTimeMs: 3200,
@@ -240,7 +331,7 @@ describe('CLI output formatting and exit codes', () => {
     };
 
     expect(metadata.mode).toBe('simple');
-    expect(metadata.provider).toBe('anthropic');
+    expect(metadata.provider).toBe('gateway');
     expect(metadata.tokensUsed).toBeGreaterThan(0);
     expect(metadata.executionTimeMs).toBeGreaterThan(0);
     expect(metadata.toolsRun).toContain('semgrep');
@@ -252,7 +343,7 @@ describe('CLI config file handling', () => {
   it('.ghagga.json config shape matches expected interface', () => {
     const config = {
       mode: 'workflow',
-      provider: 'openai',
+      provider: 'gateway',
       model: 'gpt-4o',
       enableSemgrep: true,
       enableTrivy: false,
@@ -303,13 +394,13 @@ describe('CLI input validation', () => {
     expect(validModes).not.toContain('turbo');
   });
 
-  it('valid providers are: anthropic, openai, google, github', () => {
-    const validProviders = ['anthropic', 'openai', 'google', 'github'];
-    expect(validProviders).toContain('anthropic');
-    expect(validProviders).toContain('openai');
-    expect(validProviders).toContain('google');
-    expect(validProviders).toContain('github');
-    expect(validProviders).not.toContain('mistral');
+  it('valid providers are: gateway, cli-bridge, ollama', () => {
+    const validProviders: LLMProvider[] = ['gateway', 'cli-bridge', 'ollama'];
+    expect(validProviders).toContain('gateway');
+    expect(validProviders).toContain('cli-bridge');
+    expect(validProviders).toContain('ollama');
+    expect(validProviders as string[]).not.toContain('anthropic');
+    expect(validProviders as string[]).not.toContain('openai');
   });
 
   it('valid formats are: markdown, json', () => {
@@ -338,7 +429,7 @@ const mockReviewPipeline = vi.mocked(reviewPipeline);
 function defaultOptions(overrides: Partial<ReviewOptions> = {}): ReviewOptions {
   return {
     mode: 'simple',
-    provider: 'anthropic',
+    provider: 'gateway',
     model: 'claude-sonnet-4-20250514',
     apiKey: 'test-key',
     semgrep: true,
@@ -360,7 +451,7 @@ function makeReviewResult(overrides: Partial<ReviewResult> = {}): ReviewResult {
     findings: [],
     metadata: {
       mode: 'simple',
-      provider: 'anthropic',
+      provider: 'gateway',
       model: 'claude-sonnet-4-20250514',
       tokensUsed: 100,
       executionTimeMs: 1500,
@@ -417,7 +508,7 @@ describe('reviewCommand — functional tests', () => {
       expect.objectContaining({
         diff,
         mode: 'simple',
-        provider: 'anthropic',
+        provider: 'gateway',
         model: 'claude-sonnet-4-20250514',
         apiKey: 'test-key',
       }),
@@ -464,6 +555,34 @@ describe('reviewCommand — functional tests', () => {
     await reviewCommand('.', defaultOptions({ outputFormat: 'json' }));
 
     expect(logSpy).toHaveBeenCalledWith(JSON.stringify(result, null, 2));
+  });
+
+  it('json output carries semanticDiff when present — full-result serialization is a DELIBERATE contract', async () => {
+    // Pins the decision documented on ReviewResult.semanticDiff (types.ts):
+    // the field is absent from DB persistence and the HTTP API, but the CLI
+    // --format json path serializes the ENTIRE result, semanticDiff included.
+    // If this test breaks, the CLI JSON contract changed — not an accident.
+    mockExecSync.mockReturnValue('diff content' as never);
+    const result = makeReviewResult({
+      semanticDiff: {
+        changes: [{ kind: 'function_added', name: 'newHelper', filePath: 'src/util.ts' }],
+        summary: '1 function added',
+      },
+    });
+    mockReviewPipeline.mockResolvedValue(result);
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ outputFormat: 'json' }));
+
+    const printed = logSpy.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes('"semanticDiff"'),
+    );
+    expect(printed).toBeDefined();
+    const parsed = JSON.parse(String(printed?.[0]));
+    expect(parsed.semanticDiff).toEqual({
+      changes: [{ kind: 'function_added', name: 'newHelper', filePath: 'src/util.ts' }],
+      summary: '1 function added',
+    });
   });
 
   it('should output markdown with status and summary for markdown format', async () => {
@@ -588,6 +707,110 @@ describe('reviewCommand — functional tests', () => {
     expect(settings.customRules).toEqual(['/rules/custom.yml']);
   });
 
+  it('populates ReviewInput.providerChain from .ghagga.json providerChain (cross-engine routing)', async () => {
+    const diff = 'diff --git a/file.ts b/file.ts\n+line';
+    mockExecSync.mockReturnValue(diff as never);
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        providerChain: [
+          {
+            provider: 'gateway',
+            model: 'claude-sonnet-4-6',
+            targetProvider: 'cli-claude',
+          },
+          {
+            provider: 'gateway',
+            model: 'claude-opus-4-6',
+            targetProvider: 'cli-claude',
+          },
+          {
+            provider: 'gateway',
+            model: 'gpt-5.5',
+            targetProvider: 'codex-cli',
+            gatewayUrl: 'http://localhost:3001',
+          },
+        ],
+      }),
+    );
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions({ apiKey: 'gw-token' }));
+
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    const providerChain = callArgs.providerChain as Array<Record<string, unknown>>;
+
+    expect(providerChain).toHaveLength(3);
+    expect(providerChain[0]).toMatchObject({
+      provider: 'gateway',
+      model: 'claude-sonnet-4-6',
+      targetProvider: 'cli-claude',
+      apiKey: 'gw-token',
+    });
+    expect(providerChain[1]).toMatchObject({
+      provider: 'gateway',
+      model: 'claude-opus-4-6',
+      targetProvider: 'cli-claude',
+      apiKey: 'gw-token',
+    });
+    expect(providerChain[2]).toMatchObject({
+      provider: 'gateway',
+      model: 'gpt-5.5',
+      targetProvider: 'codex-cli',
+      gatewayUrl: 'http://localhost:3001',
+      apiKey: 'gw-token',
+    });
+  });
+
+  it('leaves ReviewInput.providerChain undefined when .ghagga.json has no providerChain (regression-safe)', async () => {
+    const diff = 'diff --git a/file.ts b/file.ts\n+line';
+    mockExecSync.mockReturnValue(diff as never);
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(JSON.stringify({ reviewLevel: 'strict' }));
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    expect(callArgs.providerChain).toBeUndefined();
+  });
+
+  it('rejects a malformed providerChain entry with a clear error and exits 1', async () => {
+    const diff = 'diff --git a/file.ts b/file.ts\n+line';
+    mockExecSync.mockReturnValue(diff as never);
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        providerChain: [{ provider: 'anthropic', model: 'claude-sonnet-4-6' }],
+      }),
+    );
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('providerChain'));
+  });
+
+  it('rejects a providerChain entry missing model with a clear error and exits 1', async () => {
+    const diff = 'diff --git a/file.ts b/file.ts\n+line';
+    mockExecSync.mockReturnValue(diff as never);
+    mockExistsSync.mockReturnValue(true);
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        providerChain: [{ provider: 'gateway' }],
+      }),
+    );
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('providerChain'));
+  });
+
   it('should handle non-Error thrown objects in catch block', async () => {
     mockExecSync.mockReturnValue('diff' as never);
     mockReviewPipeline.mockRejectedValue('string error');
@@ -639,12 +862,12 @@ describe('reviewCommand — functional tests', () => {
     const { reviewCommand } = await import('./review.js');
     await reviewCommand(
       '.',
-      defaultOptions({ mode: 'workflow', provider: 'openai', model: 'gpt-4o' }),
+      defaultOptions({ mode: 'workflow', provider: 'cli-bridge', model: 'gpt-4o' }),
     );
 
     const allLogCalls = logSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(allLogCalls.some((s: string) => s.includes('workflow'))).toBe(true);
-    expect(allLogCalls.some((s: string) => s.includes('openai'))).toBe(true);
+    expect(allLogCalls.some((s: string) => s.includes('cli-bridge'))).toBe(true);
     expect(allLogCalls.some((s: string) => s.includes('gpt-4o'))).toBe(true);
   });
 });
@@ -1037,5 +1260,164 @@ describe('Phase 7: config file with new tool fields', () => {
     const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
     const settings = callArgs.settings as Record<string, unknown>;
     expect(settings.disabledTools).toContain('cpd');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Blast-radius glue integration coverage (R4-002)
+//
+// The pure seams (`resolveBlastRadiusEnabled`, `checkGraphStaleness`,
+// `computeUncoveredLanguages`) are unit-tested in
+// `review-blast-radius.test.ts`. This block exercises the side-effecting
+// GLUE in `reviewCommand` itself — the `execSync('git rev-parse HEAD')`
+// try/catch, the outer try/catch around the staleness/coverage block, and
+// the warn ordering — with a present graph, an oversize/malformed graph,
+// and a failing `git rev-parse HEAD`. It also locks in the R4-001 fix: the
+// graph is loaded exactly once and the oversize/malformed warning fires
+// exactly once.
+// ═══════════════════════════════════════════════════════════════
+
+describe('reviewCommand — blast-radius glue integration (R4-002)', () => {
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let logSpy: any;
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let errorSpy: any;
+  // biome-ignore lint/suspicious/noExplicitAny: mock spy type
+  let exitSpy: any;
+
+  const diff = 'diff --git a/file.ts b/file.ts\n+line';
+
+  function makeGraph(): unknown {
+    return {
+      version: 1,
+      rootDir: '.',
+      nodes: {
+        'src/main.go': {
+          hash: 'h',
+          language: 'go',
+          imports: [],
+          exports: [],
+          calls: [],
+          isTest: false,
+        },
+      },
+    };
+  }
+
+  function makeMetadata(): unknown {
+    return {
+      lastIndexedCommit: 'abc123',
+      lastIndexedAt: new Date().toISOString(),
+      schemaVersion: 1,
+      fileCount: 1,
+      languages: ['go'],
+      indexDurationMs: 10,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // biome-ignore lint/suspicious/noExplicitAny: mock cast
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+
+    // Auto-enable blast-radius: existsSync(<repo>/.ghagga/graph.json) → true,
+    // existsSync(<repo>/.ghagga.json) → false (no config file to load).
+    mockExistsSync.mockImplementation((p: unknown) => String(p).includes('graph.json'));
+
+    graphLoaderControl.graph = null;
+    graphLoaderControl.metadata = null;
+    graphLoaderControl.oversize = null;
+    graphLoaderControl.malformed = null;
+    graphLoaderControl.loadCallCount = 0;
+
+    mockReviewPipeline.mockResolvedValue(makeReviewResult());
+  });
+
+  afterEach(() => {
+    logSpy.mockRestore();
+    errorSpy.mockRestore();
+    exitSpy.mockRestore();
+    graphLoaderControl.graph = null;
+    graphLoaderControl.metadata = null;
+    graphLoaderControl.oversize = null;
+    graphLoaderControl.malformed = null;
+    graphLoaderControl.loadCallCount = 0;
+  });
+
+  it('present valid graph: blast-radius enables, no crash, review continues (PASSED)', async () => {
+    graphLoaderControl.graph = makeGraph();
+    graphLoaderControl.metadata = makeMetadata();
+    mockExecSync.mockReturnValue(diff as never);
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    expect(graphLoaderControl.loadCallCount).toBe(1);
+    expect(mockReviewPipeline).toHaveBeenCalledTimes(1);
+    const callArgs = mockReviewPipeline.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    // The pipeline must receive a loader wrapping the already-loaded graph
+    // (Preloaded/Null), NEVER the same FilesystemGraphLoader instance that
+    // review.ts already called `.load()` on — that identity is what would
+    // cause a second filesystem read (R4-001).
+    expect((callArgs.graphLoader as { constructor: { name: string } }).constructor.name).not.toBe(
+      'FilesystemGraphLoader',
+    );
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it('oversize graph: degrades gracefully, review continues, warning fires exactly once (R4-001)', async () => {
+    graphLoaderControl.oversize = { bytes: 25_000_000, max: 20_000_000 };
+    mockExecSync.mockReturnValue(diff as never);
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    expect(graphLoaderControl.loadCallCount).toBe(1);
+    const oversizeWarnings = logSpy.mock.calls.filter((call: unknown[]) =>
+      String(call[0]).includes('Dependency graph exceeds'),
+    );
+    expect(oversizeWarnings).toHaveLength(1);
+    // Review continues (degrades) rather than crashing or aborting.
+    expect(mockReviewPipeline).toHaveBeenCalledTimes(1);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it('malformed graph: degrades gracefully, review continues, warning fires exactly once (R4-001)', async () => {
+    graphLoaderControl.malformed = 'invalid JSON';
+    mockExecSync.mockReturnValue(diff as never);
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    expect(graphLoaderControl.loadCallCount).toBe(1);
+    const malformedWarnings = logSpy.mock.calls.filter((call: unknown[]) =>
+      String(call[0]).includes('stale/corrupt'),
+    );
+    expect(malformedWarnings).toHaveLength(1);
+    expect(mockReviewPipeline).toHaveBeenCalledTimes(1);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+  });
+
+  it('git rev-parse HEAD throws: staleness check skipped, review continues, no crash', async () => {
+    graphLoaderControl.graph = makeGraph();
+    graphLoaderControl.metadata = makeMetadata();
+    mockExecSync.mockImplementation((cmd: unknown) => {
+      if (String(cmd).includes('rev-parse HEAD')) {
+        throw new Error('fatal: not a git repository');
+      }
+      return diff as never;
+    });
+
+    const { reviewCommand } = await import('./review.js');
+    await reviewCommand('.', defaultOptions());
+
+    // The staleness check is skipped (currentHead falls back to '') but the
+    // review is NOT aborted by the failing git call — it must degrade, not
+    // propagate the throw.
+    expect(mockReviewPipeline).toHaveBeenCalledTimes(1);
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 });

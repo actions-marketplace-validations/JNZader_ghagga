@@ -1,24 +1,31 @@
 /**
  * Repo settings API routes: GET /api/settings, PUT /api/settings
  *
- * Also includes POST /api/providers/validate (provider key validation).
+ * Also includes:
+ *   POST /api/providers/validate (provider key validation)
+ *   POST /api/settings/copy-to-global (copy repo config to installation-level)
  */
 
 import type { SaaSProvider } from 'ghagga-core';
-import { toolRegistry } from 'ghagga-core';
+import { OPENCODE_ENV_BY_PREFIX, toolRegistry } from 'ghagga-core';
 import type { Database, DbProviderChainEntry, RepoSettings } from 'ghagga-db';
 import {
   DEFAULT_REPO_SETTINGS,
+  decrypt,
   encrypt,
   getInstallationSettings,
+  getInstallationSettingsBatch,
   getRepoByFullName,
+  getRepositoryById,
   updateRepoSettings,
+  upsertInstallationSettings,
 } from 'ghagga-db';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { validateProviderKey } from '../../lib/provider-models.js';
+import { validateOutboundUrl } from '../../lib/safe-url.js';
 import type { AuthUser } from '../../middleware/auth.js';
-import { buildProviderChainView, generateErrorId, logger } from './utils.js';
+import { buildProviderChainView, generateErrorId, logger, maskApiKey } from './utils.js';
 
 // ─── Zod Schemas ────────────────────────────────────────────────
 
@@ -34,6 +41,7 @@ const RepoSettingsSchema = z
     ignorePatterns: z.array(z.string()).optional(),
     enabledTools: z.array(z.string()).optional(),
     disabledTools: z.array(z.string()).optional(),
+    enableBlastRadius: z.boolean().optional(),
   })
   .strict();
 
@@ -93,7 +101,7 @@ export function createSettingsRouter(db: Database) {
 
       // Fetch global settings for reference
       const globalRow = await getInstallationSettings(db, repo.installationId);
-      let globalSettings;
+      let globalSettings: Record<string, unknown> | undefined;
       if (globalRow) {
         const gChain = (globalRow.providerChain ?? []) as DbProviderChainEntry[];
         const gSettings = (globalRow.settings ?? DEFAULT_REPO_SETTINGS) as RepoSettings;
@@ -109,6 +117,7 @@ export function createSettingsRouter(db: Database) {
           ignorePatterns: gSettings.ignorePatterns ?? [],
           enabledTools: gSettings.enabledTools ?? [],
           disabledTools: gSettings.disabledTools ?? [],
+          enableBlastRadius: gSettings.enableBlastRadius ?? false,
         };
       }
 
@@ -128,6 +137,7 @@ export function createSettingsRouter(db: Database) {
           ignorePatterns: settings.ignorePatterns ?? [],
           enabledTools: settings.enabledTools ?? [],
           disabledTools: settings.disabledTools ?? [],
+          enableBlastRadius: settings.enableBlastRadius ?? false,
           registeredTools: getRegisteredToolsList(),
           globalSettings,
         },
@@ -171,6 +181,7 @@ export function createSettingsRouter(db: Database) {
       'ignorePatterns',
       'enabledTools',
       'disabledTools',
+      'enableBlastRadius',
     ];
     for (const key of SETTINGS_KEYS) {
       if (key in body) {
@@ -233,9 +244,11 @@ export function createSettingsRouter(db: Database) {
         provider: string;
         model: string;
         apiKey?: string;
+        cliModel?: string;
+        gatewayUrl?: string;
       }>;
 
-      const VALID_SAAS_PROVIDERS = ['anthropic', 'openai', 'google', 'github', 'qwen'];
+      const VALID_SAAS_PROVIDERS = ['cli-bridge', 'gateway'];
       for (const entry of incomingChain) {
         if (!VALID_SAAS_PROVIDERS.includes(entry.provider)) {
           return c.json(
@@ -248,35 +261,136 @@ export function createSettingsRouter(db: Database) {
         }
       }
 
-      // Merge API keys: preserve existing encrypted keys when not provided
+      // Strip cliModel for gateway entries (not applicable) and gatewayUrl for non-gateway
+      for (const entry of incomingChain) {
+        if (entry.provider === 'gateway') {
+          entry.cliModel = undefined;
+        } else {
+          entry.gatewayUrl = undefined;
+        }
+      }
+
+      // SSRF guard: reject gateway URLs pointing at internal/private network
+      // space BEFORE they are persisted — the review worker later fetches the
+      // stored URL server-side with no user in the loop. Detailed reason goes
+      // to the server log only; the client gets a generic message.
+      for (const entry of incomingChain) {
+        if (entry.provider === 'gateway' && entry.gatewayUrl) {
+          const urlCheck = await validateOutboundUrl(entry.gatewayUrl);
+          if (!urlCheck.ok) {
+            logger.warn(
+              { repo: repoFullName, user: user.githubLogin, reason: urlCheck.reason },
+              'Rejected gateway URL at persist time (SSRF guard)',
+            );
+            return c.json({ error: 'VALIDATION_ERROR', message: 'Gateway URL not allowed' }, 400);
+          }
+        }
+      }
+
+      // Validate cliModel for cli-bridge entries
+      for (const entry of incomingChain) {
+        if (entry.provider !== 'cli-bridge') continue;
+
+        if (entry.model === 'opencode') {
+          // cliModel is REQUIRED for opencode
+          if (!entry.cliModel?.trim()) {
+            return c.json(
+              {
+                error: 'VALIDATION_ERROR',
+                message:
+                  "cliModel is required when CLI tool is 'opencode'. Expected format: 'provider/model' (e.g., 'anthropic/claude-sonnet-4-5').",
+              },
+              400,
+            );
+          }
+          // Validate provider/model format
+          if (!/^[^/]+\/.+$/.test(entry.cliModel)) {
+            return c.json(
+              {
+                error: 'VALIDATION_ERROR',
+                message: `Invalid cliModel format: '${entry.cliModel}'. Expected 'provider/model' (e.g., 'anthropic/claude-sonnet-4-5').`,
+              },
+              400,
+            );
+          }
+          // Validate provider prefix is supported
+          const prefix = entry.cliModel.split('/')[0]!;
+          if (!(prefix in OPENCODE_ENV_BY_PREFIX)) {
+            const supported = Object.keys(OPENCODE_ENV_BY_PREFIX).join(', ');
+            return c.json(
+              {
+                error: 'VALIDATION_ERROR',
+                message: `Unsupported OpenCode provider prefix: '${prefix}'. Supported: ${supported}.`,
+              },
+              400,
+            );
+          }
+        } else {
+          // For non-opencode tools (auto, gemini, copilot), strip cliModel
+          entry.cliModel = undefined;
+        }
+      }
+
+      // Merge API keys: preserve existing encrypted keys when not provided.
+      //
+      // Key resolution order (first non-null wins):
+      // 1. New key provided in this request → encrypt and use
+      // 2. Same provider in the CURRENT repo chain (any entry, not just first match)
+      // 3. Same provider in the GLOBAL/installation chain
+      // 4. Same provider in the VALIDATED session (via /api/providers/validate)
+      //
+      // This handles: new providers, "click to use" reuse, Global→Custom transition,
+      // and multiple entries of the same provider (e.g., 3 Groq entries).
       const existingChain = (repo.providerChain ?? []) as DbProviderChainEntry[];
 
+      const globalRow = await getInstallationSettings(db, repo.installationId);
+      const globalChain = (globalRow?.providerChain ?? []) as DbProviderChainEntry[];
+
+      // Build a lookup of ALL encrypted keys by provider from both chains
+      const keysByProvider = new Map<string, string>();
+      for (const e of globalChain) {
+        if (e.encryptedApiKey && !keysByProvider.has(e.provider)) {
+          keysByProvider.set(e.provider, e.encryptedApiKey);
+        }
+      }
+      // Repo chain takes precedence over global
+      for (const e of existingChain) {
+        if (e.encryptedApiKey) {
+          keysByProvider.set(e.provider, e.encryptedApiKey);
+        }
+      }
+
       const mergedChain: DbProviderChainEntry[] = incomingChain.map((entry) => {
+        const provider = entry.provider as SaaSProvider;
+        // Resolve cliModel: only meaningful for cli-bridge entries
+        const cliModel = provider === 'cli-bridge' ? entry.cliModel : undefined;
+        // Resolve gatewayUrl: only meaningful for gateway entries
+        const gatewayUrl = provider === 'gateway' ? entry.gatewayUrl : undefined;
+
         if (entry.apiKey) {
-          // New key provided → encrypt it
-          return {
-            provider: entry.provider as SaaSProvider,
+          // New key provided → encrypt it and also update the lookup
+          // so subsequent entries of the same provider can reuse it
+          const encrypted = encrypt(entry.apiKey);
+          keysByProvider.set(provider, encrypted);
+          const result: DbProviderChainEntry = {
+            provider,
             model: entry.model,
-            encryptedApiKey: encrypt(entry.apiKey),
+            encryptedApiKey: encrypted,
           };
+          if (cliModel) result.cliModel = cliModel;
+          if (gatewayUrl) result.gatewayUrl = gatewayUrl;
+          return result;
         }
 
-        if (entry.provider === 'github') {
-          // GitHub Models doesn't need an API key
-          return {
-            provider: 'github' as const,
-            model: entry.model,
-            encryptedApiKey: null,
-          };
-        }
-
-        // No key provided → try to preserve existing key for this provider
-        const existing = existingChain.find((e) => e.provider === entry.provider);
-        return {
-          provider: entry.provider as SaaSProvider,
+        // No key provided → resolve from lookup (repo > global > null)
+        const result: DbProviderChainEntry = {
+          provider,
           model: entry.model,
-          encryptedApiKey: existing?.encryptedApiKey ?? null,
+          encryptedApiKey: keysByProvider.get(provider) ?? null,
         };
+        if (cliModel) result.cliModel = cliModel;
+        if (gatewayUrl) result.gatewayUrl = gatewayUrl;
+        return result;
       });
 
       // Build settings update
@@ -311,6 +425,10 @@ export function createSettingsRouter(db: Database) {
         disabledTools: Array.isArray(body.disabledTools)
           ? (body.disabledTools as string[])
           : currentSettings.disabledTools,
+        enableBlastRadius:
+          typeof body.enableBlastRadius === 'boolean'
+            ? body.enableBlastRadius
+            : currentSettings.enableBlastRadius,
       };
 
       // ── Bidirectional translation: old booleans → new arrays ──
@@ -361,6 +479,115 @@ export function createSettingsRouter(db: Database) {
     }
   });
 
+  // ── GET /api/providers/keys ─────────────────────────────────
+  //
+  // Returns all saved (masked) API keys for the authenticated user,
+  // grouped by provider, across all their installations.
+  // Used by the frontend key-selector dropdown in ProviderEntry.
+  //
+  // Security: only hasApiKey + maskedApiKey are returned — never raw or encrypted values.
+  router.get('/api/providers/keys', async (c) => {
+    const user = c.get('user') as AuthUser;
+
+    try {
+      // Single batch query — avoids N+1 when user has multiple installations.
+      const rows = await getInstallationSettingsBatch(db, user.installationIds);
+
+      const keysByProvider: Record<string, { maskedApiKey: string; source: 'global' }> = {};
+
+      for (const row of rows) {
+        const chain = (row.providerChain ?? []) as DbProviderChainEntry[];
+        for (const entry of chain) {
+          // First occurrence per provider wins (primary installation takes precedence).
+          if (entry.encryptedApiKey && !keysByProvider[entry.provider]) {
+            // Mask directly — avoids the buildProviderChainView([entry])[0] wrapper overhead.
+            const masked = maskApiKey(decrypt(entry.encryptedApiKey));
+            keysByProvider[entry.provider] = { maskedApiKey: masked, source: 'global' };
+          }
+        }
+      }
+
+      return c.json({ data: keysByProvider });
+    } catch (err) {
+      const errorId = generateErrorId();
+      logger.error({ err, errorId, user: user.githubLogin }, 'Failed to fetch available keys');
+      return c.json(
+        { error: 'FETCH_FAILED', message: 'Failed to fetch available keys', errorId },
+        500,
+      );
+    }
+  });
+
+  // ── POST /api/settings/copy-to-global ──────────────────────
+  //
+  // Copies a repo's provider chain, review mode, and tool toggles
+  // to the installation-level (global) settings so all repos
+  // using "Global" inherit them.
+  router.post('/api/settings/copy-to-global', async (c) => {
+    const user = c.get('user') as AuthUser;
+
+    let body: { repoId?: number };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'VALIDATION_ERROR', message: 'Invalid JSON body' }, 400);
+    }
+
+    const repoId = body.repoId;
+    if (typeof repoId !== 'number') {
+      return c.json({ error: 'VALIDATION_ERROR', message: 'Missing or invalid repoId' }, 400);
+    }
+
+    try {
+      const repo = await getRepositoryById(db, repoId);
+      if (!repo) {
+        return c.json({ error: 'NOT_FOUND', message: 'Repository not found' }, 404);
+      }
+
+      if (!user.installationIds.includes(repo.installationId)) {
+        return c.json({ error: 'FORBIDDEN', message: 'Forbidden' }, 403);
+      }
+
+      const repoSettings = (repo.settings ?? DEFAULT_REPO_SETTINGS) as RepoSettings;
+      const repoChain = (repo.providerChain ?? []) as DbProviderChainEntry[];
+
+      // Upsert into installation_settings, copying the repo's config
+      await upsertInstallationSettings(db, repo.installationId, {
+        providerChain: repoChain,
+        aiReviewEnabled: repo.aiReviewEnabled,
+        reviewMode: repo.reviewMode,
+        settings: {
+          enableSemgrep: repoSettings.enableSemgrep,
+          enableTrivy: repoSettings.enableTrivy,
+          enableCpd: repoSettings.enableCpd,
+          enableMemory: repoSettings.enableMemory,
+          enableBlastRadius: repoSettings.enableBlastRadius,
+          customRules: repoSettings.customRules,
+          ignorePatterns: repoSettings.ignorePatterns,
+          reviewLevel: repoSettings.reviewLevel,
+          enabledTools: repoSettings.enabledTools,
+          disabledTools: repoSettings.disabledTools,
+        },
+      });
+
+      logger.info(
+        { repoId, repo: repo.fullName, user: user.githubLogin },
+        'Copied repo settings to global',
+      );
+      return c.json({ data: { message: 'Settings copied to global' } });
+    } catch (err) {
+      const errorId = generateErrorId();
+      logger.error(
+        { err, errorId, repoId, user: user.githubLogin },
+        'Failed to copy settings to global',
+      );
+      return c.json(
+        { error: 'COPY_FAILED', message: 'Failed to copy settings to global', errorId },
+        500,
+      );
+    }
+  });
+
   // ── POST /api/providers/validate ────────────────────────────
   router.post('/api/providers/validate', async (c) => {
     const user = c.get('user') as AuthUser;
@@ -387,30 +614,74 @@ export function createSettingsRouter(db: Database) {
       );
     }
 
-    const validProviders = ['anthropic', 'openai', 'google', 'github', 'qwen'];
+    const validProviders = ['cli-bridge', 'gateway'];
     if (!validProviders.includes(provider)) {
       return c.json({ error: 'VALIDATION_ERROR', message: `Unknown provider: ${provider}` }, 400);
     }
 
-    // For GitHub Models, use the user's session token
-    let apiKey = body.apiKey;
-    if (provider === 'github') {
-      const authHeader = c.req.header('Authorization') ?? '';
-      apiKey = authHeader.replace(/^Bearer\s+/i, '');
-    } else if (!apiKey) {
-      return c.json(
-        { error: 'VALIDATION_ERROR', message: 'Missing apiKey for non-GitHub provider' },
-        400,
-      );
+    // Gateway: validate by checking the provided URL's /health endpoint (if URL is given)
+    if (provider === 'gateway') {
+      const gatewayUrl = (body as Record<string, unknown>).gatewayUrl as string | undefined;
+      if (gatewayUrl) {
+        // SSRF guard: a fully user-controlled URL fetched server-side is an
+        // internal port/host scanning oracle. Validate before fetching, and
+        // never echo status codes or error internals back to the client.
+        const urlCheck = await validateOutboundUrl(gatewayUrl);
+        if (!urlCheck.ok) {
+          logger.warn(
+            { reason: urlCheck.reason, user: user.githubLogin },
+            'Gateway URL rejected by SSRF guard',
+          );
+          return c.json({ valid: false, models: [], error: 'Gateway URL not allowed' });
+        }
+
+        try {
+          const healthUrl = `${gatewayUrl.replace(/\/+$/, '')}/health`;
+          const healthResp = await fetch(healthUrl, {
+            signal: AbortSignal.timeout(10_000),
+            // SSRF defense: do NOT follow redirects. validateOutboundUrl only
+            // vetted the ORIGINAL host; a 3xx Location could point the fetch at
+            // a private/loopback/metadata address that was never validated.
+            // With redirect:'manual', a 3xx surfaces as a non-ok response below
+            // and is treated as unreachable (generic message).
+            redirect: 'manual',
+          });
+          // Treat ONLY 2xx as reachable. A 3xx (now non-ok) is a redirect we
+          // refuse to follow — report unreachable, never the status code.
+          if (healthResp.ok) {
+            return c.json({ valid: true, models: ['auto'] });
+          }
+          // Generic message — do NOT echo the HTTP status (port-scan oracle).
+          return c.json({ valid: false, models: [], error: 'Gateway unreachable' });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.warn(
+            { err: msg, gatewayUrl, user: user.githubLogin },
+            'Gateway health check failed',
+          );
+          // Generic message — do NOT echo err.message (internal-network oracle).
+          return c.json({ valid: false, models: [], error: 'Gateway unreachable' });
+        }
+      }
+      // No URL provided yet — still valid (URL will be set in the dashboard)
+      return c.json({ valid: true, models: ['auto'] });
     }
 
-    try {
-      const result = await validateProviderKey(provider as SaaSProvider, apiKey ?? '');
-      return c.json(result);
-    } catch (err) {
-      logger.error({ err, provider, user: user.githubLogin }, 'Provider validation error');
-      return c.json({ valid: false, models: [], error: 'Validation request failed' });
+    // CLI Bridge doesn't need API key validation — it uses local CLIs.
+    // Explicitly call validateProviderKey() to detect available CLIs
+    // and return structured metadata for the dashboard.
+    if (provider === 'cli-bridge') {
+      try {
+        const result = await validateProviderKey('cli-bridge', '');
+        return c.json(result);
+      } catch (err) {
+        logger.error({ err, provider, user: user.githubLogin }, 'CLI bridge validation error');
+        return c.json({ valid: false, models: [], error: 'CLI bridge validation failed' });
+      }
     }
+
+    // No other providers remain — guard against future drift
+    return c.json({ error: 'VALIDATION_ERROR', message: `Unknown provider: ${provider}` }, 400);
   });
 
   return router;

@@ -7,12 +7,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { githubCircuitBreaker, SimpleCircuitBreaker } from '../lib/circuit-breaker.js';
+import { githubCircuitBreaker } from '../lib/circuit-breaker.js';
 import {
   addCommentReaction,
   fetchPRDetails,
   fetchPRDiff,
-  getInstallationToken,
   getPRCommitMessages,
   getPRFileList,
   postComment,
@@ -90,12 +89,12 @@ describe('GitHub client circuit breaker integration', () => {
   it('fetchPRDetails routes through the circuit breaker', async () => {
     const executeSpy = vi.spyOn(githubCircuitBreaker, 'execute');
 
-    stubFetchOk({ head: { sha: 'abc123' }, base: { ref: 'main' } });
+    stubFetchOk({ head: { sha: 'abc123' }, base: { ref: 'main' }, user: { login: 'pr-author' } });
 
     const result = await fetchPRDetails('owner', 'repo', 1, 'token');
 
     expect(executeSpy).toHaveBeenCalledOnce();
-    expect(result).toEqual({ headSha: 'abc123', baseBranch: 'main' });
+    expect(result).toEqual({ headSha: 'abc123', baseBranch: 'main', prAuthor: 'pr-author' });
   });
 
   it('fetchPRDiff routes through the circuit breaker', async () => {

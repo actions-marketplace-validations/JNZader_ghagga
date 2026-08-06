@@ -1,21 +1,53 @@
+import { type AvailableKeysMap, useAvailableKeys } from '@/lib/api';
 import type { SaaSProvider } from '@/lib/types';
 import { ProviderEntry, type ProviderEntryState } from './ProviderEntry';
 
 interface ProviderChainEditorProps {
   chain: ProviderEntryState[];
   onChange: (chain: ProviderEntryState[]) => void;
+  /** Pre-fetched available keys map (optional; editor fetches its own if not provided) */
+  availableKeys?: AvailableKeysMap;
 }
 
-const DEFAULT_ENTRY: ProviderEntryState = {
-  provider: 'github' as SaaSProvider,
-  model: '',
+// Template for new entries. `id` is intentionally NOT part of the template:
+// a module-level crypto.randomUUID() is evaluated ONCE at load time, so every
+// added entry would share the same id → duplicate React keys → cross-wired
+// entry state on add/remove/reorder. Generate a fresh id per add instead.
+// crypto.randomUUID() throws in non-secure contexts (HTTP staging without TLS —
+// self-hosters). Fall back to a sufficiently-unique id when it is unavailable.
+const genId = (): string =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `id-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+const DEFAULT_ENTRY: Omit<ProviderEntryState, 'id'> = {
+  provider: 'gateway' as SaaSProvider,
+  model: 'auto',
   apiKey: '',
   availableModels: [],
   hasExistingKey: false,
   validated: false,
+  cliModel: undefined,
 };
 
-export function ProviderChainEditor({ chain, onChange }: ProviderChainEditorProps) {
+export function ProviderChainEditor({
+  chain,
+  onChange,
+  availableKeys: keysProp,
+}: ProviderChainEditorProps) {
+  // Fetch available keys if not provided as a prop (self-contained usage)
+  const { data: fetchedKeys } = useAvailableKeys();
+  const serverKeys: AvailableKeysMap = keysProp ?? fetchedKeys ?? {};
+
+  // Merge with keys from existing chain entries — this allows a second entry
+  // for the same provider to "reuse" the key from the first entry, even if
+  // the key only exists in the repo chain (not in global/installation settings).
+  const availableKeys: AvailableKeysMap = { ...serverKeys };
+  for (const entry of chain) {
+    if (entry.hasExistingKey && entry.maskedApiKey && !availableKeys[entry.provider]) {
+      availableKeys[entry.provider] = { maskedApiKey: entry.maskedApiKey, source: 'global' };
+    }
+  }
   const handleEntryChange = (index: number, entry: ProviderEntryState) => {
     const updated = [...chain];
     updated[index] = entry;
@@ -51,12 +83,10 @@ export function ProviderChainEditor({ chain, onChange }: ProviderChainEditorProp
   };
 
   const handleAdd = () => {
-    // Pick a provider not already in the chain, or default to github
-    const usedProviders = new Set(chain.map((e) => e.provider));
-    const available = (['github', 'openai', 'anthropic', 'google', 'qwen'] as SaaSProvider[]).find(
-      (p) => !usedProviders.has(p),
-    );
-    onChange([...chain, { ...DEFAULT_ENTRY, provider: available ?? 'github' }]);
+    // Always allow adding a new entry — same provider with different model is valid.
+    // Default to gateway as the standard starting point; user can change to cli-bridge or ollama.
+    const defaultProvider: SaaSProvider = 'gateway';
+    onChange([...chain, { ...DEFAULT_ENTRY, id: genId(), provider: defaultProvider }]);
   };
 
   return (
@@ -74,10 +104,11 @@ export function ProviderChainEditor({ chain, onChange }: ProviderChainEditorProp
         <>
           {chain.map((entry, index) => (
             <ProviderEntry
-              key={`${entry.provider}-${index}`}
+              key={entry.id}
               index={index}
               entry={entry}
               totalEntries={chain.length}
+              availableKeys={availableKeys}
               onChange={(updated) => handleEntryChange(index, updated)}
               onRemove={() => handleRemove(index)}
               onMoveUp={() => handleMoveUp(index)}
@@ -85,7 +116,7 @@ export function ProviderChainEditor({ chain, onChange }: ProviderChainEditorProp
             />
           ))}
 
-          {chain.length < 5 && (
+          {chain.length < 9 && (
             <button
               type="button"
               onClick={handleAdd}

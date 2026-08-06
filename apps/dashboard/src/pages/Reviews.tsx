@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/Card';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { CoverageIndicator } from '@/components/CoverageIndicator';
 import { SeverityBadge } from '@/components/SeverityBadge';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useToast } from '@/components/Toast';
@@ -22,11 +23,14 @@ function TrashIcon({ className }: { className?: string }) {
       viewBox="0 0 24 24"
       stroke="currentColor"
       strokeWidth={1.5}
+      aria-label="Delete"
+      role="img"
     >
+      <title>Delete</title>
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
-        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0"
+        d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.67 0 0 0-7.5 0"
       />
     </svg>
   );
@@ -41,6 +45,7 @@ function ReviewDetail({ review, onClose }: { review: Review; onClose: () => void
           <div>
             <div className="flex items-center gap-3">
               <StatusBadge status={review.status} />
+              <CoverageIndicator coverageComplete={review.coverageComplete} />
               <span className="text-sm text-text-secondary">
                 {review.repo} #{review.prNumber}
               </span>
@@ -51,6 +56,7 @@ function ReviewDetail({ review, onClose }: { review: Review; onClose: () => void
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="rounded-md p-1.5 text-text-muted transition-colors hover:bg-surface-hover hover:text-text-secondary"
           >
@@ -60,7 +66,10 @@ function ReviewDetail({ review, onClose }: { review: Review; onClose: () => void
               viewBox="0 0 24 24"
               stroke="currentColor"
               strokeWidth={1.5}
+              aria-label="Close"
+              role="img"
             >
+              <title>Close</title>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
             </svg>
           </button>
@@ -90,14 +99,17 @@ function ReviewDetail({ review, onClose }: { review: Review; onClose: () => void
                   </tr>
                 </thead>
                 <tbody>
-                  {review.findings.map((finding: Finding, idx: number) => (
-                    <tr key={idx} className="border-b border-surface-border/50">
+                  {review.findings.map((finding: Finding) => (
+                    <tr
+                      key={`${finding.file}-${finding.line ?? 'file'}-${finding.category}`}
+                      className="border-b border-surface-border/50"
+                    >
                       <td className="py-2.5 pr-4">
                         <SeverityBadge severity={finding.severity} />
                       </td>
                       <td className="py-2.5 pr-4 text-text-secondary">{finding.category}</td>
                       <td className="py-2.5 pr-4 font-mono text-xs text-primary-400">
-                        {finding.file}:{finding.line}
+                        {finding.line != null ? `${finding.file}:${finding.line}` : finding.file}
                       </td>
                       <td className="py-2.5 pr-4 text-text-primary">{finding.message}</td>
                       <td className="py-2.5 text-text-secondary">{finding.suggestion || '—'}</td>
@@ -112,6 +124,19 @@ function ReviewDetail({ review, onClose }: { review: Review; onClose: () => void
     </div>
   );
 }
+
+/**
+ * When a status/search filter is active, request this many rows in a
+ * single window instead of the default page size (server cap — see
+ * `Math.min(..., 100)` in apps/server/src/routes/api/reviews.ts). The
+ * server does not filter by status/search yet (PRODOPS-005 remediation is
+ * server-side and out of scope for the dashboard package), so filtering
+ * client-side over just the default page produced false "No reviews
+ * found" results and totals scoped to the wrong set. Widening the fetch
+ * window to the server's max bounds that error for the common case; the
+ * `filterWindowTruncated` notice below covers the remainder honestly.
+ */
+const FILTER_FETCH_LIMIT = 100;
 
 export function Reviews() {
   const { selectedRepo, setSelectedRepo } = useSelectedRepo();
@@ -129,21 +154,41 @@ export function Reviews() {
 
   const { addToast } = useToast();
   const { data: repos } = useRepositories();
-  const { data, isLoading } = useReviews(selectedRepo || undefined, page);
+
+  const trimmedSearch = search.trim();
+  const isFiltering = statusFilter !== '' || trimmedSearch !== '';
+
+  // When filtering, always fetch a single wide window (page 1, up to
+  // FILTER_FETCH_LIMIT) instead of paging — see FILTER_FETCH_LIMIT comment.
+  // Defensive: never send a page < 1 to the server (negative offset → 500).
+  const { data, isLoading, isError } = useReviews(
+    selectedRepo || undefined,
+    isFiltering ? 1 : Math.max(1, page),
+    isFiltering
+      ? {
+          limit: FILTER_FETCH_LIMIT,
+          status: statusFilter || undefined,
+          search: trimmedSearch || undefined,
+        }
+      : undefined,
+  );
   const deleteReviews = useDeleteRepoReviews();
   const batchDeleteReviews = useBatchDeleteReviews();
   const deleteReview = useDeleteReview();
 
   const reviews = data?.reviews ?? [];
-  const total = data?.total ?? 0;
+  const serverTotal = data?.total ?? 0;
   const pageSize = data?.pageSize ?? 20;
-  const totalPages = Math.ceil(total / pageSize);
 
-  // Client-side filtering for status and search
+  // Client-side filtering for status and search, applied over whatever
+  // window was actually fetched above (a single default-size page when not
+  // filtering, or the FILTER_FETCH_LIMIT window when filtering). This never
+  // filters over a stale/different page than the one just fetched
+  // (PRODOPS-005).
   const filteredReviews = reviews.filter((review: Review) => {
     if (statusFilter && review.status !== statusFilter) return false;
-    if (search) {
-      const q = search.toLowerCase();
+    if (trimmedSearch) {
+      const q = trimmedSearch.toLowerCase();
       return (
         review.repo.toLowerCase().includes(q) ||
         review.summary.toLowerCase().includes(q) ||
@@ -152,6 +197,42 @@ export function Reviews() {
     }
     return true;
   });
+
+  // Totals must reflect the filtered set once a filter is active — showing
+  // the server's unfiltered total would misrepresent what's actually on
+  // screen (PRODOPS-005). Pagination is disabled while filtering since the
+  // fetch window above already covers up to FILTER_FETCH_LIMIT rows in one
+  // shot instead of paging through them.
+  const total = isFiltering ? filteredReviews.length : serverTotal;
+  const totalPages = isFiltering ? 1 : Math.ceil(total / pageSize);
+
+  // The filter window may not cover every matching review if the repo (or
+  // "All repositories") has more rows than FILTER_FETCH_LIMIT. Surface that
+  // honestly instead of silently under-reporting results.
+  const filterWindowTruncated = isFiltering && serverTotal > reviews.length;
+
+  // ── Reset to page 1 whenever the selected repo changes ────────
+  // The repo <select> onChange also calls setPage(1), but selectedRepo can
+  // change by other paths (sidebar, deep link). This effect is the source of
+  // truth so we never land on a stale page after switching repos.
+  // selectedRepo is an intentional TRIGGER, not read inside the effect
+  // callback: the effect resets pagination *because* the repo changed.
+  // Biome flags it as an "extra" dependency and its unsafe fix would remove
+  // it, making this a mount-only effect and reintroducing the stale-page bug.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: trigger-only dep, see above
+  useEffect(() => {
+    setPage(1);
+  }, [selectedRepo]);
+
+  // ── Clamp page when totalPages shrinks (e.g. after deletes) ───
+  // On page 3 with deletions dropping total to 1 page, the user would be stuck
+  // on an empty ghost page ("No reviews found."). Clamp down to the last valid
+  // page. Guard against totalPages === 0 (empty result) forcing page to 0.
+  useEffect(() => {
+    if (!isFiltering && totalPages >= 1 && page > totalPages) {
+      setPage(totalPages);
+    }
+  }, [totalPages, page, isFiltering]);
 
   // ── Clear selection on filter/repo/page changes ───────────────
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally reset selection when filter values change
@@ -229,8 +310,8 @@ export function Reviews() {
         <select
           value={selectedRepo}
           onChange={(e) => {
+            // Page reset is handled by the effect on [selectedRepo] (source of truth).
             setSelectedRepo(e.target.value);
-            setPage(1);
           }}
           className="select-field w-56"
         >
@@ -252,6 +333,7 @@ export function Reviews() {
           <option value="FAILED">Failed</option>
           <option value="NEEDS_HUMAN_REVIEW">Needs Review</option>
           <option value="SKIPPED">Skipped</option>
+          <option value="PARTIAL">Partial</option>
         </select>
 
         <input
@@ -283,6 +365,13 @@ export function Reviews() {
         )}
       </div>
 
+      {filterWindowTruncated && (
+        <div className="mb-4 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-sm text-yellow-300">
+          Showing filter results from the {FILTER_FETCH_LIMIT} most recent reviews (out of{' '}
+          {serverTotal} total). Narrow your search to see results outside this window.
+        </div>
+      )}
+
       {/* Table */}
       <Card padding="none">
         <div className="overflow-x-auto">
@@ -298,7 +387,7 @@ export function Reviews() {
                     }}
                     onChange={toggleSelectAll}
                     disabled={filteredReviews.length === 0}
-                    className="h-4 w-4 rounded border-surface-border"
+                    className="h-4 w-4 rounded-sm border-surface-border"
                     aria-label="Select all reviews"
                   />
                 </th>
@@ -316,6 +405,12 @@ export function Reviews() {
                     <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
                   </td>
                 </tr>
+              ) : isError ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-12 text-center text-red-400">
+                    Failed to load reviews. Please try again.
+                  </td>
+                </tr>
               ) : filteredReviews.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-12 text-center text-text-secondary">
@@ -327,7 +422,21 @@ export function Reviews() {
                   <tr
                     key={review.id}
                     onClick={() => setSelectedReview(review)}
-                    className="cursor-pointer border-b border-surface-border/50 transition-colors hover:bg-surface-hover"
+                    onKeyDown={(e) => {
+                      // Enter/Space activates the row like a click, matching
+                      // native button/link behavior (PRODOPS-008). Space is
+                      // prevented to avoid scrolling the page. Deliberately
+                      // NOT role="button" — overriding the tr's implicit
+                      // "row" role would strip its cells from the
+                      // accessibility tree for screen reader users.
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelectedReview(review);
+                      }
+                    }}
+                    tabIndex={0}
+                    aria-label={`View details for ${review.repo} #${review.prNumber}`}
+                    className="cursor-pointer border-b border-surface-border/50 transition-colors hover:bg-surface-hover focus:outline-none focus-visible:bg-surface-hover focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-inset"
                   >
                     <td className="w-10 px-3 py-3">
                       <input
@@ -335,12 +444,15 @@ export function Reviews() {
                         checked={selectedIds.has(review.id)}
                         onChange={() => toggleSelectOne(review.id)}
                         onClick={(e) => e.stopPropagation()}
-                        className="h-4 w-4 rounded border-surface-border"
+                        className="h-4 w-4 rounded-sm border-surface-border"
                         aria-label={`Select review ${review.repo} #${review.prNumber}`}
                       />
                     </td>
                     <td className="px-6 py-3">
-                      <StatusBadge status={review.status} />
+                      <span className="inline-flex items-center gap-2">
+                        <StatusBadge status={review.status} />
+                        <CoverageIndicator coverageComplete={review.coverageComplete} />
+                      </span>
                     </td>
                     <td className="px-6 py-3 font-medium text-text-primary">{review.repo}</td>
                     <td className="px-6 py-3 text-primary-400">#{review.prNumber}</td>
@@ -350,6 +462,7 @@ export function Reviews() {
                     </td>
                     <td className="px-3 py-3">
                       <button
+                        type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           setSingleDeleteTarget(review);
@@ -376,6 +489,7 @@ export function Reviews() {
             </p>
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
                 className="btn-secondary px-3 py-1.5 text-sm"
@@ -383,6 +497,7 @@ export function Reviews() {
                 Previous
               </button>
               <button
+                type="button"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages}
                 className="btn-secondary px-3 py-1.5 text-sm"
@@ -435,7 +550,7 @@ export function Reviews() {
             type="checkbox"
             checked={includeMemory}
             onChange={(e) => setIncludeMemory(e.target.checked)}
-            className="h-4 w-4 rounded border-surface-border"
+            className="h-4 w-4 rounded-sm border-surface-border"
           />
           Also clear memory observations for this repository
         </label>

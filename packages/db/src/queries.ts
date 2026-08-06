@@ -1,12 +1,17 @@
 import { createHash } from 'node:crypto';
-import { and, desc, eq, inArray, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, lt, or, type SQL, sql } from 'drizzle-orm';
 import type { Database } from './client.js';
 import {
   type DbProviderChainEntry,
   DEFAULT_REPO_SETTINGS,
   githubUserMappings,
+  type IssueDedupMatch,
+  type IssueDraftKind,
+  type IssueDraftSource,
+  type IssueDraftStatus,
   installationSettings,
   installations,
+  issueDrafts,
   memoryObservations,
   memorySessions,
   type RepoSettings,
@@ -82,6 +87,19 @@ export async function getInstallationSettings(db: Database, installationId: numb
     .where(eq(installationSettings.installationId, installationId))
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Fetch installation settings for multiple installation IDs in a single query.
+ * Avoids the N+1 pattern when a user has access to multiple installations.
+ * Returns an empty array if ids is empty.
+ */
+export async function getInstallationSettingsBatch(db: Database, installationIds: number[]) {
+  if (installationIds.length === 0) return [];
+  return db
+    .select()
+    .from(installationSettings)
+    .where(inArray(installationSettings.installationId, installationIds));
 }
 
 export async function upsertInstallationSettings(
@@ -191,6 +209,11 @@ export async function getEffectiveRepoSettings(
 
 // ─── Repositories ───────────────────────────────────────────────
 
+export async function getRepositoryById(db: Database, id: number) {
+  const [row] = await db.select().from(repositories).where(eq(repositories.id, id)).limit(1);
+  return row ?? null;
+}
+
 export async function upsertRepository(
   db: Database,
   data: {
@@ -208,7 +231,12 @@ export async function upsertRepository(
   if (existing.length > 0) {
     await db
       .update(repositories)
-      .set({ fullName: data.fullName, isActive: true, updatedAt: new Date() })
+      .set({
+        fullName: data.fullName,
+        installationId: data.installationId,
+        isActive: true,
+        updatedAt: new Date(),
+      })
       .where(eq(repositories.githubRepoId, data.githubRepoId));
     // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
     return existing[0]!;
@@ -280,6 +308,21 @@ export async function getReposByInstallationId(db: Database, installationId: num
     .where(and(eq(repositories.installationId, installationId), eq(repositories.isActive, true)));
 }
 
+export async function updateWorkflowStatus(
+  db: Database,
+  repoId: number,
+  data: { workflowSha: string; workflowInstalledAt: Date },
+) {
+  await db
+    .update(repositories)
+    .set({
+      workflowSha: data.workflowSha,
+      workflowInstalledAt: data.workflowInstalledAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(repositories.id, repoId));
+}
+
 // ─── Reviews ────────────────────────────────────────────────────
 
 export async function saveReview(
@@ -301,6 +344,278 @@ export async function saveReview(
   return result!;
 }
 
+// ─── Issue Drafts (Issue-Triage Agent) ──────────────────────────
+
+/**
+ * Persist a triage DRAFT produced by the issue-analysis worker.
+ *
+ * The worker NEVER posts a GitHub comment — it only inserts a DRAFT row that a
+ * human later approves in the dashboard. The `issue_drafts` table enforces a
+ * partial-unique invariant: AT MOST ONE open DRAFT per (repository, issue)
+ * (uq_issue_drafts_open_draft, predicate `status = 'DRAFT'`).
+ *
+ * Conflict handling (DECISION): we `onConflictDoNothing` on that partial-unique
+ * index. If a DRAFT for this (repo, issue) is already open, the insert is a
+ * no-op and this returns `undefined` — the caller treats that as "a draft
+ * already exists, skip" rather than overwriting an in-flight human review or
+ * throwing. Re-triaging is allowed only after the prior draft is decided
+ * (APPROVED/REJECTED/POSTED rows fall outside the partial predicate).
+ *
+ * @returns the inserted row, or `undefined` when an open DRAFT already existed.
+ */
+export async function saveIssueDraft(
+  db: Database,
+  data: {
+    repositoryId: number;
+    issueNumber: number;
+    issueTitle: string;
+    status: IssueDraftStatus;
+    draftKind: IssueDraftKind;
+    body: string;
+    sources?: IssueDraftSource[];
+    dedupMatches?: IssueDedupMatch[];
+    tokensUsed?: number;
+  },
+): Promise<typeof issueDrafts.$inferSelect | undefined> {
+  const [result] = await db
+    .insert(issueDrafts)
+    .values(data)
+    // Target the partial-unique "one open DRAFT per (repo, issue)" index. The
+    // WHERE mirrors the index predicate so Postgres matches the SAME partial
+    // index. On conflict: do nothing (skip) — returning() yields no row.
+    .onConflictDoNothing({
+      target: [issueDrafts.repositoryId, issueDrafts.issueNumber],
+      where: sql`${issueDrafts.status} = 'DRAFT'`,
+    })
+    .returning();
+  return result;
+}
+
+/**
+ * Fetch the currently-open DRAFT (if any) for a given (repository, issue).
+ *
+ * Mirrors the partial-unique invariant enforced by `uq_issue_drafts_open_draft`
+ * (predicate `status = 'DRAFT'`): at most one open DRAFT exists per (repo,
+ * issue), so this returns either that single row or `undefined`.
+ *
+ * The issue-analysis worker calls this BEFORE the expensive dedup/LLM stages so
+ * a retry (or a re-triage while a human is still reviewing the prior draft) can
+ * skip early instead of re-charging the LLM and then silently discarding the
+ * result at the onConflictDoNothing insert.
+ *
+ * @returns the open DRAFT row, or `undefined` when none is open.
+ */
+export async function getOpenIssueDraft(
+  db: Database,
+  repositoryId: number,
+  issueNumber: number,
+): Promise<typeof issueDrafts.$inferSelect | undefined> {
+  const [row] = await db
+    .select()
+    .from(issueDrafts)
+    .where(
+      and(
+        eq(issueDrafts.repositoryId, repositoryId),
+        eq(issueDrafts.issueNumber, issueNumber),
+        eq(issueDrafts.status, 'DRAFT'),
+      ),
+    )
+    .limit(1);
+  return row;
+}
+
+/**
+ * List issue drafts visible to a set of repositories, newest-first.
+ *
+ * SCOPING: the caller MUST pass `repositoryIds` already restricted to the
+ * authenticated user's repos (see the approval API — it resolves these from
+ * `user.installationIds`). This query NEVER widens scope on its own: an empty
+ * `repositoryIds` returns an empty list (no rows), so a user with no repos can
+ * never see another tenant's drafts. `status` is an optional additional filter.
+ */
+export async function listIssueDrafts(
+  db: Database,
+  repositoryIds: number[],
+  options?: { status?: IssueDraftStatus; limit?: number; offset?: number },
+): Promise<(typeof issueDrafts.$inferSelect)[]> {
+  if (repositoryIds.length === 0) return [];
+  const limit = Math.min(options?.limit ?? 50, 100);
+  const offset = options?.offset ?? 0;
+  const conditions = [inArray(issueDrafts.repositoryId, repositoryIds)];
+  if (options?.status) {
+    conditions.push(eq(issueDrafts.status, options.status));
+  }
+  return db
+    .select()
+    .from(issueDrafts)
+    .where(and(...conditions))
+    .orderBy(desc(issueDrafts.createdAt))
+    .limit(limit)
+    .offset(offset);
+}
+
+/**
+ * Fetch a single issue draft by its primary key. No scoping is applied here —
+ * the caller MUST verify the row's `repositoryId` belongs to the authenticated
+ * user BEFORE returning it or acting on it (the approval API does this).
+ */
+export async function getIssueDraftById(
+  db: Database,
+  id: number,
+): Promise<typeof issueDrafts.$inferSelect | undefined> {
+  const [row] = await db.select().from(issueDrafts).where(eq(issueDrafts.id, id)).limit(1);
+  return row;
+}
+
+/**
+ * Edit a draft's body (the human sanitizes/edits before posting). Only a row
+ * still in DRAFT status is editable — editing an APPROVED/POSTED/REJECTED row is
+ * a no-op (returns `undefined`), so a decided draft cannot be silently mutated.
+ */
+export async function updateIssueDraftBody(
+  db: Database,
+  id: number,
+  body: string,
+): Promise<typeof issueDrafts.$inferSelect | undefined> {
+  const [row] = await db
+    .update(issueDrafts)
+    .set({ body, updatedAt: new Date() })
+    .where(and(eq(issueDrafts.id, id), eq(issueDrafts.status, 'DRAFT')))
+    .returning();
+  return row;
+}
+
+/**
+ * Atomically CLAIM a DRAFT for posting by flipping it to APPROVED.
+ *
+ * This is the POSTING LOCK that makes the GitHub post exactly-once. The WHERE
+ * clause pins `status = 'DRAFT'` and the UPDATE ... RETURNING is a single atomic
+ * compare-and-swap (CAS): of N concurrent approvers, EXACTLY ONE matches the row
+ * (DRAFT → APPROVED) and gets it back; every other caller matches ZERO rows and
+ * gets `undefined`. The winner — and only the winner — proceeds to postComment.
+ *
+ * APPROVED is therefore a TRANSIENT "posting in progress" state, NOT a terminal
+ * decision: it resolves forward to POSTED (markIssueDraftPosted) on a successful
+ * post, or back to DRAFT (releaseIssueDraftClaim) when the post fails so a human
+ * can retry. The caller MUST treat `undefined` as "another approver already
+ * claimed this — return 409 and do NOT post".
+ *
+ * Lifecycle: DRAFT → APPROVED (posting) → POSTED  (or → DRAFT on post failure).
+ */
+export async function claimIssueDraftForPosting(
+  db: Database,
+  id: number,
+): Promise<typeof issueDrafts.$inferSelect | undefined> {
+  const [row] = await db
+    .update(issueDrafts)
+    // claimedAt stamps the posting lease (see findStaleApprovedDrafts): a reaper
+    // uses it to detect an APPROVED draft whose poster crashed before posting.
+    .set({ status: 'APPROVED', claimedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(issueDrafts.id, id), eq(issueDrafts.status, 'DRAFT')))
+    .returning();
+  return row;
+}
+
+/**
+ * RELEASE a posting claim by reverting APPROVED → DRAFT after a FAILED post.
+ *
+ * The CAS pins `status = 'APPROVED'` so this only ever un-does an in-flight
+ * posting claim (never a POSTED/REJECTED terminal row). After release the draft
+ * is editable/approvable again, so the human can retry. Returns the reverted row,
+ * or `undefined` when the row was no longer APPROVED (defensive — should not
+ * happen on the post-failure path since the claimer owns the APPROVED row).
+ */
+export async function releaseIssueDraftClaim(
+  db: Database,
+  id: number,
+): Promise<typeof issueDrafts.$inferSelect | undefined> {
+  const [row] = await db
+    .update(issueDrafts)
+    // Clear the posting lease so a subsequent re-claim gets a fresh claimedAt
+    // (a stale lease would otherwise make the re-claimed draft look orphaned).
+    .set({ status: 'DRAFT', claimedAt: null, updatedAt: new Date() })
+    .where(and(eq(issueDrafts.id, id), eq(issueDrafts.status, 'APPROVED')))
+    .returning();
+  return row;
+}
+
+/**
+ * Atomically transition an APPROVED (claimed-for-posting) draft to POSTED,
+ * recording the GitHub comment id.
+ *
+ * IDEMPOTENCY/LIFECYCLE: the WHERE clause pins `status = 'APPROVED'` — only the
+ * approver that WON the posting claim (claimIssueDraftForPosting) and actually
+ * posted the comment reaches this. A row that is not APPROVED matches ZERO rows
+ * and returns `undefined`. Combined with the claim CAS this guarantees the post
+ * is recorded exactly once. The caller MUST treat `undefined` as "already
+ * decided, do not pretend we re-posted".
+ */
+export async function markIssueDraftPosted(
+  db: Database,
+  id: number,
+  postedCommentId: number,
+): Promise<typeof issueDrafts.$inferSelect | undefined> {
+  const [row] = await db
+    .update(issueDrafts)
+    .set({ status: 'POSTED', postedCommentId, updatedAt: new Date() })
+    .where(and(eq(issueDrafts.id, id), eq(issueDrafts.status, 'APPROVED')))
+    .returning();
+  return row;
+}
+
+/**
+ * Transition a DRAFT to REJECTED — no comment is ever posted. Same DRAFT-only
+ * guard as the post transition: a decided row is not re-rejected (returns
+ * `undefined`).
+ */
+export async function rejectIssueDraft(
+  db: Database,
+  id: number,
+): Promise<typeof issueDrafts.$inferSelect | undefined> {
+  const [row] = await db
+    .update(issueDrafts)
+    .set({ status: 'REJECTED', updatedAt: new Date() })
+    .where(and(eq(issueDrafts.id, id), eq(issueDrafts.status, 'DRAFT')))
+    .returning();
+  return row;
+}
+
+/**
+ * DETECT stuck/orphaned APPROVED drafts whose posting lease is older than
+ * `olderThan` — the reaper-detection primitive (RES-001).
+ *
+ * APPROVED is a TRANSIENT "posting in progress" state (see
+ * claimIssueDraftForPosting). If the poster process crashes AFTER claiming
+ * (DRAFT → APPROVED, stamping `claimedAt`) but BEFORE it reaches POSTED or
+ * releases back to DRAFT, the row is stuck in APPROVED forever with no signal.
+ * This query surfaces those rows: status = APPROVED AND claimedAt IS NOT NULL
+ * AND claimedAt < olderThan, oldest-lease-first, capped at 100.
+ *
+ * It ONLY DETECTS — it takes no recovery action. The caller (PR2's reaper
+ * worker) decides what to do with each returned row: release it back to DRAFT
+ * via `releaseIssueDraftClaim` so a human can retry, or alert an operator.
+ *
+ * Global (not tenant-scoped): the reaper is a system maintenance job over the
+ * whole table, not a user-facing listing.
+ */
+export async function findStaleApprovedDrafts(
+  db: Database,
+  olderThan: Date,
+): Promise<(typeof issueDrafts.$inferSelect)[]> {
+  return db
+    .select()
+    .from(issueDrafts)
+    .where(
+      and(
+        eq(issueDrafts.status, 'APPROVED'),
+        isNotNull(issueDrafts.claimedAt),
+        lt(issueDrafts.claimedAt, olderThan),
+      ),
+    )
+    .orderBy(asc(issueDrafts.claimedAt))
+    .limit(100);
+}
+
 export async function getReviewsByRepoId(
   db: Database,
   repositoryId: number,
@@ -314,6 +629,95 @@ export async function getReviewsByRepoId(
     .orderBy(desc(reviews.createdAt))
     .limit(limit)
     .offset(offset);
+}
+
+/**
+ * Count all reviews for a specific repository.
+ * Used to compute pagination.total for the per-repo review listing.
+ */
+export async function countReviewsByRepoId(db: Database, repositoryId: number): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(reviews)
+    .where(eq(reviews.repositoryId, repositoryId));
+  return row?.total ?? 0;
+}
+
+/**
+ * A review row enriched with its repository's full name, for cross-repository
+ * listings where the caller needs to label which repo each review belongs to.
+ */
+export type ReviewWithRepo = typeof reviews.$inferSelect & { fullName: string };
+
+/**
+ * List reviews across ALL repositories belonging to the given installation IDs,
+ * ordered by createdAt desc, with limit/offset pagination.
+ *
+ * Each row carries the repository `fullName` (via the join) so the caller can
+ * label reviews by repo. Returns an empty array when installationIds is empty
+ * (authz: a caller with no installations sees nothing).
+ */
+export async function getReviewsByInstallationIds(
+  db: Database,
+  installationIds: number[],
+  options: { limit?: number; offset?: number } = {},
+): Promise<ReviewWithRepo[]> {
+  if (installationIds.length === 0) return [];
+
+  const { limit = 50, offset = 0 } = options;
+  return (
+    db
+      .select({
+        id: reviews.id,
+        repositoryId: reviews.repositoryId,
+        prNumber: reviews.prNumber,
+        status: reviews.status,
+        mode: reviews.mode,
+        summary: reviews.summary,
+        findings: reviews.findings,
+        tokensUsed: reviews.tokensUsed,
+        executionTimeMs: reviews.executionTimeMs,
+        metadata: reviews.metadata,
+        createdAt: reviews.createdAt,
+        fullName: repositories.fullName,
+      })
+      .from(reviews)
+      .innerJoin(repositories, eq(repositories.id, reviews.repositoryId))
+      // SECURITY (cross-tenant isolation): the early-return above guards the
+      // empty-installationIds path, but `inArray(col, [])` is ALSO safe at the SQL
+      // layer — drizzle renders it as `WHERE false` (zero rows), never an
+      // unconstrained query that would leak every tenant's reviews. Do NOT
+      // "optimize away" the guard above OR assume a future drizzle upgrade keeps
+      // this semantic: queries.test.ts locks the generated SQL via .toSQL() so an
+      // upgrade that drops the WHERE clause fails the suite instead of leaking.
+      .where(inArray(repositories.installationId, installationIds))
+      .orderBy(desc(reviews.createdAt))
+      .limit(limit)
+      .offset(offset)
+  );
+}
+
+/**
+ * Count all reviews across the repositories owned by the given installation IDs.
+ * Used to compute pagination.total for the cross-installation review listing.
+ * Returns 0 when installationIds is empty.
+ */
+export async function countReviewsByInstallationIds(
+  db: Database,
+  installationIds: number[],
+): Promise<number> {
+  if (installationIds.length === 0) return 0;
+
+  const [row] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(reviews)
+    .innerJoin(repositories, eq(repositories.id, reviews.repositoryId))
+    // SECURITY (cross-tenant isolation): same empty-array safety as
+    // getReviewsByInstallationIds — `inArray(col, [])` renders `WHERE false`
+    // (count 0), not an unconstrained count over every tenant. Guard above +
+    // .toSQL() lock in queries.test.ts must both stay. See that function's note.
+    .where(inArray(repositories.installationId, installationIds));
+  return row?.total ?? 0;
 }
 
 export async function getReviewStats(db: Database, repositoryId: number) {
@@ -347,6 +751,61 @@ export async function getReviewsByDay(db: Database, repositoryId: number) {
     )
     .groupBy(sql`date(${reviews.createdAt})`)
     .orderBy(sql`date(${reviews.createdAt}) asc`);
+}
+
+// ─── Cost Statistics ────────────────────────────────────────────
+
+export interface ReviewCostRow {
+  repositoryId: number;
+  fullName: string;
+  mode: string;
+  model: string | null;
+  tokens: number;
+  count: number;
+}
+
+/**
+ * Aggregate token / review counts across all repositories accessible to the
+ * given installation IDs, for the specified number of days back.
+ *
+ * Returns one row per (repositoryId, mode, model) combination so the caller
+ * can pivot into any desired shape (byModel, byMode, byRepo).
+ */
+export async function getReviewCostStats(
+  db: Database,
+  installationIds: number[],
+  days: number,
+): Promise<ReviewCostRow[]> {
+  if (installationIds.length === 0) return [];
+
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+
+  const rows = await db
+    .select({
+      repositoryId: reviews.repositoryId,
+      fullName: repositories.fullName,
+      mode: reviews.mode,
+      model: sql<string | null>`${reviews.metadata}->>'model'`,
+      tokens: sql<number>`coalesce(sum(${reviews.tokensUsed}), 0)::int`,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(reviews)
+    .innerJoin(repositories, eq(repositories.id, reviews.repositoryId))
+    .where(
+      and(
+        inArray(repositories.installationId, installationIds),
+        sql`${reviews.createdAt} >= ${since}`,
+      ),
+    )
+    .groupBy(
+      reviews.repositoryId,
+      repositories.fullName,
+      reviews.mode,
+      sql`${reviews.metadata}->>'model'`,
+    );
+
+  return rows;
 }
 
 /**
@@ -435,6 +894,19 @@ export async function saveObservation(
     topicKey?: string;
     filePaths?: string[];
     severity?: string;
+    /** Pre-computed embedding vector. NULL when no embedding provider was available. */
+    embedding?: number[] | null;
+    /**
+     * Provider/model id that produced `embedding` (design D3). NULL alongside
+     * a NULL/omitted `embedding`. Only meaningful when `embedding` is set.
+     */
+    embeddingModel?: string | null;
+    /**
+     * Vector length of `embedding` at insertion time (design D3). NULL
+     * alongside a NULL/omitted `embedding`. Only meaningful when `embedding`
+     * is set.
+     */
+    embeddingDim?: number | null;
   },
 ) {
   const contentHash = computeContentHash(data.content, data.type, data.title);
@@ -489,8 +961,19 @@ export async function saveObservation(
           contentHash,
           filePaths: data.filePaths ?? [],
           severity: data.severity ?? null,
+          // Only update embedding (+ its metadata) when a new one is provided
+          // (preserve existing otherwise) — mirrors the SQLite backend's
+          // per-row embedding_model/embedding_dim persistence (design D3).
+          ...(data.embedding !== undefined
+            ? {
+                embedding: data.embedding,
+                embeddingModel: data.embeddingModel ?? null,
+                embeddingDim: data.embeddingDim ?? null,
+              }
+            : {}),
           revisionCount: sql`${memoryObservations.revisionCount} + 1`,
           updatedAt: new Date(),
+          lastAccessedAt: new Date(),
         })
         .where(eq(memoryObservations.id, existingByTopic.id))
         .returning();
@@ -506,6 +989,9 @@ export async function saveObservation(
       ...data,
       contentHash,
       filePaths: data.filePaths ?? [],
+      embedding: data.embedding ?? null,
+      embeddingModel: data.embeddingModel ?? null,
+      embeddingDim: data.embeddingDim ?? null,
     })
     .returning();
   // biome-ignore lint/style/noNonNullAssertion: drizzle .returning() always returns for insert/update
@@ -513,27 +999,157 @@ export async function saveObservation(
 }
 
 /**
+ * Build a sanitized tsquery string from free-text input.
+ *
+ * Each word is quoted as a lexeme and terms are joined with OR ('|') —
+ * matching the SQLite backend's behavior. AND ('&') made multi-file diff
+ * queries (5-8 unrelated terms) return ~nothing, killing server memory recall.
+ *
+ * Backslashes are escaped first: inside a quoted lexeme, a trailing '\\' would
+ * otherwise escape the closing quote and produce a tsquery syntax error.
+ *
+ * Exported for unit testing (no live PG needed).
+ */
+export function buildTsQuery(query: string): string {
+  return query
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w.length > 0)
+    .map((w) => `'${w.replace(/\\/g, '\\\\').replace(/'/g, "''")}'`)
+    .join(' | ');
+}
+
+/** Bounded cosine candidate set size (design D4) when the caller doesn't specify one. */
+const DEFAULT_EMBEDDING_CANDIDATE_K = 200;
+
+/**
+ * Cosine similarity between two same-length numeric vectors. Returns 0 when
+ * either norm is 0 (avoids a 0/0 NaN) — mirrors the SQLite backend's
+ * `cosineSimilarity` helper (packages/core/src/embed.ts) so both engines
+ * score identically post-union (design D5).
+ */
+function cosineSimilarityArrays(a: number[], b: number[]): number {
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let j = 0; j < a.length; j++) {
+    const x = a[j] ?? 0;
+    const y = b[j] ?? 0;
+    dot += x * y;
+    normA += x * x;
+    normB += y * y;
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dot / denom;
+}
+
+/**
+ * Bumps `last_accessed_at` for exactly the given observation ids (spec R5.10).
+ *
+ * Exported so a decay-aware caller (the Postgres adapter) can touch ONLY the
+ * final survivors AFTER its own strength-decay filter — mirroring the SQLite
+ * oracle's `accessedIds` scoping (packages/core/src/memory/sqlite.ts). On the
+ * union (embedFn-set) path, `searchObservations` intentionally does NOT touch
+ * here (it returns the full, uncapped, un-touched scored pool), so the adapter
+ * owns the touch of the rows that actually survive decay AND make the limit cut.
+ * No-op on an empty id list.
+ */
+export async function bumpObservationsLastAccessed(db: Database, ids: number[]): Promise<void> {
+  if (ids.length === 0) return;
+  await db
+    .update(memoryObservations)
+    .set({ lastAccessedAt: new Date() })
+    .where(inArray(memoryObservations.id, ids));
+}
+
+/** Bumps `last_accessed_at` for exactly the rows returned to the caller (spec R5.10). */
+async function touchLastAccessed(db: Database, rows: Array<{ id: number }>): Promise<void> {
+  await bumpObservationsLastAccessed(
+    db,
+    rows.map((r) => r.id),
+  );
+}
+
+/**
  * Full-text search observations using PostgreSQL tsvector.
  * The search_observations SQL column is maintained by a trigger.
+ *
+ * When `embedFn` is provided, performs hybrid search (spec R5.7-R5.10, design
+ * D4/D5 — mirrors packages/core/src/memory/sqlite.ts `_hybridSearch`):
+ *   1. Run the tsquery keyword candidates (unchanged gate/order).
+ *   2. Run a bounded, project(+type)-scoped cosine candidate query
+ *      (embedding IS NOT NULL, ORDER BY last_accessed_at DESC LIMIT K).
+ *   3. Compute cosine similarity in JS for candidates passing the
+ *      dimension/model read guard (mismatches excluded, never thrown).
+ *   4. Union both sets by id, dedup: an overlapping candidate keeps its real
+ *      keyword score; a cosine-only candidate gets keyword-score 0.
+ *   5. Keyword score uses the unified positional-rank convention
+ *      `1 - i/(n-1)` over the ts_rank-ordered list (design D5).
+ *   6. Combine: finalScore = 0.7 * cosineSim + 0.3 * keywordScore.
+ *   7. Sort descending and return the FULL scored pool UNCAPPED, WITHOUT
+ *      touching last_accessed_at. The union path has no decay concept (that
+ *      lives in the adapter), so it must not cap before decay (R3-001) nor
+ *      touch rows a later decay filter will drop (R3-002). The decay-aware
+ *      caller (PostgresMemoryStorage) filters the full pool by strength, caps
+ *      to the true `limit`, then calls `bumpObservationsLastAccessed` on ONLY
+ *      those survivors — mirroring the SQLite oracle (decay-filter full pool →
+ *      cap → touch survivors).
+ *
+ * Otherwise (no `embedFn`) falls back to keyword-only tsvector search,
+ * byte-for-byte identical to the pre-union behavior (spec R5.11): it caps to
+ * returnLimit and touches last_accessed_at itself.
  */
 export async function searchObservations(
   db: Database,
   project: string,
   query: string,
-  options: { limit?: number; type?: string } = {},
+  options: {
+    limit?: number;
+    type?: string;
+    /**
+     * Optional embedding function for hybrid search.
+     * When provided, the bounded cosine candidate set is unioned with the
+     * keyword candidates before ranking (spec R5.7).
+     * When undefined, falls back to keyword-only tsvector search (R5.11).
+     */
+    embedFn?: (text: string) => Promise<number[]>;
+    /**
+     * Number of ranked rows to RETURN (after re-ranking). Defaults to `limit`.
+     * Callers that post-filter rows (e.g. strength decay in the adapter) pass a
+     * larger value so the over-fetched candidates survive ranking and the caller
+     * can drop decayed rows without under-delivering below `limit`.
+     */
+    fetchLimit?: number;
+    /**
+     * Active embedding provider's vector dimension (design D3 read guard).
+     * Required, together with `embedFn`, to admit any row into the cosine
+     * candidate set — when `embedFn` is set but this is omitted, every row
+     * fails the dimension guard and the cosine set is simply empty (never
+     * throws).
+     */
+    embeddingDimension?: number;
+    /**
+     * Active embedding provider/model id, compared against each row's stored
+     * `embedding_model` (design D3). Optional — when omitted, only the
+     * dimension is enforced (mirrors the SQLite backend's `embeddingModel`
+     * option, packages/core/src/memory/sqlite.ts).
+     */
+    embeddingModel?: string;
+    /** Bounded cosine candidate set size (design D4). Defaults to 200. */
+    embeddingCandidateK?: number;
+  } = {},
 ) {
-  const { limit = 10, type } = options;
+  const { limit = 10, type, embedFn, embeddingDimension, embeddingModel } = options;
+  const embeddingCandidateK = options.embeddingCandidateK ?? DEFAULT_EMBEDDING_CANDIDATE_K;
+  // How many ranked rows the caller wants back (>= limit when post-filtering).
+  const returnLimit = Math.max(options.fetchLimit ?? limit, limit);
 
-  // Sanitize query: wrap each word in quotes for tsquery
-  const sanitizedQuery = query
-    .trim()
-    .split(/\s+/)
-    .filter((w) => w.length > 0)
-    .map((w) => `'${w.replace(/'/g, "''")}'`)
-    .join(' & ');
+  const sanitizedQuery = buildTsQuery(query);
 
   if (!sanitizedQuery) return [];
 
+  // The `@@ to_tsquery` predicate below is the keyword candidate gate,
+  // unchanged by this union (spec R5.1).
   const conditions: SQL[] = [
     eq(memoryObservations.project, project),
     sql`search_observations @@ to_tsquery('english', ${sanitizedQuery})`,
@@ -543,12 +1159,133 @@ export async function searchObservations(
     conditions.push(eq(memoryObservations.type, type));
   }
 
-  return db
+  // Fetch a larger candidate set when doing hybrid re-ranking, and never fewer
+  // than the caller asked to RETURN (returnLimit) so post-filtering has headroom.
+  const candidateLimit = Math.max(embedFn ? limit * 5 : limit, returnLimit);
+
+  const keywordResults = await db
     .select()
     .from(memoryObservations)
     .where(and(...conditions))
     .orderBy(sql`ts_rank(search_observations, to_tsquery('english', ${sanitizedQuery})) DESC`)
-    .limit(limit);
+    .limit(candidateLimit);
+
+  // ── R5.11: no-provider parity — byte-for-byte identical to the pre-union
+  // keyword-only path. No cosine query, no union/dedup step ever runs. ──────
+  if (!embedFn) {
+    if (keywordResults.length === 0) return [];
+    const finalResults = keywordResults.slice(0, returnLimit);
+    await touchLastAccessed(db, finalResults);
+    return finalResults;
+  }
+
+  type ObservationRow = (typeof keywordResults)[number];
+
+  // Query-time embed failure is non-fatal — fall back to keyword-only
+  // ordering (spec: Graceful Degradation on Provider/API Failure).
+  let queryVec: number[];
+  try {
+    queryVec = await embedFn(query);
+  } catch (error) {
+    // Query-time embed failure → keyword-only ordering. This is still the
+    // union (embedFn-set) path, so keep the union contract: return the FULL
+    // keyword pool UNCAPPED and UNTOUCHED. The decay-aware caller filters it,
+    // caps to `limit`, and touches only the survivors (R3-001/R3-002).
+    // Warn once (symmetric with the SQLite backend's _hybridSearch).
+    console.warn(
+      `[ghagga] query embedding failed — degrading to keyword-only for this search: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return keywordResults;
+  }
+
+  // ── Bounded cosine candidate query (spec R5.7, design D4) ────────────────
+  // Runs even when keywordResults is empty — a lexically-disjoint observation
+  // must still be reachable via cosine alone.
+  const cosineConditions: SQL[] = [
+    eq(memoryObservations.project, project),
+    sql`${memoryObservations.embedding} IS NOT NULL`,
+  ];
+  if (type) {
+    cosineConditions.push(eq(memoryObservations.type, type));
+  }
+
+  const cosineBoundedCandidates = await db
+    .select()
+    .from(memoryObservations)
+    .where(and(...cosineConditions))
+    .orderBy(desc(memoryObservations.lastAccessedAt))
+    .limit(embeddingCandidateK);
+
+  if (keywordResults.length === 0 && cosineBoundedCandidates.length === 0) return [];
+
+  // Dimension/model read guard (design D3): a row whose stored dimension or
+  // model doesn't match the active provider is excluded from the cosine set,
+  // never thrown — mirrors the pre-existing "no embedding → cosine 0" rule.
+  const isEmbeddingUsable = (row: ObservationRow): boolean => {
+    if (!row.embedding) return false;
+    if (row.embeddingDim !== null && row.embeddingDim !== embeddingDimension) return false;
+    if (embeddingModel !== undefined && row.embeddingModel !== embeddingModel) return false;
+    return true;
+  };
+
+  const computeCosine = (row: ObservationRow): number => {
+    if (!row.embedding || !isEmbeddingUsable(row)) return 0;
+    if (row.embedding.length !== queryVec.length) return 0;
+    return cosineSimilarityArrays(queryVec, row.embedding);
+  };
+
+  // ── Unified positional-rank keyword score (design D5) ────────────────────
+  // keywordResults is already ordered by ts_rank DESC (best match first).
+  const n = keywordResults.length;
+  const keywordScoreById = new Map<number, number>();
+  keywordResults.forEach((row, i) => {
+    keywordScoreById.set(row.id, n > 1 ? 1 - i / (n - 1) : 1);
+  });
+
+  // Cosine similarity, top limit*5 of the GUARDED bounded set.
+  const cosineFetchLimit = limit * 5;
+  const cosineTop = cosineBoundedCandidates
+    .filter(isEmbeddingUsable)
+    .map((row) => ({ row, cosineSim: computeCosine(row) }))
+    .sort((a, b) => b.cosineSim - a.cosineSim)
+    .slice(0, cosineFetchLimit);
+
+  // ── Union + dedup by id (spec R5.8/R5.9) ──────────────────────────────────
+  const merged = new Map<
+    number,
+    { row: ObservationRow; cosineSim: number; keywordScore: number }
+  >();
+  for (const row of keywordResults) {
+    merged.set(row.id, {
+      row,
+      cosineSim: computeCosine(row),
+      keywordScore: keywordScoreById.get(row.id) ?? 0,
+    });
+  }
+  for (const { row, cosineSim } of cosineTop) {
+    if (merged.has(row.id)) continue; // keep the real keyword score (R5.8)
+    merged.set(row.id, { row, cosineSim, keywordScore: 0 }); // vector-only (R5.9)
+  }
+
+  if (merged.size === 0) return [];
+
+  // ── Score, sort (spec R5.5/R5.8) ──────────────────────────────────────────
+  const scored = Array.from(merged.values()).map(({ row, cosineSim, keywordScore }) => ({
+    row,
+    finalScore: 0.7 * cosineSim + 0.3 * keywordScore,
+  }));
+  scored.sort((a, b) => b.finalScore - a.finalScore);
+
+  // ── Union path: return the FULL scored+sorted pool, UNCAPPED and WITHOUT
+  //    touching last_accessed_at (R3-001 / R3-002). Decay filtering must see
+  //    the whole pool BEFORE any cap, and last_accessed_at must be bumped ONLY
+  //    for the rows that survive decay AND make the caller's limit cut. Both
+  //    are the decay-aware caller's responsibility (the union path has no decay
+  //    concept). This mirrors the SQLite oracle: decay-filter full pool → cap
+  //    to limit → touch survivors. See PostgresMemoryStorage.searchObservations.
+  return scored.map((s) => s.row);
 }
 
 export async function getObservationsBySession(db: Database, sessionId: number) {
@@ -557,6 +1294,71 @@ export async function getObservationsBySession(db: Database, sessionId: number) 
     .from(memoryObservations)
     .where(eq(memoryObservations.sessionId, sessionId))
     .orderBy(desc(memoryObservations.createdAt));
+}
+
+// ─── Memory: Backfill (design D6) ────────────────────────────────
+// Global (not installation-scoped) — the backfill script is a one-time
+// admin maintenance job over the whole table, not a tenant-facing query.
+
+/**
+ * List up to `limit` observations needing an embedding for the active
+ * provider/model, ordered by id ascending starting after `afterId`. Always
+ * matches NULL-embedding rows; with `includeMismatched` also matches rows
+ * whose stored `embeddingModel`/`embeddingDim` disagree with the active
+ * provider (backfill `--re-embed`). Mirrors SqliteMemoryStorage's
+ * `listObservationsNeedingEmbedding` (packages/core/src/memory/sqlite.ts).
+ */
+export async function listObservationsNeedingEmbedding(
+  db: Database,
+  options: {
+    afterId: number;
+    limit: number;
+    activeModel: string;
+    activeDim: number;
+    includeMismatched: boolean;
+  },
+): Promise<{ id: number; text: string }[]> {
+  const { afterId, limit, activeModel, activeDim, includeMismatched } = options;
+
+  const needsEmbedding = includeMismatched
+    ? or(
+        sql`${memoryObservations.embedding} IS NULL`,
+        sql`${memoryObservations.embeddingModel} IS NULL`,
+        sql`${memoryObservations.embeddingModel} != ${activeModel}`,
+        sql`${memoryObservations.embeddingDim} IS NULL`,
+        sql`${memoryObservations.embeddingDim} != ${activeDim}`,
+      )
+    : sql`${memoryObservations.embedding} IS NULL`;
+
+  const rows = await db
+    .select({
+      id: memoryObservations.id,
+      title: memoryObservations.title,
+      content: memoryObservations.content,
+    })
+    .from(memoryObservations)
+    .where(and(gt(memoryObservations.id, afterId), needsEmbedding))
+    .orderBy(asc(memoryObservations.id))
+    .limit(limit);
+
+  return rows.map((row) => ({ id: row.id, text: `${row.title} ${row.content}` }));
+}
+
+/**
+ * Persist a backfilled embedding for a single observation (design D6).
+ * Metadata-only write — content/updatedAt/lastAccessedAt are untouched.
+ */
+export async function updateObservationEmbedding(
+  db: Database,
+  id: number,
+  embedding: number[],
+  model: string,
+  dim: number,
+): Promise<void> {
+  await db
+    .update(memoryObservations)
+    .set({ embedding, embeddingModel: model, embeddingDim: dim })
+    .where(eq(memoryObservations.id, id));
 }
 
 // ─── Memory: Management (Delete / Clear / Purge) ────────────────

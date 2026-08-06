@@ -140,12 +140,7 @@ describe('installTrivy', () => {
     expect(result).toBe(true);
     expect(mockExec).toHaveBeenCalledWith(
       'bash',
-      [
-        '-c',
-        expect.stringContaining(
-          `https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh`,
-        ),
-      ],
+      ['-c', expect.stringContaining(`https://github.com/aquasecurity/trivy/releases/download/`)],
       expect.any(Object),
     );
   });
@@ -157,7 +152,6 @@ describe('installTrivy', () => {
 
     await installTrivy();
 
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const installCall = mockExec.mock.calls[0]!;
     const bashScript = (installCall[1] as string[])[1];
     expect(bashScript).toContain(`v${TOOL_VERSIONS.trivy}`);
@@ -319,7 +313,6 @@ describe('executeTrivy', () => {
 
     const result = await executeTrivy('/workspace');
 
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const finding = result.findings[0]!;
     expect(finding.message).toContain('CVE-2023-1234');
     expect(finding.message).toContain('lodash@4.17.20');
@@ -496,7 +489,6 @@ describe('executeTrivy', () => {
 
     await executeTrivy('/my/repo');
 
-    // biome-ignore lint/style/noNonNullAssertion: test assertion on known mock data
     const scanCall = mockExec.mock.calls[1]!;
     expect(scanCall[0]).toBe('trivy');
     expect(scanCall[1]).toEqual([
